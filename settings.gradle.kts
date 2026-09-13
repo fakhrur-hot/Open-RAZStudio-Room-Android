@@ -1,0 +1,120 @@
+/*
+ * StudioRoom is an image editor for android
+ * Copyright (c) 2026 RAZStudio (Fakhrurraze)
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * You should have received a copy of the Apache License
+ * along with this program.  If not, see <http://www.apache.org/licenses/LICENSE-2.0>.
+ */
+
+@file:Suppress("UnstableApiUsage")
+
+pluginManagement {
+    repositories {
+        includeBuild("build-logic")
+        gradlePluginPortal()
+        google {
+            content {
+                includeGroupByRegex("com\\.android.*")
+                includeGroupByRegex("com\\.google.*")
+                includeGroupByRegex("androidx.*")
+            }
+        }
+        mavenCentral()
+        maven("https://jitpack.io") { name = "JitPack" }
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google {
+            content {
+                includeGroupByRegex("com\\.android.*")
+                includeGroupByRegex("com\\.google.*")
+                includeGroupByRegex("androidx.*")
+            }
+        }
+        maven("https://androidx.dev/storage/compose-compiler/repository") {
+            name = "Compose Compiler Snapshots"
+            content { includeGroup("androidx.compose.compiler") }
+        }
+        mavenCentral()
+        maven("https://jitpack.io") { name = "JitPack" }
+        maven("https://oss.sonatype.org/content/repositories/snapshots/") {
+            name = "Sonatype Snapshots"
+            mavenContent {
+                snapshotsOnly()
+            }
+        }
+    }
+}
+enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
+
+rootProject.name = "StudioRoom"
+
+include(":app")
+
+include(":feature:main")
+include(":feature:pick-color")
+include(":feature:image-stitch")
+include(":core:filters")
+include(":feature:filters")
+include(":feature:draw")
+include(":feature:erase-background")
+include(":feature:photo-editor")
+include(":feature:resize-convert")
+include(":feature:delete-exif")
+include(":feature:compare")
+include(":feature:image-preview")
+include(":feature:crop")
+include(":feature:load-net-image")
+include(":feature:gradient-maker")
+include(":feature:media-picker")
+include(":feature:quick-tiles")
+include(":feature:settings")
+include(":feature:image-stacking")
+include(":feature:image-splitting")
+include(":feature:noise-generation")
+include(":feature:collage-maker")
+include(":feature:mesh-gradients")
+include(":feature:edit-exif")
+include(":feature:canon-sync")
+include(":feature:sony-sync")
+include(":feature:gallery-workspace")
+include(":feature:ai-enhance")
+
+include(":feature:root")
+
+include(":core:settings")
+include(":core:resources")
+include(":core:data")
+include(":core:domain")
+include(":core:ui")
+include(":core:di")
+include(":core:crash")
+include(":core:ksp")
+include(":core:utils")
+include(":core:database")
+
+include(":lib:collages")
+include(":lib:opencv-tools")
+include(":lib:snowfall")
+include(":lib:curves")
+include(":lib:dynamic-theme")
+include(":lib:modalsheet")
+include(":lib:qrose")
+include(":lib:cropper")
+include(":lib:raw-native")
+include(":lib:raw-native-dualiso")
+include(":lib:colors")
+include(":lib:gesture")
+include(":lib:image")
+include(":lib:zoomable")

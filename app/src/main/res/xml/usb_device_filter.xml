@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Matches any USB Mass Storage class device (e.g. a card reader) so StudioRoom
+  appears in Android's "open with" chooser when one is attached via OTG.
+  class=8 (Mass Storage), subclass=6 (SCSI transparent command set),
+  protocol=80 (Bulk-Only Transport) — the standard signature for USB flash
+  drives and card readers, independent of vendor/product ID.
+-->
+<resources>
+    <usb-device class="8" subclass="6" protocol="80" />
+</resources>

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "bodies": [
+    {"model": "Canon EOS 6D", "wbOffset": -3.0, "tintOffset": 1.5},
+    {"model": "Canon EOS 5D Mark III", "wbOffset": -1.0, "tintOffset": 0.5},
+    {"model": "Canon EOS 7D", "wbOffset": 2.0, "tintOffset": -1.0},
+    {"model": "Canon EOS 70D", "wbOffset": 1.5, "tintOffset": -0.5},
+    {"model": "Canon EOS 80D", "wbOffset": 0.5, "tintOffset": 0.0},
+    {"model": "Canon EOS 6D Mark II", "wbOffset": -2.0, "tintOffset": 1.0}
+  ]
+}

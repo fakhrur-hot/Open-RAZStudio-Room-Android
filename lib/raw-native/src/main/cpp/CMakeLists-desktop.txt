@@ -1,0 +1,459 @@
+# ============================================================================
+#  razbatch — desktop (Windows/Linux/macOS) batch engine
+# ============================================================================
+#  Builds the SAME C++ core the Android app uses, minus everything that is
+#  Android- or preview-specific, as a standalone CLI. This is what makes a
+#  preset produce the same pixels on desktop as on the phone.
+#
+#  DELIBERATELY EXCLUDED (and why):
+#    v3_jni.cpp                  JNI entry points — replaced by razbatch_main
+#    lens_corrector.cpp          pure JNI glue (3 of its 4 functions are Java_*);
+#                                the real lensfun math is lensfun_android.cpp,
+#                                which stage_a.cpp calls directly via lfa_*
+#    v3/gles_renderer.cpp        GLES preview renderer — batch never uses it
+#    v3/offscreen_save_renderer  GLES
+#    v3/lut3d.cpp                #includes <GLES3/gl3.h>; only gles_renderer
+#                                uses it. Stage C takes the LUT as a raw float
+#                                array (StageCOptions::lutData), so the CPU
+#                                path needs none of it.
+#    v3/stage_b_*.cpp            Stage B is the interactive preview; the batch
+#                                path is Stage A -> Stage C directly.
+#
+#  The batch sources themselves are compiled UNMODIFIED. Their
+#  `#include <android/log.h>` resolves to compat/android/log.h, which is on
+#  the include path for this target only.
+#
+#  Configure (Windows, from repo root):
+#     cmake -S lib/raw-native/src/main/cpp -B build/razbatch ^
+#           -DCMAKE_BUILD_TYPE=Release ^
+#           -C lib/raw-native/src/main/cpp/CMakeLists-desktop.txt
+#  ...or simply point CMake at this file as the project list file:
+#     cmake -S . -B build/razbatch -DCMAKE_BUILD_TYPE=Release
+#           (with this file renamed/symlinked to CMakeLists.txt in a side dir)
+#  The convenience script tools/build-razbatch.ps1 does this for you.
+# ============================================================================
+
+cmake_minimum_required(VERSION 3.22)
+project(razbatch CXX C)
+
+if(ANDROID)
+    message(FATAL_ERROR "CMakeLists-desktop.txt is for desktop builds only; "
+                        "Android uses CMakeLists.txt.")
+endif()
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# This file is normally included from a tiny generated shim placed in the build
+# tree (see build-razbatch.ps1), so CMAKE_CURRENT_LIST_DIR would resolve to the
+# build dir, not the sources. The shim therefore passes RAZ_CPP_ROOT; fall back
+# to CMAKE_CURRENT_LIST_DIR when this file IS the top-level list file.
+if(NOT DEFINED RAZ_CPP_ROOT)
+    set(RAZ_CPP_ROOT "${CMAKE_CURRENT_LIST_DIR}")
+endif()
+set(CPP_ROOT     "${RAZ_CPP_ROOT}")
+set(LIBRAW_PATH  "${CPP_ROOT}/../../../libraw-native")
+set(LIBXML2_PATH "${CPP_ROOT}/../../../libxml2-native")
+
+# LibRaw source list, shared verbatim with the Android target.
+include("${CPP_ROOT}/libraw_sources.cmake")
+
+# ── Batch pipeline sources (compiled unmodified) ────────────────────────────
+set(RAZ_BATCH_SOURCES
+        ${CPP_ROOT}/v3/tiff_mmap_io.cpp
+        ${CPP_ROOT}/v3/stage_a.cpp
+        ${CPP_ROOT}/v3/rcd_demosaic.cpp
+        ${CPP_ROOT}/v3/lmmse_demosaic.cpp
+        ${CPP_ROOT}/v3/dual_blend.cpp
+        ${CPP_ROOT}/v3/apply_macro.cpp
+        ${CPP_ROOT}/v3/stage_c_export.cpp
+        ${CPP_ROOT}/v3/raw_v3_clahe.cpp
+        ${CPP_ROOT}/v3/raw_v3_nr.cpp
+        ${CPP_ROOT}/v3/raw_v3_detail.cpp
+        ${CPP_ROOT}/v3/raw_v3_highlight_recovery.cpp
+        ${CPP_ROOT}/v3/raw_hdr_recovery.cpp
+        ${CPP_ROOT}/v3/raw_shadow_recovery.cpp
+        ${CPP_ROOT}/v3/guided_filter.cpp
+        ${CPP_ROOT}/v3/rayxie_defringe.cpp
+        # LUT parsing. Only parseCubeFile() is needed here — the GL upload half
+        # is #ifdef'd out by RAZ_NO_EGL, so this pulls in no GLES dependency.
+        # Stage C consumes the parsed cube on the CPU via StageCOptions::lutData.
+        ${CPP_ROOT}/v3/lut3d.cpp
+        ${CPP_ROOT}/v3/adobe_xmp_parser.cpp
+        ${CPP_ROOT}/v3/film_sim.cpp
+        ${CPP_ROOT}/v3/v3_debug_log.cpp
+        ${CPP_ROOT}/lensfun_android.cpp
+        ${CPP_ROOT}/expat.cpp          # expat->libxml2 shim used by lensfun
+        # AI Enhance kernel — stage_a.cpp calls lmmse_enhance::enhanceFp32RGBA
+        # directly, so it is part of the batch path even though it lives in
+        # another Gradle module (the Android CMakeLists pulls it in the same way).
+        ${CPP_ROOT}/../../../../../feature/ai-enhance/src/main/cpp/lmmse_enhance.cpp
+)
+
+set(RAZ_DESKTOP_SOURCES ${CPP_ROOT}/desktop/razbatch_main.cpp)
+if(WIN32)
+    # 8-bit JPEG/PNG output via Windows Imaging Component — no libjpeg/libpng
+    # dependency needed. See desktop/wic_encoder.h for why WIC over vendoring
+    # those two libraries.
+    list(APPEND RAZ_DESKTOP_SOURCES ${CPP_ROOT}/desktop/wic_encoder.cpp)
+endif()
+
+# ── ONNX Runtime (for Zero-DCE inference in AI features) ─────────────────────
+# Set ONNXRUNTIME_ROOT environment variable to your ONNX Runtime install dir,
+# or download from https://github.com/microsoft/onnxruntime/releases (Windows CPU provider).
+# Expected structure:
+#   ONNXRUNTIME_ROOT/
+#     include/onnxruntime/ (headers)
+#     lib/                 (onnxruntime.lib, and onnxruntime.dll on the
+#                            official release zip — there is no bin/ dir)
+#
+# MUST run before razstudio's add_executable()/add_custom_command() below —
+# RAZ_HAVE_ONNXRUNTIME gates a POST_BUILD DLL-copy step on that target, and a
+# variable used before it's set silently evaluates false in CMake (no error),
+# so ordering here is load-bearing, not cosmetic.
+if(DEFINED ENV{ONNXRUNTIME_ROOT})
+    set(ONNXRUNTIME_ROOT "$ENV{ONNXRUNTIME_ROOT}")
+else()
+    # Fallback: try to find in Program Files or build directory
+    if(EXISTS "C:/onnxruntime")
+        set(ONNXRUNTIME_ROOT "C:/onnxruntime")
+    elseif(EXISTS "${CMAKE_BINARY_DIR}/../onnxruntime")
+        set(ONNXRUNTIME_ROOT "${CMAKE_BINARY_DIR}/../onnxruntime")
+    else()
+        message(WARNING "ONNX Runtime not found. Set ONNXRUNTIME_ROOT env var or download from "
+                        "https://github.com/microsoft/onnxruntime/releases")
+    endif()
+endif()
+
+if(DEFINED ONNXRUNTIME_ROOT AND EXISTS "${ONNXRUNTIME_ROOT}")
+    message(STATUS "ONNX Runtime: ${ONNXRUNTIME_ROOT}")
+    set(ONNXRUNTIME_INCLUDE_DIR "${ONNXRUNTIME_ROOT}/include")
+    set(ONNXRUNTIME_LIB_DIR "${ONNXRUNTIME_ROOT}/lib")
+    # The official release zip ships the runtime DLL under lib/, not bin/
+    # (there is no bin/ directory at all) — check both to be safe.
+    if(EXISTS "${ONNXRUNTIME_ROOT}/bin/onnxruntime.dll")
+        set(ONNXRUNTIME_DLL "${ONNXRUNTIME_ROOT}/bin/onnxruntime.dll")
+    else()
+        set(ONNXRUNTIME_DLL "${ONNXRUNTIME_ROOT}/lib/onnxruntime.dll")
+    endif()
+    set(RAZ_HAVE_ONNXRUNTIME TRUE)
+else()
+    message(STATUS "ONNX Runtime: NOT FOUND (AI features will be stubbed — "
+                   "set ONNXRUNTIME_ROOT and reconfigure to enable them)")
+    set(ONNXRUNTIME_INCLUDE_DIR "")
+    set(ONNXRUNTIME_LIB_DIR "")
+    set(ONNXRUNTIME_DLL "")
+    set(RAZ_HAVE_ONNXRUNTIME FALSE)
+endif()
+
+# razbatch — the CLI batch engine (unchanged).
+add_executable(razbatch
+        ${RAZ_DESKTOP_SOURCES}
+        ${RAZ_BATCH_SOURCES}
+        ${LIBRAW_SOURCES}
+)
+
+# ── razstudio_harness — P0 of the desktop GUI redesign ──────────────────────
+# A console harness that drives the GUI facade (desktop/gui/raz_engine.*) over
+# the SAME engine sources razbatch links, so preview and export share one
+# kernel (see NewDesktopWindowsRedesign.md). No ImGui yet — this proves the
+# open→proxy-render→export seam compiles and runs under this toolchain before
+# any window code exists. wic_encoder.cpp is shared (the facade + harness both
+# encode 8-bit output via WIC).
+set(RAZ_GUI_SOURCES
+        ${CPP_ROOT}/desktop/gui/raz_engine.cpp
+        ${CPP_ROOT}/desktop/gui/lr_preset_converter.cpp
+        ${CPP_ROOT}/desktop/gui/zero_dce_probe.cpp
+        ${CPP_ROOT}/desktop/gui/ai_macro_generators.cpp
+        ${CPP_ROOT}/desktop/gui/harness_main.cpp
+)
+if(WIN32)
+    list(APPEND RAZ_GUI_SOURCES ${CPP_ROOT}/desktop/wic_encoder.cpp)
+endif()
+add_executable(razstudio_harness
+        ${RAZ_GUI_SOURCES}
+        ${RAZ_BATCH_SOURCES}
+        ${LIBRAW_SOURCES}
+)
+
+# ── razstudio — P1: the interactive Dear ImGui + GLFW desktop app ────────────
+# Same engine sources + facade as the harness, PLUS a window (app_main.cpp) and
+# vendored ImGui/GLFW (desktop/third_party). Uses ImGui's OpenGL2 fixed-function
+# backend, so no GL loader is needed — only opengl32. Windows-only (Win32 file
+# dialogs + WIC). See NewDesktopWindowsRedesign.md phase P1.
+set(RAZ_TP ${CPP_ROOT}/desktop/third_party)
+set(RAZ_IMGUI_SOURCES
+        ${RAZ_TP}/imgui/imgui.cpp
+        ${RAZ_TP}/imgui/imgui_draw.cpp
+        ${RAZ_TP}/imgui/imgui_tables.cpp
+        ${RAZ_TP}/imgui/imgui_widgets.cpp
+        ${RAZ_TP}/imgui/backends/imgui_impl_glfw.cpp
+        ${RAZ_TP}/imgui/backends/imgui_impl_opengl2.cpp
+)
+if(WIN32)
+    add_executable(razstudio
+            ${CPP_ROOT}/desktop/gui/app_main.cpp
+            ${CPP_ROOT}/desktop/gui/raz_engine.cpp
+            ${CPP_ROOT}/desktop/gui/lr_preset_converter.cpp
+            ${CPP_ROOT}/desktop/gui/zero_dce_probe.cpp
+            ${CPP_ROOT}/desktop/gui/ai_macro_generators.cpp
+            ${CPP_ROOT}/desktop/wic_encoder.cpp
+            ${RAZ_IMGUI_SOURCES}
+            ${RAZ_BATCH_SOURCES}
+            ${LIBRAW_SOURCES}
+    )
+
+    # onnxruntime.dll (+ its shared-providers helper) must sit beside the exe
+    # at runtime — a plain target_link_libraries() only satisfies the linker,
+    # it does not place the DLL. build-razbatch.ps1 calls `cmake --build`
+    # directly (never `cmake --install`), so this has to be a POST_BUILD
+    # step rather than an install() rule, or the DLL would silently never
+    # get copied and razstudio.exe would fail to launch with "onnxruntime.dll
+    # not found".
+    if(RAZ_HAVE_ONNXRUNTIME)
+        add_custom_command(TARGET razstudio POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${ONNXRUNTIME_DLL}" "$<TARGET_FILE_DIR:razstudio>"
+        )
+        set(_onnx_shared_dll "${ONNXRUNTIME_ROOT}/lib/onnxruntime_providers_shared.dll")
+        if(EXISTS "${_onnx_shared_dll}")
+            add_custom_command(TARGET razstudio POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${_onnx_shared_dll}" "$<TARGET_FILE_DIR:razstudio>"
+            )
+        endif()
+    endif()
+endif()
+
+# ── razparity — GLSL preview ↔ CPU export parity harness ────────────────────
+# Renders the SAME ShaderParams blob through the production uber-shader
+# (headless ANGLE pbuffer, via OffscreenSaveRenderer + pushGradingUniforms)
+# and through apply_macro.cpp, then compares MaxAbsError/PSNR and dumps
+# amplified diff-map PNGs on failure. Run it whenever a pixel-affecting
+# change touches shader_sources.cpp or apply_macro.cpp (hard rule #1).
+# Needs ANGLE DLLs at runtime — found automatically in the newest Edge/Chrome
+# install, or set RAZ_ANGLE_DIR. Windows-only (WIC for the PNG dumps).
+if(WIN32)
+    add_executable(razparity
+            ${CPP_ROOT}/desktop/parity/parity_main.cpp
+            ${CPP_ROOT}/desktop/parity/egl_gles_loader.cpp
+            ${CPP_ROOT}/desktop/wic_encoder.cpp
+            ${CPP_ROOT}/v3/offscreen_save_renderer.cpp
+            ${CPP_ROOT}/v3/grading_uniforms.cpp
+            ${CPP_ROOT}/v3/shader_params_from_array.cpp
+            ${CPP_ROOT}/v3/shader_sources.cpp
+            ${CPP_ROOT}/v3/apply_macro.cpp
+            ${CPP_ROOT}/v3/v3_debug_log.cpp
+    )
+    target_include_directories(razparity PRIVATE
+            # Parity stubs FIRST: pthread.h + android/{hardware_buffer,
+            # native_window}.h shims that let gles_renderer.h (ShaderParams)
+            # parse without a real Android sysroot. compat/ still supplies
+            # android/log.h. khronos/ supplies EGL/GLES3 headers.
+            ${CPP_ROOT}/desktop/parity/compat
+            ${CPP_ROOT}/desktop/third_party/khronos
+            ${CPP_ROOT}/compat
+            ${CPP_ROOT}
+    )
+    target_compile_definitions(razparity PRIVATE
+            # KHRONOS_STATIC: Khronos headers must NOT declare egl*/gl* as
+            # __declspec(dllimport) — egl_gles_loader.cpp DEFINES those
+            # symbols (forwarders into ANGLE resolved at runtime).
+            KHRONOS_STATIC
+            _CRT_SECURE_NO_WARNINGS NOMINMAX
+    )
+    target_link_libraries(razparity PRIVATE windowscodecs ole32 oleaut32 propsys)
+    # SAME FP flags as razbatch — apply_macro.cpp here IS the export reference,
+    # so it must be compiled exactly like the shipping export kernel.
+    if(MSVC)
+        target_compile_options(razparity PRIVATE /O2 /W0 /bigobj /utf-8
+            /clang:-fno-math-errno /clang:-ffp-contract=fast /clang:-mf16c)
+    else()
+        target_compile_options(razparity PRIVATE -O3 -fno-math-errno -ffp-contract=fast -w)
+    endif()
+endif()
+
+# Everything below is applied IDENTICALLY to all engine exes (same includes /
+# defs / flags / libs) so they stay bit-parity with razbatch. razstudio gets its
+# ImGui/GLFW includes + links separately (further down).
+set(RAZ_TARGETS razbatch razstudio_harness)
+if(WIN32)
+    list(APPEND RAZ_TARGETS razstudio)
+endif()
+
+if(WIN32)
+    # windowscodecs = WIC; ole32/oleaut32/propsys = COM + PROPVARIANT helpers.
+    foreach(_t ${RAZ_TARGETS})
+        target_link_libraries(${_t} PRIVATE windowscodecs ole32 oleaut32 propsys)
+    endforeach()
+endif()
+
+# ── libxml2 (same feature options as the Android build) ─────────────────────
+# libxml2's own CMakeLists defaults BUILD_SHARED_LIBS to ON, which produced a
+# DLL and left the link with "undefined symbol: xmlCreatePushParserCtxt" (the
+# symbols lived in a libxml2.dll we never shipped). razbatch is a single
+# self-contained exe, so force a static libxml2. Safe to set globally here:
+# this project builds exactly one executable plus libxml2.
+set(BUILD_SHARED_LIBS     OFF CACHE BOOL "" FORCE)
+set(LIBXML2_WITH_ICONV    OFF CACHE BOOL "" FORCE)
+set(LIBXML2_WITH_ICU      OFF CACHE BOOL "" FORCE)
+set(LIBXML2_WITH_ZLIB     OFF CACHE BOOL "" FORCE)
+set(LIBXML2_WITH_CATALOG  OFF CACHE BOOL "" FORCE)
+set(LIBXML2_WITH_HTML     OFF CACHE BOOL "" FORCE)
+set(LIBXML2_WITH_XPATH    OFF CACHE BOOL "" FORCE)
+set(LIBXML2_WITH_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(LIBXML2_WITH_TESTS    OFF CACHE BOOL "" FORCE)
+set(LIBXML2_WITH_MODULES  OFF CACHE BOOL "" FORCE)
+add_subdirectory("${LIBXML2_PATH}" libxml2_build)
+
+# ── GLFW (only when the GUI target exists) ──────────────────────────────────
+# BUILD_SHARED_LIBS is already forced OFF above, so GLFW links statically into
+# razstudio.exe — one self-contained binary, matching razbatch.
+if(WIN32 AND TARGET razstudio)
+    set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
+    set(GLFW_INSTALL        OFF CACHE BOOL "" FORCE)
+    add_subdirectory("${CPP_ROOT}/desktop/third_party/glfw" glfw_build)
+endif()
+
+foreach(_t ${RAZ_TARGETS})
+target_include_directories(${_t} PRIVATE
+        ${CPP_ROOT}/compat        # MUST precede system paths: supplies android/log.h
+        ${CPP_ROOT}
+        ${CPP_ROOT}/desktop/gui   # facade header (razstudio_harness); harmless for razbatch
+        ${LIBRAW_PATH}
+        ${LIBRAW_PATH}/libraw
+        ${LIBXML2_PATH}/include
+        ${ONNXRUNTIME_INCLUDE_DIR}
+)
+
+target_link_libraries(${_t} PRIVATE LibXml2)
+
+# Link ONNX Runtime if found. HAVE_ONNXRUNTIME gates the real inference code
+# in zero_dce_probe.cpp; without it, that file compiles to a stub that
+# reports the AI probe as unavailable rather than failing the whole build.
+if(RAZ_HAVE_ONNXRUNTIME)
+    target_link_directories(${_t} PRIVATE ${ONNXRUNTIME_LIB_DIR})
+    target_link_libraries(${_t} PRIVATE onnxruntime)
+    target_compile_definitions(${_t} PRIVATE HAVE_ONNXRUNTIME)
+endif()
+
+# Same semantics as the Android target: LibRaw without its own threading, and
+# the Rayxie vertical CA pass skipped (see CMakeLists.txt for the measurement
+# that justified it — keeping them identical preserves output parity).
+target_compile_definitions(${_t} PRIVATE
+        LIBRAW_NOTHREADS
+        RAYXIE_SKIP_VERTICAL
+        # Windows only: libraw_types.h declares its API __declspec(dllimport)
+        # by default (it assumes you LINK a LibRaw DLL). We compile LibRaw's
+        # sources straight into this exe, so without LIBRAW_NODLL every
+        # definition fails with C2491 "definition of dllimport function not
+        # allowed". Harmless on other platforms — DllDef is empty there anyway.
+        LIBRAW_NODLL
+        # Skip the EGL/GLES Karis-bloom path in stage_c_export.cpp. The existing
+        # `ok == false` branch then runs, which sets karisBloomFallback and lets
+        # Orton fall back to Gaussian — the SAME path Android already takes when
+        # GPU bloom fails, so this is a pre-existing, logged behaviour rather
+        # than a new one. See "Known divergence" in WinBatch/README.md.
+        RAZ_NO_EGL
+        # libxml2 is built and linked STATICALLY here. Without this its headers
+        # declare XMLPUBFUN as __declspec(dllimport) (xmlexports.h:18), and the
+        # link fails with "undefined symbol: __declspec(dllimport) xmlParseChunk".
+        LIBXML_STATIC
+)
+endforeach()
+
+# ── Optimisation ────────────────────────────────────────────────────────────
+# The Android target forces -O3 even in Debug because the pixel loops are
+# unusable at -O0. Mirror that intent per-compiler. -ffp-contract=fast / fp:fast
+# matches the Android build's FMA behaviour, which matters for bit-level parity.
+#
+# TOOLCHAIN REQUIREMENT — clang-cl, not plain MSVC.
+# The FP16 pipeline stores pixels as `__fp16` (stage_a, raw_v3_clahe/nr/detail,
+# stage_b_downsample, lensfun_android — 10 files). `__fp16` is a Clang/ARM
+# extension that cl.exe does NOT implement; building with MSVC fails with
+# "C2065: '__fp16': undeclared identifier". clang-cl supports it as a storage
+# type on x86-64, so the pipeline compiles unchanged and keeps bit-level
+# behaviour. Substituting a struct/uint16 shim was rejected: it would silently
+# change rounding and break parity with the phone, which is the one thing this
+# port exists to preserve.
+#
+if(MSVC AND NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    message(FATAL_ERROR
+        "razbatch requires clang-cl (MSVC lacks __fp16).\n"
+        "Install: Visual Studio Installer -> Individual Components ->\n"
+        "         'C++ Clang tools for Windows'\n"
+        "Then configure with -T ClangCL (build-razbatch.ps1 does this for you).")
+endif()
+
+if(MSVC)   # clang-cl: MSVC-style driver, so MSVC-style flags apply
+    # NOT /fp:fast. That flag was chosen believing it matched the Android
+    # build's "-ffp-contract=fast", but under clang-cl /fp:fast implies full
+    # fast-math INCLUDING -ffinite-math-only — which constant-folds
+    # std::isnan() to false. lmmse_demosaic.cpp marks unfilled chroma samples
+    # with NaN sentinels and fills them via isnan checks; with /fp:fast the
+    # fill pass skipped EVERY pixel and the fast-math clamp flushed the NaNs
+    # to 0, zeroing R and B at all interpolated sites (75% of pixels) — the
+    # strong green cast in every desktop render (whole-image proof: output
+    # R/B plane means were EXACTLY the sensel-site means / 4). Android uses
+    # only contraction, so the phone was never affected. Match Android
+    # precisely: FMA contraction on, errno off, NaN semantics INTACT.
+    foreach(_t ${RAZ_TARGETS})
+    target_compile_options(${_t} PRIVATE /O2 /W0 /bigobj /utf-8
+        /clang:-fno-math-errno /clang:-ffp-contract=fast)
+    target_compile_definitions(${_t} PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX)
+    #
+    # F16C: on x86-64 clang lowers __fp16 <-> float conversions to the
+    # compiler-rt libcalls __extendhfsf2 / __truncsfhf2. Visual Studio's LLVM
+    # component does not ship clang_rt.builtins for x86_64, so those link as
+    # "undefined symbol". Enabling F16C makes clang emit the native
+    # vcvtph2ps / vcvtps2ph instructions instead — no runtime library needed,
+    # and faster.
+    #
+    # Numerically safe: F16C is IEEE-754 binary16, the same format ARM's
+    # native __fp16 uses on the phone, so conversions are bit-identical and
+    # parity is preserved. It only enables the conversion instructions; other
+    # float math and vectorisation are untouched.
+    #
+    # Hardware floor: Intel Ivy Bridge (2012) / AMD Piledriver (2012). If you
+    # must support older CPUs, drop this and link clang_rt.builtins instead.
+    target_compile_options(${_t} PRIVATE /clang:-mf16c)
+    endforeach()
+else()
+    foreach(_t ${RAZ_TARGETS})
+        target_compile_options(${_t} PRIVATE -O3 -fno-math-errno -ffp-contract=fast -w)
+    endforeach()
+endif()
+
+# OpenMP — apply_macro.cpp and stage_c_export.cpp already parallelise with it.
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+    foreach(_t ${RAZ_TARGETS})
+        target_link_libraries(${_t} PRIVATE OpenMP::OpenMP_CXX)
+    endforeach()
+    message(STATUS "razbatch: OpenMP enabled")
+else()
+    message(WARNING "razbatch: OpenMP NOT found — Stage C will run single-threaded")
+endif()
+
+# ── razstudio: ImGui/GLFW wiring (in addition to the shared engine config) ──
+if(WIN32 AND TARGET razstudio)
+    target_include_directories(razstudio PRIVATE
+            ${CPP_ROOT}/desktop/third_party/imgui
+            ${CPP_ROOT}/desktop/third_party/imgui/backends)
+    # glfw = the vendored static lib; opengl32 = GL1.1 (fixed-function backend);
+    # comdlg32 = GetOpenFileName/GetSaveFileName.
+    target_link_libraries(razstudio PRIVATE glfw opengl32 comdlg32)
+    # ImGui does not use OpenMP/__fp16; the shared /clang:-mf16c flag is
+    # harmless. GLFW is configured with its own flags by its CMakeLists.
+endif()
+
+install(TARGETS razbatch razstudio_harness RUNTIME DESTINATION .)
+if(WIN32)
+    install(TARGETS razstudio RUNTIME DESTINATION .)
+    # Copy ONNX Runtime DLL if available
+    if(ONNXRUNTIME_DLL AND EXISTS "${ONNXRUNTIME_DLL}")
+        install(FILES "${ONNXRUNTIME_DLL}" DESTINATION .)
+    endif()
+endif()

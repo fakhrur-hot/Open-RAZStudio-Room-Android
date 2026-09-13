@@ -1,0 +1,18 @@
+This module contains a derivative work of cr2hdr.c (Magic Lantern Team,
+2013), which is distributed under the GNU General Public License v2 or
+later. Accordingly, the contents of this module — including the native
+sources in src/main/cpp/dualiso/ and the Kotlin JNI loader in
+src/main/java — are likewise licensed under the GPL v2 or later.
+
+The full text of the GPL v2 is at https://www.gnu.org/licenses/gpl-2.0.html.
+
+Boundary statement: the rest of the StudioRoom application is licensed
+under the Apache License 2.0. This module is intentionally isolated so
+its GPL obligations apply only to this module's sources. Apache-licensed
+modules in the parent app call into this module through the standard
+JNI boundary (System.loadLibrary). No GPL source code is mixed into
+Apache-licensed modules.
+
+Original cr2hdr.c source:
+  https://www.magiclantern.fm/forum/index.php?topic=7139.0
+  https://www.magiclantern.fm/  (project root)

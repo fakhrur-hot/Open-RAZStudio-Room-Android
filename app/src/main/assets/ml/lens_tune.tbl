@@ -1,0 +1,33 @@
+# Magic Lantern lens_tune.tbl — Canon lens picture-style trims + CA profiles
+# Format: lens_id|contrast|saturation|color_tone|ev_bias|wb_r|wb_b|ca_strength|fringe_reduce
+# ca_strength: [0..100] chromatic aberration correction strength
+# fringe_reduce: [0..100] purple/green fringe suppression strength
+# Backward compatible: 7-column rows still valid (ca defaults to 0)
+#
+# contrast/saturation/color_tone: [-4..+4] picture style bias
+# ev_bias: 1/8 EV steps, [-3..+1]
+# wb_r/wb_b: white balance scale (1024 = 1.0x)
+#
+# Lens ID 0 = neutral (fallback for unknown lenses)
+# 7-column rows (without ca_strength/fringe_reduce) are valid legacy format.
+#
+#user — tuning verified on Canon EOS 6D (DIGIC 5+)
+0|0|0|0|0|1024|1024|0|0
+#user — Tamron 20-40mm / Canon EF 50mm f/1.4 (lens_id 160)
+160|-1|0|1|0|1000|1024|15|20
+#user — Canon EF 85mm f/1.8 USM
+169|1|0|0|0|1024|1024|8|12
+#user — Canon EF 24-70mm f/2.8L USM
+230|0|0|0|0|1024|1024|5|8
+#user — Canon EF 24-70mm f/2.8L II USM
+251|0|1|0|0|1024|1024|3|5
+#user — Canon EF 70-200mm f/2.8L IS II USM
+241|1|0|0|0|1024|1050|10|15
+#user — Canon EF 35mm f/1.4L USM
+165|0|0|0|0|1024|1024|12|18
+#user — Canon EF 135mm f/2L USM
+173|1|1|0|0|1024|1024|6|10
+#user — Sigma 35mm f/1.4 DG HSM Art (7-column legacy format)
+368|0|0|0|0|1024|1024
+#user — Tamron SP 24-70mm f/2.8 Di VC USD (7-column legacy format)
+363|0|0|0|0|1024|1024

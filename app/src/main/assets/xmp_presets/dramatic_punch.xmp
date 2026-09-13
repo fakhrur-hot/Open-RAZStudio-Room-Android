@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="StudioRoom RAZRAW v3">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+    crs:Exposure2012="+0.30"
+    crs:Contrast2012="+40"
+    crs:Highlights2012="-50"
+    crs:Shadows2012="+40"
+    crs:Whites2012="+25"
+    crs:Blacks2012="-25"
+    crs:HueAdjustmentBlue="-15"
+    crs:SaturationAdjustmentBlue="+30"
+    crs:LuminanceAdjustmentBlue="-15"
+    crs:HueAdjustmentOrange="+5"
+    crs:SaturationAdjustmentOrange="+15"
+    crs:LuminanceAdjustmentOrange="+5"/>
+ </rdf:RDF>
+</x:xmpmeta>

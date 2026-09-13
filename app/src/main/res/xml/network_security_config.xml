@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+        Cleartext traffic is still required because the app loads user-entered
+        URLs (feature:load-net-image) and talks to Canon cameras on the local
+        network via UPnP/PTP-IP, which may advertise http:// endpoints.
+
+        Once arbitrary HTTP loading is removed or limited to known domains,
+        replace this with scoped <domain-config> entries instead of a global
+        base-config.
+    -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

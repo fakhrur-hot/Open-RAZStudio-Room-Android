@@ -1,0 +1,1197 @@
+# RAZStudio lens database — MANUAL / LEGACY lenses only (pre-1998, no electronic
+# EXIF). Modern autofocus native-mount lenses are intentionally EXCLUDED because
+# the camera's EXIF already reports them. Used for the watermark EXIF lens
+# autocomplete when EXIF can't detect the lens. One full name per line
+# (brand + focal mm + aperture). Lines starting with # are comments.
+
+# ── Sigma (manual / adapted) ─────────────────────────────────────────────
+Sigma High-Speed Wide 28mm f/1.8 II
+Sigma 24mm f/1.8
+Sigma 28mm f/1.8
+Sigma 35mm f/1.4
+Sigma 50mm f/1.4
+Sigma 105mm f/2.8
+Sigma 105mm f/2.8 Macro
+Sigma 400mm f/5.6
+Sigma 500mm f/5
+Sigma 500mm f/8 Mirror APO
+Sigma 600mm f/8 Mirror APO
+Sigma 19-35mm f/3.5-4.5
+Sigma 24-70mm f/2.8 EX DG
+Sigma 28-70mm f/3.5-4.5
+Sigma 28-80mm f/3.5-5.6 II
+Sigma 28-200mm f/3.8-5.6
+Sigma 50-200mm f/4-5.6
+Sigma 55-200mm f/4-5.6
+Sigma 70-200mm f/2.8 EX DG
+Sigma 70-300mm f/4-5.6 APO DG Macro
+Sigma 100-300mm f/4-5.6
+
+# ── Tamron AF (Canon EF / Nikon F / Pentax KAF, incomplete EXIF) ──────────
+Tamron SP AF 20-40mm f/2.7-3.5 Aspherical (IF)
+
+# ── Canon FD (manual, film era) ──────────────────────────────────────────
+Canon Fish-Eye 7.5mm f/5.6
+Canon Fish-Eye 15mm f/2.8 S.S.C.
+Canon New FD 14mm f/2.8L
+Canon FD 17mm f/4
+Canon New FD 17mm f/4
+Canon FD 20mm f/2.8 S.S.C.
+Canon New FD 20mm f/2.8
+Canon FD 24mm f/1.4 S.S.C. Aspherical
+Canon New FD 24mm f/1.4L
+Canon New FD 24mm f/2
+Canon FD 24mm f/2.8
+Canon New FD 24mm f/2.8
+Canon FD 28mm f/2 S.S.C.
+Canon New FD 28mm f/2
+Canon FD 28mm f/2.8
+Canon New FD 28mm f/2.8
+Canon FD 28mm f/3.5
+Canon FD 35mm f/2
+Canon New FD 35mm f/2
+Canon TS 35mm f/2.8 S.S.C.
+Canon FD 35mm f/3.5
+Canon New FD 50mm f/1.2
+Canon New FD 50mm f/1.2L
+Canon FD 50mm f/1.4
+Canon New FD 50mm f/1.4
+Canon FD 50mm f/1.8
+Canon New FD 50mm f/1.8
+Canon New FD 50mm f/2
+Canon New Macro FD 50mm f/3.5
+Canon FD 55mm f/1.2
+Canon FD 55mm f/1.2 AL
+Canon FD 55mm f/1.2 S.S.C. Aspherical
+Canon FD 85mm f/1.2 Aspherical
+Canon New FD 85mm f/1.2L
+Canon FD 85mm f/1.8
+Canon New FD 85mm f/1.8
+Canon New FD 85mm f/2.8 Soft Focus
+Canon New FD 100mm f/2
+Canon FD 100mm f/2.8
+Canon New FD 100mm f/2.8
+Canon New Macro FD 100mm f/4
+Canon New FD 135mm f/2
+Canon FD 135mm f/2.5
+Canon New FD 135mm f/2.8
+Canon FD 135mm f/3.5
+Canon New FD 135mm f/3.5
+Canon New FD 200mm f/1.8L
+Canon FD 200mm f/2.8 S.S.C.
+Canon New FD 200mm f/2.8
+Canon FD 200mm f/4
+Canon New FD 200mm f/4
+Canon New Macro FD 200mm f/4
+Canon New FD 300mm f/2.8L
+Canon FD 300mm f/4L
+Canon New FD 300mm f/4L
+Canon FD 300mm f/5.6
+Canon New FD 300mm f/5.6
+Canon New FD 400mm f/2.8L
+Canon FD 400mm f/4.5 S.S.C.
+Canon New FD 400mm f/4.5
+Canon FD 500mm f/4.5L
+Canon New FD 500mm f/4.5L
+Canon Reflex 500mm f/8 S.S.C.
+Canon New Reflex 500mm f/8
+Canon New FD 600mm f/4.5
+Canon FD 800mm f/5.6L
+Canon New FD 800mm f/5.6L
+Canon New FD 20-35mm f/3.5L
+Canon FD 24-35mm f/3.5 Aspherical
+Canon New FD 24-35mm f/3.5L
+Canon New FD 28-50mm f/3.5
+Canon New FD 28-55mm f/3.5-4.5
+Canon New FD 28-85mm f/4
+Canon FD 35-70mm f/3.5 S.S.C.
+Canon New FD 35-70mm f/3.5
+Canon New FD 35-70mm f/3.5-4.5
+Canon New FD 35-70mm f/4
+Canon New FD 35-105mm f/3.5
+Canon New FD 35-105mm f/3.5-4.5
+Canon New FD 50-135mm f/3.5
+Canon New FD 50-300mm f/4.5L
+Canon New FD 70-150mm f/4.5
+Canon New FD 70-210mm f/4
+Canon New FD 75-200mm f/4.5
+Canon FD 80-200mm f/4 S.S.C.
+Canon New FD 80-200mm f/4
+Canon New FD 80-200mm f/4L
+Canon New FD 85-300mm f/4.5
+Canon FD 100-200mm f/5.6
+Canon New FD 100-200mm f/5.6
+Canon New FD 100-300mm f/5.6
+Canon New FD 100-300mm f/5.6L
+Canon New FD 150-600mm f/5.6L
+
+# ── Pentax / Takumar (manual) ────────────────────────────────────────────
+Auto-Takumar 35mm f/3.5
+Super-Takumar 28mm f/3.5
+Super-Takumar 50mm f/1.4
+Super-Takumar 55mm f/1.8
+Super-Multi-Coated Takumar 20mm f/4.5
+SMC-Takumar 15mm f/3.5
+SMC-Takumar 17mm f/4
+SMC-Takumar 20mm f/4.5
+SMC-Takumar 24mm f/3.5
+SMC-Takumar 28mm f/3.5
+SMC-Takumar 35mm f/2
+SMC-Takumar 35mm f/2.8
+SMC-Takumar 50mm f/1.4
+SMC-Takumar 50mm f/4
+SMC-Takumar 55mm f/1.8
+SMC-Takumar 55mm f/2
+SMC-Takumar 85mm f/1.8
+SMC-Takumar 100mm f/4
+SMC-Takumar 105mm f/2.8
+SMC-Takumar 120mm f/2.8
+SMC-Takumar 135mm f/2.5
+SMC-Takumar 135mm f/3.5
+SMC-Takumar 150mm f/4
+SMC-Takumar 200mm f/4
+SMC-Takumar 300mm f/4
+SMC-Takumar 400mm f/5.6
+SMC-Takumar 500mm f/4.5
+SMC-Takumar 1000mm f/8
+Tele-Takumar 300mm f/6.3
+Takumar 35mm f/3.5
+Takumar 50mm f/1.4
+Takumar 135mm f/2.5
+Takumar 200mm f/3.5
+Takumar 200mm f/5.6
+Takumar 28-50mm f/3.5
+
+# ── Pentax K-mount: SMC Pentax K series (1975, manual) ───────────────────
+SMC Pentax 15mm f/3.5
+SMC Pentax 17mm f/4 Fish-Eye
+SMC Pentax 18mm f/3.5
+SMC Pentax 20mm f/4
+SMC Pentax 24mm f/2.8
+SMC Pentax 28mm f/2
+SMC Pentax 28mm f/3.5
+SMC Pentax 30mm f/2.8
+SMC Pentax 35mm f/2
+SMC Pentax 35mm f/3.5
+SMC Pentax 50mm f/1.2
+SMC Pentax 50mm f/1.4
+SMC Pentax 50mm f/4 Macro
+SMC Pentax 55mm f/1.8
+SMC Pentax 85mm f/1.8
+SMC Pentax 85mm f/2.2 Soft
+SMC Pentax 100mm f/2.8
+SMC Pentax 100mm f/4 Macro
+SMC Pentax 105mm f/2.8
+SMC Pentax 120mm f/2.8
+SMC Pentax 135mm f/2.5
+SMC Pentax 135mm f/3.5
+SMC Pentax 150mm f/4
+SMC Pentax 200mm f/2.5
+SMC Pentax 200mm f/4
+SMC Pentax 300mm f/4
+SMC Pentax 400mm f/5.6
+SMC Pentax 500mm f/4.5
+SMC Pentax 1000mm f/8
+
+# ── Pentax K-mount: SMC Pentax-M series (1977, compact manual) ───────────
+SMC Pentax-M 20mm f/4
+SMC Pentax-M 24mm f/2.8
+SMC Pentax-M 28mm f/2
+SMC Pentax-M 28mm f/2.8
+SMC Pentax-M 28mm f/3.5
+SMC Pentax-M 35mm f/2
+SMC Pentax-M 35mm f/2.8
+SMC Pentax-M 40mm f/2.8
+SMC Pentax-M 50mm f/1.4
+SMC Pentax-M 50mm f/1.7
+SMC Pentax-M 50mm f/2
+SMC Pentax-M 50mm f/4 Macro
+SMC Pentax-M 85mm f/2
+SMC Pentax-M 100mm f/2.8
+SMC Pentax-M 100mm f/4 Macro
+SMC Pentax-M 120mm f/2.8
+SMC Pentax-M 135mm f/3.5
+SMC Pentax-M 150mm f/3.5
+SMC Pentax-M 200mm f/4
+SMC Pentax-M 300mm f/4
+SMC Pentax-M 400mm f/5.6
+SMC Pentax-M 24-35mm f/3.5
+SMC Pentax-M 24-50mm f/4
+SMC Pentax-M 28-50mm f/3.5-4.5
+SMC Pentax-M 35-70mm f/2.8-3.5
+SMC Pentax-M 40-80mm f/2.8-4
+SMC Pentax-M 75-150mm f/4
+SMC Pentax-M 80-200mm f/4.5
+SMC Pentax-M 100-300mm f/4.5
+
+# ── Pentax K-mount: SMC Pentax-A series (1983, manual focus) ─────────────
+SMC Pentax-A 15mm f/3.5
+SMC Pentax-A 16mm f/2.8 Fish-Eye
+SMC Pentax-A 20mm f/2.8
+SMC Pentax-A 24mm f/2.8
+SMC Pentax-A 28mm f/2
+SMC Pentax-A 28mm f/2.8
+SMC Pentax-A 35mm f/2
+SMC Pentax-A 35mm f/2.8
+SMC Pentax-A 50mm f/1.2
+SMC Pentax-A 50mm f/1.4
+SMC Pentax-A 50mm f/1.7
+SMC Pentax-A 50mm f/2.8 Macro
+SMC Pentax-A 85mm f/1.4
+SMC Pentax-A 85mm f/2.8 Soft
+SMC Pentax-A 100mm f/2.8
+SMC Pentax-A 100mm f/2.8 Macro
+SMC Pentax-A 135mm f/1.8
+SMC Pentax-A 135mm f/2.8
+SMC Pentax-A 200mm f/2.8 ED
+SMC Pentax-A 200mm f/4 Macro
+SMC Pentax-A 300mm f/2.8 ED
+SMC Pentax-A 300mm f/4
+SMC Pentax-A 400mm f/5.6
+SMC Pentax-A 600mm f/5.6 ED
+SMC Pentax-A 1200mm f/8 ED
+SMC Pentax-A 28-135mm f/4
+SMC Pentax-A 35-70mm f/4
+SMC Pentax-A 35-105mm f/3.5
+SMC Pentax-A 35-210mm f/3.5-4.5
+SMC Pentax-A 70-210mm f/4
+SMC Pentax-A 80-200mm f/4.7
+
+# ── Pentax K-mount: SMC Pentax-F series (1987, first AF) ─────────────────
+SMC Pentax-F 24mm f/2.8
+SMC Pentax-F 28mm f/2.8
+SMC Pentax-F 50mm f/1.4
+SMC Pentax-F 50mm f/1.7
+SMC Pentax-F 50mm f/2.8 Macro
+SMC Pentax-F 85mm f/2.8 Soft
+SMC Pentax-F 100mm f/2.8 Macro
+SMC Pentax-F 135mm f/2.8
+SMC Pentax-F* 300mm f/4.5 ED
+SMC Pentax-F* 600mm f/4 ED
+SMC Pentax-F 24-50mm f/4
+SMC Pentax-F 28-80mm f/3.5-4.5
+SMC Pentax-F 35-70mm f/3.5-4.5
+SMC Pentax-F 35-80mm f/4-5.6
+SMC Pentax-F 70-200mm f/4-5.6
+SMC Pentax-F 80-200mm f/4.7-5.6
+SMC Pentax-F 100-300mm f/4.5-5.6
+SMC Pentax-F 250-600mm f/5.6 ED
+
+# ── Pentax K-mount: SMC Pentax-FA series (1991, AF; incl. Limited) ───────
+SMC Pentax-FA 20mm f/2.8
+SMC Pentax-FA 24mm f/2
+SMC Pentax-FA 28mm f/2.8
+SMC Pentax-FA 31mm f/1.8 Limited
+SMC Pentax-FA 35mm f/2
+SMC Pentax-FA 43mm f/1.9 Limited
+SMC Pentax-FA 50mm f/1.4
+SMC Pentax-FA 50mm f/1.7
+SMC Pentax-FA 50mm f/2.8 Macro
+SMC Pentax-FA 77mm f/1.8 Limited
+SMC Pentax-FA 85mm f/1.4
+SMC Pentax-FA 100mm f/2.8 Macro
+SMC Pentax-FA 135mm f/2.8
+SMC Pentax-FA* 24mm f/2 AL
+SMC Pentax-FA* 85mm f/1.4 ED
+SMC Pentax-FA* 200mm f/2.8 ED
+SMC Pentax-FA* 300mm f/2.8 ED
+SMC Pentax-FA* 300mm f/4.5 ED
+SMC Pentax-FA* 400mm f/5.6 ED
+SMC Pentax-FA* 600mm f/4 ED
+SMC Pentax-FA 24-90mm f/3.5-4.5
+SMC Pentax-FA 28-70mm f/4
+SMC Pentax-FA 28-80mm f/3.5-4.7
+SMC Pentax-FA 28-105mm f/3.2-4.5
+SMC Pentax-FA 28-200mm f/3.8-5.6
+SMC Pentax-FA 100-300mm f/4.5-5.6
+SMC Pentax-FA* 80-200mm f/2.8 ED
+SMC Pentax-FA* 250-600mm f/5.6 ED
+SMC Pentax-FA J 18-35mm f/4-5.6
+SMC Pentax-FA J 75-300mm f/4.5-5.8
+
+# ── Soviet / German manual (Helios, Jupiter, Mir, Zeiss, Voigtländer) ─────
+MC Helios 44K-4 58mm f/2
+MC Helios 77K-4 50mm f/1.8
+Volna-10K 35mm f/1.8
+Volna 50mm f/1.8
+Mir-20K 20mm f/3.5
+Mir-47K 20mm f/2.5
+Oberon-11K 200mm f/2.8
+VOMZ Mir-1M 37mm f/2.8
+VOMZ Mir-3 65mm f/3.5
+VOMZ Mir-26M 45mm f/3.5
+VOMZ Mir-38 70mm f/3.5
+Zenitar 16mm f/2.8 Fisheye
+Zenitar-M 50mm f/2
+Zenitar-M 50mm f/2 Macro
+Zenitar 80mm f/1.1 Reflex
+Zenitar-N 80mm f/1.1
+Peleng 8mm f/3.5
+Arsat 35mm f/2.8 Shift Lens
+Carl Zeiss Jena 20mm f/4
+Carl Zeiss Jena II 24mm f/2.8
+Carl Zeiss Jena 28mm f/2.8
+Carl Zeiss Jena 28-70mm f/2.8-4.3 Macro Jenazoom
+Carl Zeiss Jena 70-210mm f/4.5-5.6 Macro
+Carl Zeiss Jena 75-300mm f/4.5-5.6 ED IF MC Macro Jenazoom
+Carl Zeiss Jena 100-500mm f/5.6-8 MC Macro Jenazoom
+Carl Zeiss 18mm f/3.5 Distagon T*
+Carl Zeiss 21mm f/2.8 Distagon T*
+Carl Zeiss 25mm f/2.8 Distagon T* ZK
+Carl Zeiss 35mm f/2 Distagon T* ZK
+Carl Zeiss 50mm f/1.4 Planar T* ZK
+Carl Zeiss 50mm f/2 Planar T* ZK
+Carl Zeiss 50mm f/2 Makro-Planar T* ZK
+Carl Zeiss 85mm f/1.4 Planar T* ZK
+Carl Zeiss 100mm f/2 Makro-Planar T* ZK
+Cosina Voigtländer 15mm f/4.5 Heliar
+Cosina Voigtländer 35mm f/1.2 Nokton
+Cosina Voigtländer 40mm f/2.0 Ultron
+Cosina Voigtländer 50mm f/1.1 Nokton
+Cosina Voigtländer 75mm f/1.8 Heliar
+Cosina Voigtländer 90mm f/3.5 Apo-Lanthar
+Schneider-Kreuznach 35mm f/1.4
+
+# ── Vintage third-party manual (M42 / adapted) ───────────────────────────
+Tamron 17mm f/3.5
+Tamron 24mm f/2.5
+Tamron 28mm f/2.5
+Tamron 50mm f/1.4
+Tamron 60mm f/2.0
+Tamron 90mm f/2.5
+Tamron 180mm f/3.5
+Tamron 35-105mm f/2.8 SP
+Tamron 28-200mm f/3.8-5.6
+Tokina 11-16mm f/2.8
+Tokina RMC 24mm f/2.8
+Tokina SL 24 24mm f/2.8
+Tokina RMC 28mm f/2
+Tokina RMC 28mm f/2.8
+Tokina SL 28 28mm f/2.8
+Tokina SL 35 35mm f/2.8
+Tokina RMC 35-70mm f/3.5
+Tokina RMC 35-105mm f/3.5
+Tokina RMC 35-135mm f/4-4.5
+Tokina SL 135 135mm f/2.8
+Tokina SL 200 200mm f/3.5
+Tokina RMC 70-210mm f/3.5
+Tokina RMC 70-210mm f/4
+Tokina RMC 80-200mm f/4.0
+Tokina RMC 100-300mm f/5
+Tokina TM 500 500mm f/8 Mirror
+Vivitar 19-35mm f/3.5-4.5
+Vivitar 28mm f/2.8
+Vivitar 35mm f/2.8
+Vivitar 50mm f/2.0
+Vivitar 70-210mm f/2.5-4
+Vivitar 70-210mm f/4.5-5.6
+Vivitar 75-205mm f/3.8
+Vivitar 80-200mm f/4.5
+Vivitar 100mm f/3.5
+Vivitar 200mm f/3.5
+Vivitar 600mm f/8 Mirror
+Rikenon 28mm f/2.8
+Rikenon 35mm f/2.8
+Rikenon 50mm f/1.4
+Rikenon 50mm f/1.7
+Rikenon 50mm f/2
+Rikenon 55mm f/1.2
+Rikenon 135mm f/2.8
+Rikenon 200mm f/4
+Chinon 24mm f/2.5
+Chinon 28mm f/2.8
+Chinon 50mm f/1.4
+Chinon 50mm f/1.7
+Chinon 50mm f/1.9
+Chinon 135mm f/2.8
+Cosina 24mm f/2.8 MC macro
+Cosina 28mm f/2.8
+Cosina 50mm f/1.2
+Cosina 55mm f/1.2
+Cosina 135mm f/2.8 MC
+Hoya 24mm f/2.8 HMC
+Hoya 28mm f/2.8 HMC
+Hoya 135mm f/2.8 HMC
+Hoya 200mm f/4.0 HMC
+Hoya 300mm f/5.6 HMC
+Kiron 24mm f/2 RL
+Kiron 28mm f/2
+Kiron 105mm f/2.8 Macro
+Miranda 28mm f/2.8
+Miranda 50mm f/2
+Petri 28mm f/2
+Petri 50mm f/2
+Petri 135mm f/2.8
+Soligor 28mm f/2.8
+Soligor 135mm f/2.8
+Soligor 75-200mm f/4.5
+Makinon MC 135mm f/2.8
+Makinon MC 80-200mm f/4.5 Macro
+Makinon MC Reflex 500mm f/8 Macro
+Access 28mm f/2.8 P-MC Macro
+AM Topcor 55mm f/1.7
+Porst 55mm f/1.2 MC Auto
+Porst 135mm f/2.8 Tele-AS MC E
+Revuenon 55mm f/1.2
+Revuenon 135mm f/2.8
+Revuenon 200mm f/3.3
+Revuenon 500mm f/8.0 Mirror
+Sears 28mm f/2.8 MC Auto
+Sears 135mm f/2.8
+Spiratone 135mm f/2.8
+Spiratone 200mm f/4.0 Telephoto
+Samyang 500mm f/8 ED Preset
+Samyang 650-1300mm f/8-16
+
+# ── Modern MANUAL-focus lenses (post-1998, no EXIF — kept per manual rule) ─
+# Samyang / Rokinon (manual UMC/AS/XP + MF)
+Samyang 7.5mm f/3.5 Fish-Eye
+Samyang 8mm f/2.8 UMC Fish-Eye II
+Samyang 8mm f/3.5 UMC Fish-Eye CS II
+Samyang 10mm f/2.8 ED AS NCS CS
+Samyang 12mm f/2.0 NCS CS
+Samyang 12mm f/2.8 ED AS NCS Fish-Eye
+Samyang 14mm f/2.8 ED AS IF UMC
+Samyang 16mm f/2.0 ED AS UMC CS
+Samyang 20mm f/1.8 ED AS UMC
+Samyang 21mm f/1.4 ED AS UMC CS
+Samyang T/S 24mm f/3.5 ED AS UMC
+Samyang 24mm f/1.4 ED AS IF UMC
+Samyang 35mm f/1.2 ED AS UMC CS
+Samyang 35mm f/1.4 AS UMC
+Samyang 50mm f/1.2 AS UMC CS
+Samyang 50mm f/1.4 AS UMC
+Samyang 85mm f/1.4 AS IF UMC
+Samyang 85mm f/1.8 ED UMC CS
+Samyang 100mm f/2.8 ED UMC Macro
+Samyang 135mm f/2.0 ED UMC
+Samyang 300mm f/6.3 ED UMC CS
+Samyang XP 10mm f/3.5
+Samyang XP 14mm f/2.4
+Samyang XP 35mm f/1.2
+Samyang XP 50mm f/1.2
+Samyang XP 85mm f/1.2
+# Laowa / Venus Optics
+Laowa 6mm f/2.0 Zero-D
+Laowa 7.5mm f/2.0
+Laowa 9mm f/2.8 Zero-D
+Laowa 10mm f/2 Zero-D
+Laowa 15mm f/2 Zero-D
+Laowa 17mm f/1.8
+# Irix
+Irix 11mm f/4.0 Blackstone
+Irix 11mm f/4.0 Firefly
+Irix 15mm f/2.4 Blackstone
+Irix 15mm f/2.4 Firefly
+# 7artisans
+7artisans 12mm f/2.8
+7artisans 24mm f/1.4
+7artisans 25mm f/0.95
+7artisans 25mm f/1.8
+7artisans 35mm f/0.95
+7artisans 35mm f/1.2
+7artisans 35mm f/1.4
+7artisans 50mm f/0.95
+7artisans 50mm f/1.8
+7artisans 55mm f/1.4
+# TTArtisan
+TTArtisan 17mm f/1.4
+TTArtisan 23mm f/1.4
+TTArtisan 35mm f/1.4
+TTArtisan 50mm f/0.95
+TTArtisan 50mm f/1.2
+# Meike
+Meike 12mm f/2.0
+Meike 12mm f/2.8
+Meike 25mm f/0.95
+Meike 25mm f/1.8
+Meike 25mm f/2.0
+Meike 35mm f/0.95
+Meike 35mm f/1.4
+Meike 35mm f/1.7
+Meike 50mm f/0.95
+Meike 50mm f/2.0
+# Mitakon (Zhongyi)
+Mitakon Speedmaster 25mm f/0.95
+Mitakon Creator 24mm f/1.7
+Mitakon Speedmaster 35mm f/0.95
+Mitakon Speedmaster 42.5mm f/1.2
+Mitakon Speedmaster 50mm f/0.95
+Mitakon Speedmaster 17mm f/0.95
+# Cosina Voigtländer Nokton (MFT/mirrorless manual)
+Cosina Voigtländer Nokton 10.5mm f/0.95
+Cosina Voigtländer Nokton 17.5mm f/0.95
+Cosina Voigtländer Nokton 25mm f/0.95
+Cosina Voigtländer Nokton 42.5mm f/0.95
+Cosina Voigtländer Nokton 60mm f/0.95
+# Kowa Prominar / SLR Magic / others
+Kowa Prominar 8.5mm f/2.8
+Kowa Prominar 12mm f/1.8
+Kowa Prominar 25mm f/1.8
+SLR Magic 8mm f/4.0
+SLR Magic 35mm f/1.7
+SLR Magic HyperPrime 50mm f/0.95
+Meyer Optik Görlitz Nocturnus 35mm f/0.95
+Kipon Handevision Ibelux 40mm f/0.85
+Lensbaby Velvet 28mm f/2.5
+Lensbaby Velvet 56mm f/1.6
+Zonlai 22mm f/1.8
+Zonlai 25mm f/1.8
+Zonlai 35mm f/1.8
+# Tokina FiRIN (manual-focus versions)
+Tokina FiRIN 20mm f/2.0 FE MF
+Tokina FiRIN 100mm f/2.8 FE Macro
+
+# ── Konica Hexanon (manual focus, AR/F bayonet) ──────────────────────────
+Konica Hexanon AR 15mm f/2.8 Fisheye
+Konica Hexanon AR 21mm f/2.8
+Konica Hexanon AR 24mm f/2.8
+Konica Hexanon AR 28mm f/1.8 UC
+Konica Hexanon AR 35mm f/2
+Konica Hexanon AR 40mm f/1.8
+Konica Hexanon AR 50mm f/1.4
+Konica Hexanon AR 50mm f/1.7
+Konica Hexanon AR 57mm f/1.2
+Konica Hexanon AR 85mm f/1.8
+Konica Hexanon AR 135mm f/2.5
+Konica Hexanon AR 200mm f/3.5
+Konica Hexanon AR 300mm f/4.5
+Konica Hexanon AR 400mm f/5.6
+Konica Hexanon AR 800mm f/8 Reflex
+
+# ── Helios (Soviet manual, M42/K mount) ──────────────────────────────────
+Helios 44-2 58mm f/2
+Helios 44M-4 58mm f/2
+Helios 44M-6 58mm f/2
+Helios 40-2 85mm f/1.5
+Helios 77M-4 50mm f/1.8
+Helios 65 65mm f/1.8
+Helios 103 53mm f/1.8
+
+# ── Jupiter (Soviet manual) ─────────────────────────────────────────────
+Jupiter-3 50mm f/1.5
+Jupiter-8 50mm f/2
+Jupiter-9 85mm f/2
+Jupiter-11 135mm f/4
+Jupiter-12 35mm f/2.8
+Jupiter-21M 200mm f/4
+Jupiter-37A 135mm f/3.5
+
+# ── Industar (Soviet Tessar-type manual) ─────────────────────────────────
+Industar-22 50mm f/3.5
+Industar-26M 50mm f/2.8
+Industar-50-2 50mm f/3.5
+Industar-61 L/D 55mm f/2.8
+Industar-69 28mm f/2.8
+
+# ── Other Soviet / German manual (Tair, Mir, Zenitar, Rubinar) ──────────
+Tair-11A 135mm f/2.8
+Tair-3 300mm f/4.5
+Mir-1B 37mm f/2.8
+Mir-24M 35mm f/2
+Zenitar 50mm f/1.7
+Rubinar 500mm f/5.6 Reflex
+Rubinar 1000mm f/10 Reflex
+
+# ── Minolta Rokkor (manual focus, SR mount) ──────────────────────────────
+Minolta MC Rokkor 16mm f/2.8 Fisheye
+Minolta MC Rokkor 24mm f/2.8
+Minolta MC Rokkor 28mm f/2.5
+Minolta MC Rokkor 35mm f/1.8
+Minolta MC Rokkor 50mm f/1.4
+Minolta MC Rokkor 58mm f/1.2
+Minolta MC Rokkor 85mm f/1.7
+Minolta MC Rokkor 100mm f/2.5
+Minolta MC Rokkor 135mm f/2.8
+Minolta MC Rokkor 200mm f/4
+Minolta MC Rokkor 300mm f/4.5
+Minolta MC Rokkor 400mm f/6.8
+Minolta MC Rokkor 800mm f/8 Reflex
+
+# ── Minolta MD (manual focus) ───────────────────────────────────────────
+Minolta MD 24mm f/2.8
+Minolta MD 28mm f/2
+Minolta MD 28mm f/2.8
+Minolta MD 35mm f/1.8
+Minolta MD 35mm f/2.8
+Minolta MD 45mm f/2
+Minolta MD 50mm f/1.2
+Minolta MD 50mm f/1.4
+Minolta MD 50mm f/1.7
+Minolta MD 50mm f/2
+Minolta MD 85mm f/2
+Minolta MD 100mm f/2.5
+Minolta MD 135mm f/2
+Minolta MD 135mm f/2.8
+Minolta MD 200mm f/4
+Minolta MD 300mm f/4.5
+Minolta MD 400mm f/5.6
+Minolta MD 500mm f/8 Reflex
+Minolta MD 600mm f/6.3
+Minolta MD 800mm f/8
+
+# ── Minolta MD Zoom (manual focus) ──────────────────────────────────────
+Minolta MD Zoom 24-35mm f/3.5
+Minolta MD Zoom 28-85mm f/3.5-4.5
+Minolta MD Zoom 28-70mm f/3.5-4.5
+Minolta MD Zoom 35-70mm f/3.5
+Minolta MD Zoom 35-70mm f/3.5-4.8
+Minolta MD Zoom 35-105mm f/3.5-4.5
+Minolta MD Zoom 70-210mm f/4
+Minolta MD Zoom 75-150mm f/4
+Minolta MD Zoom 75-200mm f/4.5
+Minolta MD Zoom 100-200mm f/5.6
+Minolta MD Zoom 100-300mm f/5.6
+Minolta MD Zoom 35-135mm f/3.5-4.5
+
+# ── Pentax K-Mount Zoom (SMC Pentax-M) ──────────────────────────────────
+SMC Pentax-M Zoom 24-35mm f/3.5
+SMC Pentax-M Zoom 28-50mm f/3.5-4.5
+SMC Pentax-M Zoom 28-80mm f/3.5-4.5
+SMC Pentax-M Zoom 35-70mm f/2.8-3.5
+SMC Pentax-M Zoom 40-80mm f/2.8-4
+SMC Pentax-M Zoom 75-150mm f/4
+SMC Pentax-M Zoom 80-200mm f/4.5
+SMC Pentax-M Zoom 100-200mm f/4.5
+
+# ── Pentax K-Mount Zoom (SMC Pentax-A) ──────────────────────────────────
+SMC Pentax-A Zoom 24-50mm f/4
+SMC Pentax-A Zoom 28-80mm f/3.5-4.5
+SMC Pentax-A Zoom 35-105mm f/3.5
+SMC Pentax-A Zoom 70-210mm f/4
+SMC Pentax-A Zoom 80-200mm f/4.7
+SMC Pentax-A Zoom 28-135mm f/4
+SMC Pentax-A Zoom 35-135mm f/3.5-4.5
+SMC Pentax-A Zoom 28-80mm f/3.5-4.5 Macro
+
+# ── Pentax K-Mount Zoom (SMC Pentax-K Series) ───────────────────────────
+SMC Pentax 28-50mm f/3.5-4.5
+SMC Pentax 45-125mm f/4
+SMC Pentax 80-200mm f/4.5
+SMC Pentax 85-210mm f/3.5
+SMC Pentax 85-210mm f/4.5
+SMC Pentax 135-600mm f/6.7
+SMC Pentax 400-600mm Reflex
+
+
+# ── Olympus Zuiko (manual focus, OM mount) ──────────────────────────────
+Olympus Zuiko 8mm f/2.8 Fisheye
+Olympus Zuiko 16mm f/3.5 Fisheye
+Olympus Zuiko 21mm f/3.5
+Olympus Zuiko 24mm f/2.8
+Olympus Zuiko 28mm f/2
+Olympus Zuiko 35mm f/2
+Olympus Zuiko 50mm f/1.4
+Olympus Zuiko 55mm f/1.2
+Olympus Zuiko 85mm f/2
+Olympus Zuiko 100mm f/2.8
+Olympus Zuiko 135mm f/2.8
+Olympus Zuiko 200mm f/4
+Olympus Zuiko 300mm f/4.5
+Olympus Zuiko 400mm f/6.3
+Olympus Zuiko 600mm f/6.5 Reflex
+
+# ── Yashica ML (manual focus, C/Y mount) ────────────────────────────────
+Yashica ML 21mm f/3.5
+Yashica ML 24mm f/2.8
+Yashica ML 28mm f/2.8
+Yashica ML 35mm f/2.8
+Yashica ML 50mm f/1.4
+Yashica ML 50mm f/1.7
+Yashica ML 55mm f/2
+Yashica ML 100mm f/2.8
+Yashica ML 135mm f/2.8
+Yashica ML 200mm f/4
+Yashica ML 300mm f/4
+Yashica ML 500mm f/8 Reflex
+
+# ── Nikon Nikkor AI / AI-S (manual focus, F-mount) ──────────────────────
+Nikkor 13mm f/5.6 AI-S
+Nikkor 15mm f/3.5 AI-S
+Nikkor 20mm f/2.8 AI-S
+Nikkor 24mm f/2.8 AI-S
+Nikkor 28mm f/2 AI-S
+Nikkor 28mm f/2.8 AI-S
+Nikkor 35mm f/1.4 AI-S
+Nikkor 35mm f/2 AI-S
+Nikkor 50mm f/1.2 AI-S
+Nikkor 50mm f/1.4 AI-S
+Nikkor 55mm f/2.8 Micro AI-S
+Nikkor 85mm f/1.4 AI-S
+Nikkor 85mm f/2 AI-S
+Nikkor 105mm f/1.8 AI-S
+Nikkor 105mm f/2.5 AI-S
+Nikkor 135mm f/2 AI-S
+Nikkor 135mm f/2.8 AI-S
+Nikkor 180mm f/2.8 AI-S
+Nikkor 200mm f/4 AI-S
+Nikkor 300mm f/2.8 AI-S
+Nikkor 400mm f/3.5 AI-S
+Nikkor 600mm f/4 AI-S
+Nikkor 800mm f/5.6 AI-S
+Nikkor 1200mm f/11 Reflex AI-S
+Nikkor Micro 55mm f/3.5 AI
+Nikkor Micro 55mm f/2.8 AI-S
+Nikkor Micro 105mm f/2.8 AI-S
+Nikkor Micro 200mm f/4 AI-S
+Nikkor Micro 70-180mm f/4.5-5.6 Zoom Micro
+
+# ── Leica R (manual focus, R-mount) ─────────────────────────────────────
+Leica R 19mm f/2.8 Elmarit
+Leica R 21mm f/4 Super-Angulon
+Leica R 24mm f/2.8 Elmarit
+Leica R 28mm f/2.8 Elmarit
+Leica R 35mm f/1.4 Summilux
+Leica R 35mm f/2 Summicron
+Leica R 50mm f/1.4 Summilux
+Leica R 50mm f/2 Summicron
+Leica R 60mm f/2.8 Macro-Elmarit
+Leica R 80mm f/1.4 Summilux
+Leica R 90mm f/2 Summicron
+Leica R 100mm f/2.8 Macro-Elmarit
+Leica R 135mm f/2.8 Elmarit
+Leica R 180mm f/2.8 Elmarit
+Leica R 180mm f/3.4 APO-Telyt
+Leica R 250mm f/4 Telyt
+Leica R 280mm f/2.8 APO-Telyt
+Leica R 400mm f/6.8 Telyt
+Leica R 560mm f/6.8 Telyt
+Leica R 800mm f/6.3 Telyt
+
+# ── Leica M-mount (manual focus rangefinder) + Minolta CLE ──────────────
+Minolta M-Rokkor 28mm f/2.8
+Minolta M-Rokkor 40mm f/2
+Minolta M-Rokkor 90mm f/4
+Leica Summicron-M 35mm f/2
+Leica Summilux-M 35mm f/1.4
+Leica Summicron-M 50mm f/2
+Leica Summilux-M 50mm f/1.4
+Leica Elmar-M 90mm f/4
+Leica Summicron-M 90mm f/2
+Leica Elmarit-M 135mm f/2.8
+
+# ── Contax / Yashica Zeiss (manual focus, C/Y mount) ─────────────────────
+Carl Zeiss Distagon 18mm f/4
+Carl Zeiss Distagon 21mm f/2.8
+Carl Zeiss Distagon 25mm f/2.8
+Carl Zeiss Distagon 28mm f/2.8
+Carl Zeiss Distagon 35mm f/1.4
+Carl Zeiss Distagon 35mm f/2.8
+Carl Zeiss Planar 45mm f/2
+Carl Zeiss Planar 50mm f/1.4
+Carl Zeiss Planar 50mm f/1.7
+Carl Zeiss Sonnar 85mm f/2.8
+Carl Zeiss Planar 85mm f/1.4
+Carl Zeiss Sonnar 100mm f/2
+Carl Zeiss Sonnar 135mm f/2.8
+Carl Zeiss Sonnar 135mm f/2
+Carl Zeiss Sonnar 180mm f/2.8
+Carl Zeiss Tele-Tessar 200mm f/3.5
+Carl Zeiss Tele-Tessar 300mm f/4
+Carl Zeiss Tele-Tessar 500mm f/8
+Carl Zeiss Vario-Sonnar 28-85mm f/3.3-4
+Carl Zeiss Vario-Sonnar 35-70mm f/3.4
+Carl Zeiss Vario-Sonnar 80-200mm f/4
+Carl Zeiss Makro-Planar 60mm f/2.8
+Carl Zeiss Makro-Planar 100mm f/2.8
+Carl Zeiss Makro-Planar 120mm f/4
+Carl Zeiss Makro-Planar 135mm f/4
+
+# ── Mamiya Sekor (manual focus, M42 / RB-RZ medium format) ──────────────
+Mamiya Sekor 28mm f/2.8
+Mamiya Sekor 35mm f/2.8
+Mamiya Sekor 50mm f/1.4
+Mamiya Sekor 55mm f/1.8
+Mamiya Sekor 55mm f/1.4
+Mamiya Sekor 85mm f/1.8
+Mamiya Sekor 100mm f/2.8
+Mamiya Sekor 135mm f/2.8
+Mamiya Sekor 200mm f/3.5
+Mamiya Sekor 300mm f/5.6
+Mamiya Sekor 500mm f/8 Reflex
+Mamiya Sekor C 50mm f/4 (RB67)
+Mamiya Sekor C 90mm f/3.5 (RB67)
+Mamiya Sekor C 127mm f/3.8 (RB67)
+Mamiya Sekor C 180mm f/4.5 (RB67)
+Mamiya Sekor C 250mm f/4.5 (RB67)
+Mamiya Sekor Z 50mm f/4.5 (RZ67)
+Mamiya Sekor Z 110mm f/2.8 (RZ67)
+Mamiya Sekor Z 140mm f/4.5 Macro (RZ67)
+Mamiya Sekor Z 180mm f/4.5 (RZ67)
+Mamiya Sekor Z 250mm f/4.5 (RZ67)
+
+# ── Olympus Pen F (half-frame manual focus) ─────────────────────────────
+Olympus Pen F 20mm f/3.5
+Olympus Pen F 25mm f/4
+Olympus Pen F 38mm f/1.8
+Olympus Pen F 40mm f/1.4
+Olympus Pen F 60mm f/1.5
+Olympus Pen F 70mm f/2
+Olympus Pen F 100mm f/3.5
+Olympus Pen F 150mm f/4
+Olympus Pen F 250mm f/5
+Olympus Pen F 400mm f/6.3
+
+# ── Fujica / Fujinon (manual focus, M42/X mount) ────────────────────────
+Fujinon 16mm f/2.8 Fisheye
+Fujinon 24mm f/2.8
+Fujinon 28mm f/3.5
+Fujinon 35mm f/2.8
+Fujinon 50mm f/1.4
+Fujinon 55mm f/1.6
+Fujinon 55mm f/2.2
+Fujinon 85mm f/2.8
+Fujinon 100mm f/2.8
+Fujinon 135mm f/2.5
+Fujinon 135mm f/3.5
+Fujinon 200mm f/4.5
+Fujinon 300mm f/5.6
+Fujinon 400mm f/4.5
+Fujinon 600mm f/5.6
+Fujinon 800mm f/8 Reflex
+
+# ── Topcon RE Auto (manual focus, Exakta/Topcon mount) ──────────────────
+Topcor RE Auto 20mm f/4
+Topcor RE Auto 28mm f/2.8
+Topcor RE Auto 35mm f/2.8
+Topcor RE Auto 50mm f/1.4
+Topcor RE Auto 58mm f/1.4
+Topcor RE Auto 58mm f/1.8
+Topcor RE Auto 85mm f/1.8
+Topcor RE Auto 100mm f/2.8
+Topcor RE Auto 135mm f/3.5
+Topcor RE Auto 200mm f/4
+Topcor RE Auto 300mm f/5.6
+Topcor RE Auto 500mm f/5.6
+
+# ── Exakta / Ihagee (Meyer Optik Görlitz, manual focus) ─────────────────
+Meyer Optik Görlitz Primoplan 58mm f/1.9
+Meyer Optik Görlitz Oreston 50mm f/1.8
+Meyer Optik Görlitz Orestegor 135mm f/2.8
+Meyer Optik Görlitz Orestegor 200mm f/4
+Meyer Optik Görlitz Orestegor 300mm f/4
+Meyer Optik Görlitz Trioplan 100mm f/2.8
+Meyer Optik Görlitz Trioplan 50mm f/2.9
+Meyer Optik Görlitz Lydith 30mm f/3.5
+Meyer Optik Görlitz Domiplan 50mm f/2.8
+Ihagee Exakta 58mm f/2 Biotar
+Ihagee Exakta 75mm f/1.5 Primoplan
+Ihagee Exakta 135mm f/3.5 Sonnar
+Exakta Biotar 58mm f/2
+Exakta Primoplan 75mm f/1.9
+Exakta Sonnar 135mm f/3.5
+Exakta Tessar 50mm f/2.8
+Exakta Pancolar 50mm f/1.8
+Zunow 50mm f/1.1
+Zunow 58mm f/1.2
+Fujita 35mm f/2.5
+Fujita 50mm f/1.4
+Fujita 135mm f/2.8
+
+# ── Praktica / Pentacon (East German manual, M42/PB mount) ──────────────
+Pentacon 29mm f/2.8
+Pentacon 50mm f/1.8
+Pentacon 135mm f/2.8
+Pentacon 200mm f/4
+Pentacon 300mm f/4
+Pentacon 500mm f/5.6
+Pentacon 1000mm f/8 Reflex
+Prakticar 28mm f/2.8
+Prakticar 35mm f/2.4
+Prakticar 50mm f/1.8
+Prakticar 135mm f/2.8
+Prakticar 200mm f/4
+Prakticar 300mm f/4
+
+# ── Voigtländer (classic manual focus, pre-Cosina era) ───────────────────
+Voigtländer Color-Skopar 20mm f/3.5
+Voigtländer Color-Skopar 25mm f/4
+Voigtländer Color-Skopar 35mm f/2.5
+Voigtländer Ultron 50mm f/1.8
+Voigtländer Nokton 58mm f/1.4
+Voigtländer APO-Lanthar 90mm f/3.5
+Voigtländer Super-Dynarex 135mm f/4
+Voigtländer Super-Dynarex 200mm f/4
+Voigtländer Super-Dynarex 350mm f/5.6
+Voigtländer Super-Dynarex 400mm f/5.6
+Voigtländer Tele-Dynarex 135mm f/4
+Voigtländer Tele-Dynarex 200mm f/4
+Voigtländer Petzval 85mm f/2.2
+Voigtländer Petzval 58mm f/1.9
+
+# ── Schneider-Kreuznach (Retina / Exakta manual focus) ──────────────────
+Schneider-Kreuznach Curtagon 28mm f/4
+Schneider-Kreuznach Curtagon 35mm f/2.8
+Schneider-Kreuznach Xenon 50mm f/1.9
+Schneider-Kreuznach Xenon 50mm f/2
+Schneider-Kreuznach Xenar 50mm f/2.8
+Schneider-Kreuznach Tele-Xenar 85mm f/2.8
+Schneider-Kreuznach Tele-Xenar 135mm f/3.5
+Schneider-Kreuznach Tele-Xenar 200mm f/4
+Schneider-Kreuznach Tele-Xenar 300mm f/4.5
+Schneider-Kreuznach Tele-Xenar 360mm f/5.5
+Schneider-Kreuznach Tele-Xenar 400mm f/5.5
+Schneider-Kreuznach Tele-Xenar 500mm f/5.5
+
+# ── Olympus OM Zuiko specialty macro / bellows ──────────────────────────
+Olympus Zuiko Macro 20mm f/3.5
+Olympus Zuiko Macro 20mm f/2
+Olympus Zuiko Macro 38mm f/3.5
+Olympus Zuiko Macro 50mm f/3.5
+Olympus Zuiko Macro 80mm f/4
+Olympus Zuiko Macro 90mm f/2
+Olympus Zuiko Macro 135mm f/4.5
+Olympus Zuiko Bellows 80mm f/4
+Olympus Zuiko Bellows 135mm f/4.5
+
+# ── Minolta VFC / Varisoft (manual focus soft-focus) ────────────────────
+Minolta MC Rokkor 24mm f/2.8 VFC
+Minolta MC Rokkor 85mm f/2.8 Varisoft
+Minolta MC Rokkor 100mm f/4 Varisoft
+Minolta MC Rokkor 135mm f/2.8 Varisoft
+
+# ── Minolta / Zeiss / Canon macro & bellows ─────────────────────────────
+Minolta MC Rokkor Macro 50mm f/3.5
+Minolta MC Rokkor Macro 100mm f/3.5
+Minolta MC Rokkor Macro 100mm f/4
+Minolta MC Rokkor Macro 200mm f/4
+Minolta Bellows Rokkor 50mm f/3.5
+Minolta Bellows Rokkor 100mm f/4
+Canon FD Macrophoto 20mm f/3.5
+Canon FD Macrophoto 35mm f/2.8
+Canon FD Macrophoto 50mm f/3.5
+Canon FD Macrophoto 100mm f/4
+Canon FD Macrophoto 200mm f/4
+Canon FD Bellows 35mm f/2.8
+Canon FD Bellows 50mm f/3.5
+Canon FD Bellows 100mm f/4
+
+# ── Projector Lenses (manual focus, adapted) ────────────────────────────
+Elmo 50mm f/1.2 Projector
+Elmo 60mm f/1.2 Projector
+Elmo 75mm f/1.3 Projector
+Elmo 100mm f/1.4 Projector
+Elmo 150mm f/1.6 Projector
+Elmo Zoom 35-65mm f/1.4 Projector
+Elmo Zoom 50-100mm f/1.4 Projector
+Elmo Zoom 75-150mm f/1.6 Projector
+Kodak Ektanar 50mm f/1.2 Projector
+Kodak Ektanar 75mm f/1.4 Projector
+Kodak Ektanar 100mm f/1.6 Projector
+Leitz Colorplan 90mm f/2.5 Projector
+Leitz Super-Colorplan 90mm f/2.5 Projector
+Leitz Hektor 85mm f/2.5 Projector
+ISCO Ultra MC 60mm f/2 Projector
+ISCO Ultra MC 85mm f/2 Projector
+ISCO Ultra MC 120mm f/2.2 Projector
+ISCO Ultra MC Zoom 70-120mm f/2.2 Projector
+Schneider-Kreuznach Cinelux 70mm f/2 Projector
+Schneider-Kreuznach Cinelux 90mm f/2 Projector
+Schneider-Kreuznach Cinelux 120mm f/2 Projector
+Schneider-Kreuznach Cinelux AV-Xenon 150mm f/2.2 Projector
+
+# ── Enlarger Lenses (manual focus, adapted) ─────────────────────────────
+Durst Neonon 50mm f/2.8 Enlarger
+Durst Neonon 80mm f/5.6 Enlarger
+Durst Neonon 105mm f/5.6 Enlarger
+Durst Neonon 135mm f/5.6 Enlarger
+Rodenstock Apo-Rodagon 50mm f/2.8 Enlarger
+Rodenstock Apo-Rodagon 80mm f/4 Enlarger
+Rodenstock Apo-Rodagon 105mm f/4 Enlarger
+Rodenstock Apo-Rodagon 135mm f/4 Enlarger
+Rodenstock Rodagon 50mm f/2.8 Enlarger
+Rodenstock Rodagon 80mm f/4 Enlarger
+Rodenstock Rodagon 105mm f/5.6 Enlarger
+Rodenstock Rodagon 135mm f/5.6 Enlarger
+Schneider-Kreuznach Componon 50mm f/2.8 Enlarger
+Schneider-Kreuznach Componon 80mm f/4 Enlarger
+Schneider-Kreuznach Componon 105mm f/5.6 Enlarger
+Schneider-Kreuznach Componon 135mm f/5.6 Enlarger
+Schneider-Kreuznach Componon-S 50mm f/2.8 Enlarger
+Schneider-Kreuznach Componon-S 80mm f/4 Enlarger
+Schneider-Kreuznach Componon-S 100mm f/5.6 Enlarger
+Schneider-Kreuznach Componon-S 135mm f/5.6 Enlarger
+Nikon EL-Nikkor 50mm f/2.8 Enlarger
+Nikon EL-Nikkor 75mm f/4 Enlarger
+Nikon EL-Nikkor 80mm f/5.6 Enlarger
+Nikon EL-Nikkor 105mm f/5.6 Enlarger
+Nikon EL-Nikkor 135mm f/5.6 Enlarger
+Nikon EL-Nikkor 150mm f/5.6 Enlarger
+Nikon EL-Nikkor 180mm f/5.6 Enlarger
+
+# ── Cine Lenses (manual focus, adapted) ─────────────────────────────────
+Angénieux 12-120mm f/2.2 Cine Zoom
+Angénieux 15-150mm f/2.8 Cine Zoom
+Angénieux 25mm f/0.95 Cine
+Angénieux 35mm f/2.5 Cine
+Angénieux 50mm f/1.5 Cine
+Angénieux 75mm f/2.5 Cine
+Angénieux 100mm f/2 Cine
+Kinoptik 9.8mm f/1.8 Fisheye Cine
+Kinoptik 18mm f/1.8 Cine
+Kinoptik 25mm f/1.8 Cine
+Kinoptik 35mm f/1.8 Cine
+Kinoptik 50mm f/2 Cine
+Kinoptik 75mm f/2 Cine
+Kinoptik 100mm f/2 Cine
+Cooke Speed Panchro 18mm f/2
+Cooke Speed Panchro 25mm f/2
+Cooke Speed Panchro 32mm f/2
+Cooke Speed Panchro 40mm f/2
+Cooke Speed Panchro 50mm f/2
+Cooke Speed Panchro 75mm f/2
+Cooke Speed Panchro 100mm f/2
+Schneider Cine-Xenon 16mm f/2
+Schneider Cine-Xenon 25mm f/1.4
+Schneider Cine-Xenon 35mm f/2
+Schneider Cine-Xenon 50mm f/1.4
+Schneider Cine-Xenon 75mm f/2
+Schneider Cine-Xenon 100mm f/2
+Schneider Cine-Xenon 150mm f/2.8
+
+# ── Petzval Portrait Lenses (classic soft-focus) ────────────────────────
+Lomography Petzval 85mm f/2.2 Art
+Lomography Petzval 58mm f/1.9 Bokeh Control
+Dallmeyer Petzval 100mm f/3
+Hermagis Petzval 120mm f/3.5
+Ross Petzval 150mm f/3.5
+
+# ── Mirror / Reflex / Catadioptric telephoto (manual focus) ─────────────
+Tamron SP 500mm f/8 Reflex
+Tamron SP 350mm f/5.6 Reflex
+Tamron SP 1000mm f/8 Reflex
+Tamron SP 2000mm f/11 Reflex
+Minolta RF Rokkor 250mm f/5.6 Reflex
+Minolta RF Rokkor 500mm f/8 Reflex
+Minolta RF Rokkor 800mm f/8 Reflex
+Minolta RF Rokkor 1600mm f/11 Reflex
+Rubinar 300mm f/4.5 Reflex
+Rubinar 2000mm f/10 Reflex
+MTO 500mm f/8 Reflex
+MTO 1000mm f/10 Reflex
+MTO 500mm f/8 Maksutov
+MTO 1000mm f/10 Maksutov
+Sigma 600mm f/8 Mirror
+Sigma 1000mm f/11 Mirror
+Vivitar Series 1 600mm f/8 Mirror
+Vivitar Series 1 800mm f/11 Mirror
+Tokina 500mm f/8 Mirror
+Spiratone 500mm f/8 Mirror
+Spiratone 1000mm f/11 Mirror
+
+# ── Ultra-Wide / Fisheye specialists (manual focus) ─────────────────────
+Spiratone 12mm f/8 Fisheye
+Spiratone 18mm f/3.5 Ultra-Wide
+Spiratone 20mm f/2.8 Ultra-Wide
+Spiratone 24mm f/2.8 Ultra-Wide
+Peleng 17mm f/2.8 Ultra-Wide
+Zenitar 20mm f/2.8 Ultra-Wide
+Sigma 8mm f/4 Fisheye
+Sigma 14mm f/3.5 Ultra-Wide
+Sigma 16mm f/2.8 Fisheye
+Sigma 24mm f/2.8 Super-Wide
+Vivitar 17mm f/3.5 Ultra-Wide
+Vivitar 19mm f/3.8 Ultra-Wide
+Vivitar Series 1 28mm f/1.9
+
+# ── Samyang / Rokinon Manual Focus (latest) ─────────────────────────────
+Samyang 7.5mm f/3.5 Fisheye (MFT)
+Samyang 8mm f/2.8 Fisheye (APS-C)
+Samyang 10mm f/2.8 Ultra Wide (APS-C)
+Samyang 14mm f/2.8 MK2
+Samyang 14mm f/2.4 XP
+Samyang 24mm f/3.5 Tilt-Shift
+Samyang 135mm f/2 ED UMC
+Samyang Cine DS 14mm T3.1
+Samyang Cine DS 24mm T1.5
+Samyang Cine DS 35mm T1.5
+Samyang Cine DS 50mm T1.5
+Samyang Cine DS 85mm T1.5
+
+# ── Laowa (Venus Optics, modern manual) ─────────────────────────────────
+Laowa 4mm f/2.8 Fisheye (MFT)
+Laowa 9mm f/2.8 Zero-D (APS-C)
+Laowa 12mm f/2.8 Zero-D (Full Frame)
+Laowa 15mm f/4 Wide Macro
+Laowa 17mm f/4 GFX Zero-D
+Laowa 25mm f/2.8 2.5-5x Ultra Macro
+Laowa 50mm f/2.0 APO (MFT)
+Laowa 65mm f/2.8 2x Ultra Macro (APS-C)
+Laowa 100mm f/2.8 2x APO Macro (Full Frame)
+Laowa 105mm f/2 STF (Smooth Trans Focus)
+
+# ── TTArtisan (modern manual) ───────────────────────────────────────────
+TTArtisan 7.5mm f/2 Fisheye
+TTArtisan 11mm f/2.8 Fisheye
+TTArtisan 17mm f/1.4 (APS-C)
+TTArtisan 23mm f/1.4 (APS-C)
+TTArtisan 35mm f/1.4 (APS-C)
+TTArtisan 50mm f/0.95 (Full Frame)
+TTArtisan 90mm f/1.25 (Full Frame)
+TTArtisan 100mm f/2.8 Macro Tilt
+
+# ── 7Artisans (modern manual) ───────────────────────────────────────────
+7Artisans 7.5mm f/2.8 Fisheye
+7Artisans 12mm f/2.8 Ultra Wide
+7Artisans 25mm f/1.8 (APS-C)
+7Artisans 35mm f/1.2 (APS-C)
+7Artisans 35mm f/2 (Full Frame)
+7Artisans 50mm f/0.95 (APS-C)
+7Artisans 55mm f/1.4 (APS-C)
+7Artisans 60mm f/2.8 Macro
+7Artisans 75mm f/1.25 (Full Frame)
+
+# ── Mitakon Zhongyi Speedmaster (modern manual) ─────────────────────────
+Mitakon Zhongyi Speedmaster 25mm f/0.95 (MFT)
+Mitakon Zhongyi Speedmaster 35mm f/0.95 (APS-C)
+Mitakon Zhongyi Speedmaster 50mm f/0.95 III (Full Frame)
+Mitakon Zhongyi Speedmaster 65mm f/1.4 (Medium Format GFX)
+Mitakon Zhongyi Speedmaster 85mm f/1.2 (Full Frame)
+
+# ── Voigtländer (Cosina modern manual) ──────────────────────────────────
+Voigtländer Nokton 21mm f/1.4 Aspherical
+Voigtländer Nokton 35mm f/1.2 Aspherical III
+Voigtländer Nokton 40mm f/1.2 Aspherical
+Voigtländer Nokton 50mm f/1.2 Aspherical
+Voigtländer Nokton 58mm f/1.4 SL II
+Voigtländer APO-Lanthar 35mm f/2
+Voigtländer APO-Lanthar 50mm f/2
+Voigtländer Ultron 75mm f/2
+
+# ── Kipon (specialty tilt/shift manual) ─────────────────────────────────
+Kipon Tilt 40mm f/2.8
+Kipon Tilt 60mm f/2.4
+Kipon Tilt 90mm f/2.4
+Kipon Shift 50mm f/2.4
+Kipon Shift 90mm f/2.4
+Kipon Tilt-Shift 120mm f/4 Macro
+
+# ── Irix (modern manual focus) ─────────────────────────────────────────
+Irix 21mm f/1.4
+Irix 30mm f/1.4
+Irix 45mm f/1.4
+Irix 150mm f/2.8 Macro 1:1
+
+# ── Lomography (artistic manual) ────────────────────────────────────────
+Lomography Daguerreotype Achromat 64mm f/2.9
+Lomography Neptune Convertible Art Lens System
+Lomography Atoll Ultra-Wide 17mm f/2.8
+
+# ── MS-Optics (Japan, handmade manual) ──────────────────────────────────
+MS-Optics Perar 17mm f/4.5
+MS-Optics Perar 24mm f/4
+MS-Optics Sonnetar 50mm f/1.0
+MS-Optics Aporis 135mm f/2.4
+MS-Optics ISM 50mm f/1.0
+MS-Optics Apoqualia 35mm f/1.4
+MS-Optics Petzval 55mm f/1.2
+
+# ── Lensbaby (creative manual focus) ────────────────────────────────────
+Lensbaby Composer Pro II + Sweet 35 Optic
+Lensbaby Composer Pro II + Sweet 50 Optic
+Lensbaby Composer Pro II + Edge 35 Optic
+Lensbaby Composer Pro II + Edge 50 Optic
+Lensbaby Sol 45mm f/3.5
+Lensbaby Velvet 85mm f/1.8
+Lensbaby Twist 60mm f/2.5
+Lensbaby Burnside 35mm f/2.8

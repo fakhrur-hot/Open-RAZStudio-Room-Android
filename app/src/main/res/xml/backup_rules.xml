@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Back up settings and app data. Caches, external media, and the app
+         root are not listed here, so they are not backed up (Android only
+         backs up domains that are explicitly included). -->
+    <include domain="sharedpref" path="." />
+    <include domain="database" path="." />
+    <include domain="file" path="." />
+</full-backup-content>

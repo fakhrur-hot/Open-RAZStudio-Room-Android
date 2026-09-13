@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Splash-screen icon. The platform splash API accepts a static drawable or
+     an animated-vector. We use a static bitmap pointing at the same "r" mark
+     used in the launcher adaptive-icon foreground so splash + launcher match.
+     -->
+<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
+    android:src="@drawable/ic_launcher_foreground"
+    android:gravity="center" />

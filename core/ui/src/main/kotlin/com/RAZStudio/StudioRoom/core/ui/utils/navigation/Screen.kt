@@ -1,0 +1,1229 @@
+/*
+ * StudioRoom is an image editor for android
+ * Copyright (c) 2026 RAZStudio (Fakhrurraze)
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * You should have received a copy of the Apache License
+ * along with this program.  If not, see <http://www.apache.org/licenses/LICENSE-2.0>.
+ */
+
+@file:Suppress("PLUGIN_IS_NOT_ENABLED")
+
+package com.RAZStudio.StudioRoom.core.ui.utils.navigation
+
+import androidx.annotation.StringRes
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.RAZStudio.StudioRoom.core.resources.Icons
+import com.RAZStudio.StudioRoom.core.resources.R
+import com.RAZStudio.StudioRoom.core.resources.icons.Animation
+import com.RAZStudio.StudioRoom.core.resources.icons.Apng
+import com.RAZStudio.StudioRoom.core.resources.icons.ArtTrack
+import com.RAZStudio.StudioRoom.core.resources.icons.AutoFixHigh
+import com.RAZStudio.StudioRoom.core.resources.icons.Exif
+import com.RAZStudio.StudioRoom.core.resources.icons.FilePresent
+import com.RAZStudio.StudioRoom.core.resources.icons.Gif
+import com.RAZStudio.StudioRoom.core.resources.icons.Jpg
+import com.RAZStudio.StudioRoom.core.resources.icons.Jxl
+import com.RAZStudio.StudioRoom.core.resources.icons.Pdf
+import com.RAZStudio.StudioRoom.core.resources.icons.TextSearch
+import com.RAZStudio.StudioRoom.core.resources.icons.Texture
+import com.RAZStudio.StudioRoom.core.resources.icons.Webp
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+/**
+ * Identifies a specific photo within a Gallery Workspace project. Carried by
+ * [Screen.RawEditor.projectContext] so the editor knows which sidecar to load
+ * and save, instead of the global autosave. Null for every standalone-editor
+ * entry point, which keeps existing behaviour untouched.
+ */
+@Serializable
+data class ProjectPhotoRef(
+    val projectId: Long,
+    val photoId: Long,
+    /**
+     * The photo's display name, carried alongside the ids purely so a freshly
+     * created SAF sibling sidecar document can be named after it — the
+     * resolver needs this at the moment it first creates the document and
+     * has no other cheap way to look it up without a DB round trip.
+     */
+    val displayName: String = "",
+)
+
+@Serializable
+@Stable
+@Immutable
+sealed class Screen(
+    open val id: Int,
+    @StringRes val title: Int,
+    @StringRes val subtitle: Int
+) {
+
+    val isBetaFeature: Boolean by lazy { isBetaFeature() }
+
+    val simpleName: String by lazy { simpleName() }
+
+    val icon: ImageVector? by lazy { icon() }
+
+    val twoToneIcon: ImageVector? by lazy { twoToneIcon() }
+
+    @Serializable
+    data class LibraryDetails(
+        val name: String,
+        val htmlDescription: String,
+        val link: String?
+    ) : Screen(
+        id = -5,
+        title = 0,
+        subtitle = 0
+    )
+
+    @Serializable
+    data object LibrariesInfo : Screen(
+        id = -4,
+        title = 0,
+        subtitle = 0
+    )
+
+    @Serializable
+    data object AppLogs : Screen(
+        id = -6,
+        title = 0,
+        subtitle = 0
+    )
+
+    @Serializable
+    data class Settings(
+        val searchQuery: String = ""
+    ) : Screen(
+        id = -3,
+        title = 0,
+        subtitle = 0
+    )
+
+    @Serializable
+    data object EasterEgg : Screen(
+        id = -2,
+        title = 0,
+        subtitle = 0
+    )
+
+    @Serializable
+    data object Main : Screen(
+        id = -1,
+        title = 0,
+        subtitle = 0
+    )
+
+    /**
+     * Gallery Workspace — persistent photo project library with per-photo XMP
+     * sidecar edits. First entry of the Edit group (id 77, above PhotoEditor and
+     * RawEditor). See feature/gallery-workspace.
+     */
+    @Serializable
+    data object GalleryWorkspace : Screen(
+        id = 77,
+        title = R.string.gallery_workspace,
+        subtitle = R.string.gallery_workspace_sub
+    )
+
+    /**
+     * Project picker for "Add to project" in the share-flow preview
+     * (Requirement 16). Owned by feature/gallery-workspace so
+     * feature/image-preview does NOT gain a Room dependency merely to list
+     * projects — it only needs this Screen definition, which it already sees.
+     *
+     * Hidden from the main page: it is a destination, not a tool.
+     */
+    @Serializable
+    data class AddToProject(
+        val uris: List<Uri>? = null,
+    ) : Screen(
+        id = 78,
+        title = R.string.gallery_add_to_project,
+        subtitle = R.string.gallery_add_to_project_sub
+    )
+
+    /**
+     * One project's photo grid (Requirement 7).
+     *
+     * [revealPhotoId] is the photo to scroll into view and briefly highlight
+     * after an add (Requirement 16.5); null on a normal open.
+     */
+    @Serializable
+    data class GalleryProject(
+        val projectId: Long = 0L,
+        val revealPhotoId: Long? = null,
+    ) : Screen(
+        id = 79,
+        title = R.string.gallery_project_title,
+        subtitle = R.string.gallery_project_sub
+    )
+
+    @Serializable
+    data class PhotoEditor(
+        val uri: Uri? = null,
+        val fromRawEditor: Boolean = false,
+    ) : Screen(
+        id = 0,
+        title = R.string.photo_editor,
+        subtitle = R.string.photo_editor_sub
+    )
+
+    @Serializable
+    data class RawEditor(
+        val uri: Uri? = null,
+        /**
+         * Set when entered from a Gallery Workspace project. Makes the editor
+         * load and save THAT photo's Edit_Sidecar instead of the global autosave.
+         * Null for every other entry point — standalone-editor behaviour untouched.
+         */
+        val projectContext: ProjectPhotoRef? = null,
+    ) : Screen(
+        id = 68,
+        title = R.string.raw_editor,
+        subtitle = R.string.raw_editor_sub
+    )
+
+    /**
+     * 8-bit workspace entry. Mirrors [RawEditor] structurally but the
+     * downstream pipeline runs the segmented-CLAHE tonemap and operates
+     * on an 8-bit working buffer end-to-end. Distinct from [RawEditor]
+     * so the home screen can offer both as parallel choices.
+     */
+    @Serializable
+    data class Raw8BitEditor(
+        val uri: Uri? = null
+    ) : Screen(
+        id = 74,
+        title = R.string.raw_8bit_editor,
+        subtitle = R.string.raw_8bit_editor_sub
+    )
+
+    @Serializable
+    data object RawExport : Screen(
+        id = 69,
+        title = R.string.raw_export_screen,
+        subtitle = R.string.raw_export_screen_sub
+    )
+
+    /**
+     * Final-quality Details editor — opens from the RawExport "Details"
+     * transform-bar button after the user accepts the warning dialog.
+     *
+     * Entering this screen permanently bakes the current RAW Editor action
+     * stack into a new full-resolution FP16 working buffer; from that point
+     * forward the user cannot return to the main RAW Editor and only the
+     * Details sliders (sharpness, NR, film grain, etc.) remain editable.
+     * Save on this screen encodes the baked buffer + final Details overlay
+     * to the chosen format.
+     *
+     * The optional [uri] mirrors [RawEditor.uri] — it's the source RAW URI
+     * the bake should resolve back to (used for EXIF passthrough on save).
+     */
+    @Serializable
+    data class RawDetailsEditor(
+        val uri: Uri? = null
+    ) : Screen(
+        id = 71,
+        title = R.string.raw_details_editor,
+        subtitle = R.string.raw_details_editor_sub
+    )
+
+    @Serializable
+    data object CanonSync : Screen(
+        id = 70,
+        title = R.string.canon_sync,
+        subtitle = R.string.canon_sync_sub
+    )
+
+    /**
+     * Sony Sync — pull photos from a Sony Alpha body (e.g. A7 II / ILCE-7M2)
+     * over its camera Wi-Fi. Sibling of [CanonSync] but a different transport
+     * (SoftAP + SSDP/UPnP + NFC one-touch rather than PTP/IP).
+     */
+    @Serializable
+    data object SonySync : Screen(
+        id = 76,
+        title = R.string.sony_sync,
+        subtitle = R.string.sony_sync_sub
+    )
+
+    /**
+     * Live remote-shooting screen — viewfinder, focus, and shutter trigger
+     * for the connected Canon body. Reachable only from inside Canon Sync
+     * when a session is live; the screen itself observes the connection
+     * state and pops back to Canon Sync automatically on disconnect.
+     */
+    @Serializable
+    data object CanonRemoteShoot : Screen(
+        id = 72,
+        title = R.string.canon_remote_shoot,
+        subtitle = R.string.canon_remote_shoot_sub
+    )
+
+    /**
+     * Batch downloader screen — pulls every photo from the camera into
+     * the working directory, then keeps polling for new shots. Lives
+     * inside the Canon Sync flow and exits to it on session loss.
+     */
+    @Serializable
+    data object CanonBatchDownload : Screen(
+        id = 73,
+        title = R.string.canon_batch_download,
+        subtitle = R.string.canon_batch_download_sub
+    )
+
+    @Serializable
+    data class ResizeAndConvert(
+        val uris: List<Uri>? = null
+    ) : Screen(
+        id = 1,
+        title = R.string.resize_and_convert,
+        subtitle = R.string.resize_and_convert_sub
+    )
+
+    @Serializable
+    data class WeightResize(
+        val uris: List<Uri>? = null
+    ) : Screen(
+        id = 2,
+        title = R.string.by_bytes_resize,
+        subtitle = R.string.by_bytes_resize_sub
+    )
+
+    @Serializable
+    data class Crop(
+        val uri: Uri? = null
+    ) : Screen(
+        id = 3,
+        title = R.string.crop,
+        subtitle = R.string.crop_sub
+    )
+
+    @Serializable
+    data class Filter(
+        @SerialName("dataType") val type: Type? = null
+    ) : Screen(
+        id = 4,
+        title = R.string.filter,
+        subtitle = R.string.filter_sub
+    ) {
+        @Serializable
+        sealed class Type(
+            @StringRes val title: Int,
+            @StringRes val subtitle: Int
+        ) {
+
+            val icon: ImageVector
+                get() = when (this) {
+                    is Masking -> Icons.Outlined.Texture
+                    is Basic -> Icons.Outlined.AutoFixHigh
+                }
+
+            @Serializable
+            data class Masking(
+                val uri: Uri? = null
+            ) : Type(
+                title = R.string.mask_filter,
+                subtitle = R.string.mask_filter_sub
+            )
+
+            @Serializable
+            data class Basic(
+                val uris: List<Uri>? = null
+            ) : Type(
+                title = R.string.full_filter,
+                subtitle = R.string.full_filter_sub
+            )
+
+            companion object {
+                val entries by lazy {
+                    listOf(
+                        Basic(),
+                        Masking()
+                    )
+                }
+            }
+        }
+    }
+
+    @Serializable
+    data class Draw(
+        val uri: Uri? = null
+    ) : Screen(
+        id = 5,
+        title = R.string.draw,
+        subtitle = R.string.draw_sub
+    )
+
+    @Serializable
+    data class Cipher(
+        val uri: Uri? = null
+    ) : Screen(
+        id = 6,
+        title = R.string.cipher,
+        subtitle = R.string.cipher_sub
+    )
+
+    @Serializable
+    data class EraseBackground(
+        val uri: Uri? = null
+    ) : Screen(
+        id = 7,
+        title = R.string.background_remover,
+        subtitle = R.string.background_remover_sub
+    )
+
+    @Serializable
+    data class ImagePreview(
+        val uris: List<Uri>? = null
+    ) : Screen(
+        id = 8,
+        title = R.string.image_preview,
+        subtitle = R.string.image_preview_sub
+    )
+
+    @Serializable
+    data class ImageStitching(
+        val uris: List<Uri>? = null
+    ) : Screen(
+        id = 9,
+        title = R.string.image_stitching,
+        subtitle = R.string.image_stitching_sub
+    )
+
+    @Serializable
+    data class LoadNetImage(
+        val url: String = ""
+    ) : Screen(
+        id = 10,
+        title = R.string.load_image_from_net,
+        subtitle = R.string.load_image_from_net_sub
+    )
+
+    @Serializable
+    data class PickColorFromImage(
+        val uri: Uri? = null
+    ) : Screen(
+        id = 11,
+        title = R.string.pick_color,
+        subtitle = R.string.pick_color_sub
+    )
+
+    @Serializable
+    data class PaletteTools(
+        val uri: Uri? = null
+    ) : Screen(
+        id = 12,
+        title = R.string.palette_tools,
+        subtitle = R.string.palette_tools_sub
+    )
+
+    @Serializable
+    data class DeleteExif(
+        val uris: List<Uri>? = null
+    ) : Screen(
+        id = 13,
+        title = R.string.delete_exif,
+        subtitle = R.string.delete_exif_sub
+    )
+
+    @Serializable
+    data class Compare(
+        val uris: List<Uri>? = null
+    ) : Screen(
+        id = 14,
+        title = R.string.compare,
+        subtitle = R.string.compare_sub
+    )
+
+    @Serializable
+    data class LimitResize(
+        val uris: List<Uri>? = null
+    ) : Screen(
+        id = 15,
+        title = R.string.limits_resize,
+        subtitle = R.string.limits_resize_sub
+    )
+
+    @Serializable
+    data object PdfTools : Screen(
+        id = 16,
+        title = R.string.pdf_tools,
+        subtitle = R.string.pdf_tools_sub
+    ) {
+        val options: List<Screen> by lazy {
+            listOf(
+                Preview(),
+                ImagesToPdf(),
+                ExtractPages(),
+                Merge(),
+                Split(),
+                RemovePages(),
+                Rotate(),
+                Rearrange(),
+                Crop(),
+                PageNumbers(),
+                Watermark(),
+                Signature(),
+                Compress(),
+                RemoveAnnotations(),
+                Flatten(),
+                Print(),
+                Grayscale(),
+                Repair(),
+                Protect(),
+                Unlock(),
+                Metadata(),
+                ExtractImages(),
+                OCR(),
+                ZipConvert(),
+            )
+        }
+
+        @Serializable
+        data class Merge(
+            val uris: List<Uri>? = null
+        ) : Screen(
+            id = 44,
+            title = R.string.merge_pdf,
+            subtitle = R.string.merge_pdf_sub
+        )
+
+        @Serializable
+        data class Split(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 45,
+            title = R.string.split_pdf,
+            subtitle = R.string.split_pdf_sub
+        )
+
+        @Serializable
+        data class Rotate(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 46,
+            title = R.string.rotate_pdf,
+            subtitle = R.string.rotate_pdf_sub
+        )
+
+        @Serializable
+        data class Rearrange(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 47,
+            title = R.string.rearrange_pdf,
+            subtitle = R.string.rearrange_pdf_sub
+        )
+
+        @Serializable
+        data class PageNumbers(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 48,
+            title = R.string.page_numbers,
+            subtitle = R.string.page_numbers_sub
+        )
+
+        @Serializable
+        data class OCR(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 49,
+            title = R.string.pdf_to_text,
+            subtitle = R.string.pdf_to_text_sub
+        )
+
+        @Serializable
+        data class Watermark(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 50,
+            title = R.string.watermarking,
+            subtitle = R.string.watermark_pdf_sub
+        )
+
+        @Serializable
+        data class Signature(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 51,
+            title = R.string.signature,
+            subtitle = R.string.signature_sub
+        )
+
+        @Serializable
+        data class Protect(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 52,
+            title = R.string.protect_pdf,
+            subtitle = R.string.protect_pdf_sub
+        )
+
+        @Serializable
+        data class Unlock(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 53,
+            title = R.string.unlock_pdf,
+            subtitle = R.string.unlock_pdf_sub
+        )
+
+        @Serializable
+        data class Compress(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 54,
+            title = R.string.compress_pdf,
+            subtitle = R.string.compress_pdf_sub
+        )
+
+        @Serializable
+        data class Grayscale(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 55,
+            title = R.string.grayscale,
+            subtitle = R.string.grayscale_pdf_sub
+        )
+
+        @Serializable
+        data class Repair(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 56,
+            title = R.string.repair_pdf,
+            subtitle = R.string.repair_pdf_sub
+        )
+
+        @Serializable
+        data class Metadata(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 57,
+            title = R.string.metadata,
+            subtitle = R.string.metadata_pdf_sub
+        )
+
+        @Serializable
+        data class RemovePages(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 58,
+            title = R.string.remove_pages_pdf,
+            subtitle = R.string.remove_pages_pdf_sub
+        )
+
+        @Serializable
+        data class Crop(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 59,
+            title = R.string.crop_pdf,
+            subtitle = R.string.crop_pdf_sub
+        )
+
+        @Serializable
+        data class Flatten(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 60,
+            title = R.string.flatten_pdf,
+            subtitle = R.string.flatten_pdf_sub
+        )
+
+        @Serializable
+        data class ExtractImages(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 61,
+            title = R.string.extract_images,
+            subtitle = R.string.extract_images_sub
+        )
+
+        @Serializable
+        data class ZipConvert(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 62,
+            title = R.string.zip_pdf,
+            subtitle = R.string.zip_pdf_sub
+        )
+
+        @Serializable
+        data class Print(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 63,
+            title = R.string.print_pdf,
+            subtitle = R.string.print_pdf_sub
+        )
+
+        @Serializable
+        data class Preview(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 64,
+            title = R.string.preview_pdf,
+            subtitle = R.string.preview_pdf_sub
+        )
+
+        @Serializable
+        data class ImagesToPdf(
+            val uris: List<Uri>? = null
+        ) : Screen(
+            id = 65,
+            title = R.string.images_to_pdf,
+            subtitle = R.string.images_to_pdf_sub
+        )
+
+        @Serializable
+        data class ExtractPages(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 66,
+            title = R.string.pdf_to_images,
+            subtitle = R.string.pdf_to_images_sub
+        )
+
+        @Serializable
+        data class RemoveAnnotations(
+            val uri: Uri? = null
+        ) : Screen(
+            id = 67,
+            title = R.string.remove_annotations,
+            subtitle = R.string.remove_annotations_sub
+        )
+    }
+
+    @Serializable
+    data class RecognizeText(
+        @SerialName("dataType") val type: Type? = null
+    ) : Screen(
+        id = 17,
+        title = R.string.recognize_text,
+        subtitle = R.string.recognize_text_sub
+    ) {
+        @Serializable
+        sealed class Type(
+            @StringRes val title: Int,
+            @StringRes val subtitle: Int
+        ) {
+
+            val icon: ImageVector
+                get() = when (this) {
+                    is Extraction -> Icons.Outlined.TextSearch
+                    is WriteToFile -> Icons.Outlined.FilePresent
+                    is WriteToMetadata -> Icons.Outlined.Exif
+                    is WriteToSearchablePdf -> Icons.Outlined.Pdf
+                }
+
+            @Serializable
+            data class Extraction(
+                val uri: Uri? = null
+            ) : Type(
+                title = R.string.recognize_text,
+                subtitle = R.string.recognize_text_sub
+            )
+
+            @Serializable
+            data class WriteToFile(
+                val uris: List<Uri>? = null
+            ) : Type(
+                title = R.string.ocr_write_to_file,
+                subtitle = R.string.ocr_write_to_file_sub
+            )
+
+            @Serializable
+            data class WriteToMetadata(
+                val uris: List<Uri>? = null
+            ) : Type(
+                title = R.string.ocr_write_to_metadata,
+                subtitle = R.string.ocr_write_to_metadata_sub
+            )
+
+            @Serializable
+            data class WriteToSearchablePdf(
+                val uris: List<Uri>? = null
+            ) : Type(
+                title = R.string.ocr_write_to_searchable_pdf,
+                subtitle = R.string.ocr_write_to_searchable_pdf_sub
+            )
+
+            companion object {
+                val entries by lazy {
+                    listOf(
+                        Extraction(),
+                        WriteToFile(),
+                        WriteToMetadata(),
+                        WriteToSearchablePdf()
+                    )
+                }
+            }
+        }
+    }
+
+    @Serializable
+    data class GradientMaker(
+        val uris: List<Uri>? = null
+    ) : Screen(
+        id = 18,
+        title = R.string.gradient_maker,
+        subtitle = R.string.gradient_maker_sub,
+    )
+
+    @Serializable
+    data class Watermarking(
+        val uris: List<Uri>? = null
+    ) : Screen(
+        id = 19,
+        title = R.string.watermarking,
+        subtitle = R.string.watermarking_sub,
+    )
+
+    @Serializable
+    data class GifTools(
+        @SerialName("dataType") val type: Type? = null
+    ) : Screen(
+        id = 20,
+        title = R.string.gif_tools,
+        subtitle = R.string.gif_tools_sub
+    ) {
+        @Serializable
+        sealed class Type(
+            @StringRes val title: Int,
+            @StringRes val subtitle: Int
+        ) {
+
+            val icon: ImageVector
+                get() = when (this) {
+                    is GifToImage -> Icons.Outlined.ArtTrack
+                    is GifToJxl -> Icons.Filled.Jxl
+                    is ImageToGif -> Icons.Rounded.Gif
+                    is GifToWebp -> Icons.Rounded.Webp
+                }
+
+            @Serializable
+            data class GifToImage(
+                val gifUri: Uri? = null
+            ) : Type(
+                title = R.string.gif_type_to_image,
+                subtitle = R.string.gif_type_to_image_sub
+            )
+
+            @Serializable
+            data class ImageToGif(
+                val imageUris: List<Uri>? = null
+            ) : Type(
+                title = R.string.gif_type_to_gif,
+                subtitle = R.string.gif_type_to_gif_sub
+            )
+
+            @Serializable
+            data class GifToJxl(
+                val gifUris: List<Uri>? = null
+            ) : Type(
+                title = R.string.gif_type_to_jxl,
+                subtitle = R.string.gif_type_to_jxl_sub
+            )
+
+            @Serializable
+            data class GifToWebp(
+                val gifUris: List<Uri>? = null
+            ) : Type(
+                title = R.string.gif_type_to_webp,
+                subtitle = R.string.gif_type_to_webp_sub
+            )
+
+            companion object {
+                val entries by lazy {
+                    listOf(
+                        ImageToGif(),
+                        GifToImage(),
+                        GifToJxl(),
+                        GifToWebp()
+                    )
+                }
+            }
+        }
+    }
+
+    @Serializable
+    data class ApngTools(
+        @SerialName("dataType") val type: Type? = null
+    ) : Screen(
+        id = 21,
+        title = R.string.apng_tools,
+        subtitle = R.string.apng_tools_sub
+    ) {
+        @Serializable
+        sealed class Type(
+            @StringRes val title: Int,
+            @StringRes val subtitle: Int
+        ) {
+
+            val icon: ImageVector
+                get() = when (this) {
+                    is ApngToImage -> Icons.Outlined.ArtTrack
+                    is ApngToJxl -> Icons.Filled.Jxl
+                    is ImageToApng -> Icons.Rounded.Apng
+                }
+
+            @Serializable
+            data class ApngToImage(
+                val apngUri: Uri? = null
+            ) : Type(
+                title = R.string.apng_type_to_image,
+                subtitle = R.string.apng_type_to_image_sub
+            )
+
+            @Serializable
+            data class ImageToApng(
+                val imageUris: List<Uri>? = null
+            ) : Type(
+                title = R.string.apng_type_to_apng,
+                subtitle = R.string.apng_type_to_apng_sub
+            )
+
+            @Serializable
+            data class ApngToJxl(
+                val apngUris: List<Uri>? = null
+            ) : Type(
+                title = R.string.apng_type_to_jxl,
+                subtitle = R.string.apng_type_to_jxl_sub
+            )
+
+            companion object {
+                val entries by lazy {
+                    listOf(
+                        ImageToApng(),
+                        ApngToImage(),
+                        ApngToJxl()
+                    )
+                }
+            }
+        }
+    }
+
+    @Serializable
+    data class Zip(
+        val uris: List<Uri>? = null
+    ) : Screen(
+        id = 22,
+        title = R.string.zip,
+        subtitle = R.string.zip_sub
+    )
+
+    @Serializable
+    data class JxlTools(
+        @SerialName("dataType") val type: Type? = null
+    ) : Screen(
+        id = 23,
+        title = R.string.jxl_tools,
+        subtitle = R.string.jxl_tools_sub
+    ) {
+        @Serializable
+        sealed class Type(
+            @StringRes val title: Int,
+            @StringRes val subtitle: Int
+        ) {
+
+            val icon: ImageVector
+                get() = when (this) {
+                    is ImageToJxl -> Icons.Rounded.Animation
+                    is JpegToJxl -> Icons.Filled.Jxl
+                    is JxlToImage -> Icons.Outlined.ArtTrack
+                    is JxlToJpeg -> Icons.Outlined.Jpg
+                }
+
+            @Serializable
+            data class JxlToJpeg(
+                val jxlImageUris: List<Uri>? = null
+            ) : Type(
+                title = R.string.jxl_type_to_jpeg,
+                subtitle = R.string.jxl_type_to_jpeg_sub
+            )
+
+            @Serializable
+            data class JpegToJxl(
+                val jpegImageUris: List<Uri>? = null
+            ) : Type(
+                title = R.string.jpeg_type_to_jxl,
+                subtitle = R.string.jpeg_type_to_jxl_sub
+            )
+
+            @Serializable
+            data class JxlToImage(
+                val jxlUri: Uri? = null
+            ) : Type(
+                title = R.string.jxl_type_to_images,
+                subtitle = R.string.jxl_type_to_images_sub
+            )
+
+            @Serializable
+            data class ImageToJxl(
+                val imageUris: List<Uri>? = null
+            ) : Type(
+                title = R.string.jxl_type_to_jxl,
+                subtitle = R.string.jxl_type_to_jxl_sub
+            )
+
+            companion object {
+                val entries by lazy {
+                    listOf(
+                        JpegToJxl(),
+                        JxlToJpeg(),
+                        JxlToImage(),
+                        ImageToJxl()
+                    )
+                }
+            }
+        }
+    }
+
+    @Serializable
+    data class SvgMaker(
+        val uris: List<Uri>? = null
+    ) : Screen(
+        id = 24,
+        title = R.string.images_to_svg,
+        subtitle = R.string.images_to_svg_sub
+    )
+
+    @Serializable
+    data class FormatConversion(
+        val uris: List<Uri>? = null
+    ) : Screen(
+        id = 25,
+        title = R.string.format_conversion,
+        subtitle = R.string.format_conversion_sub
+    )
+
+    @Serializable
+    data object DocumentScanner : Screen(
+        id = 26,
+        title = R.string.document_scanner,
+        subtitle = R.string.document_scanner_sub
+    )
+
+    @Serializable
+    data class ScanQrCode(
+        val qrCodeContent: String? = null,
+        val uriToAnalyze: Uri? = null
+    ) : Screen(
+        id = 27,
+        title = R.string.qr_code,
+        subtitle = R.string.barcodes_sub
+    )
+
+    @Serializable
+    data class ImageStacking(
+        val uris: List<Uri>? = null
+    ) : Screen(
+        id = 28,
+        title = R.string.image_stacking,
+        subtitle = R.string.image_stacking_sub
+    )
+
+    @Serializable
+    data class ImageSplitting(
+        val uri: Uri? = null
+    ) : Screen(
+        id = 29,
+        title = R.string.image_splitting,
+        subtitle = R.string.image_splitting_sub
+    )
+
+    @Serializable
+    data object ColorTools : Screen(
+        id = 30,
+        title = R.string.color_tools,
+        subtitle = R.string.color_tools_sub
+    )
+
+    @Serializable
+    data class WebpTools(
+        @SerialName("dataType") val type: Type? = null
+    ) : Screen(
+        id = 31,
+        title = R.string.webp_tools,
+        subtitle = R.string.webp_tools_sub
+    ) {
+        @Serializable
+        sealed class Type(
+            @StringRes val title: Int,
+            @StringRes val subtitle: Int
+        ) {
+
+            val icon: ImageVector
+                get() = when (this) {
+                    is WebpToImage -> Icons.Outlined.ArtTrack
+                    is ImageToWebp -> Icons.Rounded.Webp
+                }
+
+            @Serializable
+            data class WebpToImage(
+                val webpUri: Uri? = null
+            ) : Type(
+                title = R.string.webp_type_to_image,
+                subtitle = R.string.webp_type_to_image_sub
+            )
+
+            @Serializable
+            data class ImageToWebp(
+                val imageUris: List<Uri>? = null
+            ) : Type(
+                title = R.string.webp_type_to_webp,
+                subtitle = R.string.webp_type_to_webp_sub
+            )
+
+            companion object {
+                val entries by lazy {
+                    listOf(
+                        ImageToWebp(),
+                        WebpToImage()
+                    )
+                }
+            }
+        }
+    }
+
+    @Serializable
+    data object NoiseGeneration : Screen(
+        id = 32,
+        title = R.string.noise_generation,
+        subtitle = R.string.noise_generation_sub
+    )
+
+    @Serializable
+    data class CollageMaker(
+        val uris: List<Uri>? = null
+    ) : Screen(
+        id = 33,
+        title = R.string.collage_maker,
+        subtitle = R.string.collage_maker_sub
+    )
+
+    @Serializable
+    data class MarkupLayers(
+        val uri: Uri? = null
+    ) : Screen(
+        id = 34,
+        title = R.string.markup_layers,
+        subtitle = R.string.markup_layers_sub
+    )
+
+    @Serializable
+    data class Base64Tools(
+        val uri: Uri? = null
+    ) : Screen(
+        id = 35,
+        title = R.string.base_64_tools,
+        subtitle = R.string.base_64_tools_sub
+    )
+
+    @Serializable
+    data class ChecksumTools(
+        val uri: Uri? = null,
+    ) : Screen(
+        id = 36,
+        title = R.string.checksum_tools,
+        subtitle = R.string.checksum_tools_sub
+    )
+
+    @Serializable
+    data object MeshGradients : Screen(
+        id = -5,
+        title = 0,
+        subtitle = 0
+    )
+
+    @Serializable
+    data class EditExif(
+        val uri: Uri? = null,
+    ) : Screen(
+        id = 37,
+        title = R.string.edit_exif_screen,
+        subtitle = R.string.edit_exif_screen_sub
+    )
+
+    @Serializable
+    data class ImageCutter(
+        val uris: List<Uri>? = null
+    ) : Screen(
+        id = 38,
+        title = R.string.image_cutting,
+        subtitle = R.string.image_cutting_sub
+    )
+
+    @Serializable
+    data class AudioCoverExtractor(
+        val uris: List<Uri>? = null
+    ) : Screen(
+        id = 39,
+        title = R.string.audio_cover_extractor,
+        subtitle = R.string.audio_cover_extractor_sub
+    )
+
+    @Serializable
+    data object WallpapersExport : Screen(
+        id = 40,
+        title = R.string.wallpapers_export,
+        subtitle = R.string.wallpapers_export_sub
+    )
+
+    @Serializable
+    data class AsciiArt(
+        val uri: Uri? = null,
+    ) : Screen(
+        id = 41,
+        title = R.string.ascii_art,
+        subtitle = R.string.ascii_art_sub
+    )
+
+    @Serializable
+    data class AiTools(
+        val uris: List<Uri>? = null
+    ) : Screen(
+        id = 42,
+        title = R.string.ai_tools,
+        subtitle = R.string.ai_tools_sub
+    )
+
+    @Serializable
+    data object ColorLibrary : Screen(
+        id = 43,
+        title = R.string.color_library,
+        subtitle = R.string.color_library_sub
+    )
+
+    companion object : ScreenConstants by ScreenConstants {
+        /** All feature screens hidden from the main page (everything except PhotoEditor + RawEditor). */
+        val hiddenFromMain: List<Screen> by lazy {
+            entries.filter { it.id !in MAIN_PAGE_SCREEN_IDS }
+        }
+    }
+
+}
+
+data class ScreenGroup(
+    val entries: List<Screen>,
+    @StringRes val title: Int,
+    val selectedIcon: ImageVector,
+    val baseIcon: ImageVector
+) {
+    fun icon(isSelected: Boolean) = if (isSelected) selectedIcon else baseIcon
+}

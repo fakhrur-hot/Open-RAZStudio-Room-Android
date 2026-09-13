@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Wrapper that points the legacy `ic_launcher_monochrome_24` alias at the new
+     density-specific monochrome bitmap (drawable-{mdpi..xxxhdpi}/ic_launcher_monochrome.png).
+     Kept so existing references in feature/quick-tiles AndroidManifest.xml and
+     core/ui Particles.kt continue to resolve after the icon refresh. -->
+<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
+    android:src="@drawable/ic_launcher_monochrome" />

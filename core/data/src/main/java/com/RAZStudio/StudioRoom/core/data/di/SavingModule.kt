@@ -1,0 +1,73 @@
+/*
+ * StudioRoom is an image editor for android
+ * Copyright (c) 2026 RAZStudio (Fakhrurraze)
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * You should have received a copy of the Apache License
+ * along with this program.  If not, see <http://www.apache.org/licenses/LICENSE-2.0>.
+ */
+
+package com.RAZStudio.StudioRoom.core.data.di
+
+import com.RAZStudio.StudioRoom.core.data.saving.AndroidFileController
+import com.RAZStudio.StudioRoom.core.data.saving.AndroidFilenameCreator
+import com.RAZStudio.StudioRoom.core.data.saving.AndroidKeepAliveService
+import com.RAZStudio.StudioRoom.core.data.saving.AndroidRandomStringGenerator
+import com.RAZStudio.StudioRoom.core.domain.image.MetadataProvider
+import com.RAZStudio.StudioRoom.core.domain.saving.FileController
+import com.RAZStudio.StudioRoom.core.domain.saving.FileController.Companion.toMetadataProvider
+import com.RAZStudio.StudioRoom.core.domain.saving.FilenameCreator
+import com.RAZStudio.StudioRoom.core.domain.saving.KeepAliveService
+import com.RAZStudio.StudioRoom.core.domain.saving.RandomStringGenerator
+import dagger.Binds
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
+import javax.inject.Singleton
+
+@Module
+@InstallIn(SingletonComponent::class)
+internal interface SavingModule {
+
+    @Singleton
+    @Binds
+    fun provideFileController(
+        impl: AndroidFileController
+    ): FileController
+
+    @Singleton
+    @Binds
+    fun filenameCreator(
+        impl: AndroidFilenameCreator
+    ): FilenameCreator
+
+    @Singleton
+    @Binds
+    fun service(
+        impl: AndroidKeepAliveService
+    ): KeepAliveService
+
+    @Singleton
+    @Binds
+    fun randomStringGenerator(
+        impl: AndroidRandomStringGenerator
+    ): RandomStringGenerator
+
+    companion object {
+        @Singleton
+        @Provides
+        fun provideMetadata(
+            impl: AndroidFileController
+        ): MetadataProvider = impl.toMetadataProvider()
+    }
+
+}

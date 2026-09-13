@@ -1,0 +1,48 @@
+*.iml
+.gradle
+/local.properties
+.DS_Store
+/build
+
+# Module build outputs + native/gradle caches (regenerable, GBs)
+**/build/
+**/.cxx/
+**/.gradle/
+.externalNativeBuild
+.cxx
+/.idea
+/.kotlin
+
+# Release signing secrets — never commit
+keystore.properties
+*.jks
+*.keystore
+
+# ── Bulky / private color-grade assets (kept out of the public repo) ──────
+*.cube
+*.smcube
+
+# Lensfun database is builder-supplied (see assets/lensfun_db/README.md).
+# Ignore any XML a builder drops in; keep the README placeholder tracked.
+**/assets/lensfun_db/*.xml
+
+# AI model weights are NOT distributed in the FOSS repo (GitHub 100MB limit +
+# licensing). Every neural-net weight (.onnx / .tflite) is ignored; the app
+# loaders self-disable when a model is absent, so the build still runs offline.
+# Only the tiny app-internal parameter files (README, .bin, .npy, ae_tone) are
+# tracked — see assets/models/README.md.
+**/assets/models/*.onnx
+**/assets/models/*.tflite
+
+# Isolated Gradle user home used for local FOSS builds (regenerable, huge)
+/.gradle-foss/
+
+# Debugging detritus
+*.pcap
+logcat*.txt
+screen*.png
+IMG_*.CR2
+IMG_*.JPG
+IMG_*.jpg
+IMG_*.NEF
+*.stageA.tif

@@ -1,0 +1,10 @@
+RAZDream|razdream.xml|BIT_16
+Precisa Mod|precisa_mod.xml|BIT_16
+Provia Outdoor|provia_outdoor.xml|BIT_16
+Moody|moody.xml|BIT_16
+Fuji Classic|fuji_classic.xml|BIT_16
+Auto Expose & Sharp|auto_expose_sharp.xml|BIT_16
+Creamy & Soft|creamy_soft.xml|BIT_16
+Film Fade Warm|film_fade_warm.xml|BIT_16
+Film Fade Cool|film_fade_cool.xml|BIT_16
+Soft Portrait|soft_portrait.xml|BIT_16

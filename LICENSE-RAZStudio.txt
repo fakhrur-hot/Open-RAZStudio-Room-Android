@@ -1,0 +1,40 @@
+RAZStudio Transparency License
+Copyright (c) 2026 Fakhrurraze
+
+Permission is granted to any person to VIEW, STUDY, and BUILD this code for
+personal, non-commercial use. Modification, redistribution, sublicensing, or
+creation of derivative works is PROHIBITED without the explicit prior written
+permission of the author (Fakhrurraze).
+
+This license applies ONLY to the original RAZStudio modules authored solely by
+Fakhrurraze, including (but not limited to):
+
+  - :feature:photo-editor            (RAW editor UI + pipeline glue)
+  - :lib:raw-native                  (LibRaw-based decoder + Lensfun port glue)
+  - :lib:raw-native-dualiso          (dual-ISO decode paths)
+  - :core:filters / :feature:filters (RAZStudio original filter definitions)
+  - and other modules/files whose source headers or commit history identify
+    Fakhrurraze as the sole author.
+
+IMPORTANT — RELATIONSHIP TO OTHER LICENSES (read carefully):
+
+  * Upstream and third-party code included in this repository retains its
+    ORIGINAL license (Apache-2.0, MIT, GPL, BSD, etc.) and is NOT affected by
+    this Transparency License. Those components may be redistributed and
+    modified under their own terms.
+
+  * Where a source file in this repository carries an Apache-2.0 (or other
+    open-source) header, that header's grant governs that file. This
+    Transparency License expresses the author's intent and request for the
+    original RAZStudio modules; it does not, and cannot, revoke any
+    open-source grant already present in a file's header. If you intend to
+    redistribute or modify any specific file, check that file's own header
+    first.
+
+  * This repository is published for TRANSPARENCY — so users can read, audit,
+    and build the app themselves. It is NOT positioned as a general-purpose
+    open-source project, and no promise of open-source redistribution rights
+    is made for the original RAZStudio modules beyond what individual file
+    headers grant.
+
+For redistribution/commercial permission, contact the author.

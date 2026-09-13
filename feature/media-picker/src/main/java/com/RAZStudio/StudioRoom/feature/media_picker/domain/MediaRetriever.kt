@@ -1,0 +1,45 @@
+/*
+ * StudioRoom is an image editor for android
+ * Copyright (c) 2024 RAZStudio (Fakhrurraze)
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * You should have received a copy of the Apache License
+ * along with this program.  If not, see <http://www.apache.org/licenses/LICENSE-2.0>.
+ */
+
+package com.RAZStudio.StudioRoom.feature.media_picker.domain
+
+import com.RAZStudio.StudioRoom.feature.media_picker.domain.model.Album
+import com.RAZStudio.StudioRoom.feature.media_picker.domain.model.AllowedMedia
+import com.RAZStudio.StudioRoom.feature.media_picker.domain.model.Media
+import kotlinx.coroutines.flow.Flow
+
+interface MediaRetriever {
+
+    fun getAlbumsWithType(
+        allowedMedia: AllowedMedia
+    ): Flow<Result<List<Album>>>
+
+    fun mediaFlowWithType(
+        albumId: Long,
+        allowedMedia: AllowedMedia
+    ): Flow<Result<List<Media>>>
+
+    fun getMediaByAlbumIdWithType(
+        albumId: Long,
+        allowedMedia: AllowedMedia
+    ): Flow<Result<List<Media>>>
+
+    fun getMediaByType(
+        allowedMedia: AllowedMedia
+    ): Flow<Result<List<Media>>>
+
+}

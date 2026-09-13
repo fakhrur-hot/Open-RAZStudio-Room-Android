@@ -1,0 +1,63 @@
+/*
+ * StudioRoom is an image editor for android
+ * Copyright (c) 2026 RAZStudio (Fakhrurraze)
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * You should have received a copy of the Apache License
+ * along with this program.  If not, see <http://www.apache.org/licenses/LICENSE-2.0>.
+ */
+
+package com.RAZStudio.StudioRoom.feature.settings.presentation.components
+
+import androidx.compose.foundation.layout.padding
+import com.RAZStudio.StudioRoom.core.resources.Icons
+import com.RAZStudio.StudioRoom.core.resources.icons.Timer
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import com.RAZStudio.StudioRoom.core.resources.R
+import com.RAZStudio.StudioRoom.core.resources.icons.FormatParagraph
+import com.RAZStudio.StudioRoom.core.settings.domain.model.FilenameBehavior
+import com.RAZStudio.StudioRoom.core.settings.presentation.provider.LocalSettingsState
+import com.RAZStudio.StudioRoom.core.ui.utils.helper.AppToastHost
+import com.RAZStudio.StudioRoom.core.ui.widget.modifier.ShapeDefaults
+import com.RAZStudio.StudioRoom.core.ui.widget.preferences.PreferenceRowSwitch
+import com.RAZStudio.StudioRoom.core.utils.getString
+
+@Composable
+fun UseFormattedFilenameTimestampSettingItem(
+    onClick: () -> Unit,
+    shape: Shape = ShapeDefaults.center,
+    modifier: Modifier = Modifier.padding(horizontal = 8.dp)
+) {
+    val settingsState = LocalSettingsState.current
+
+    PreferenceRowSwitch(
+        shape = shape,
+        modifier = modifier,
+        onClick = {
+            onClick()
+        },
+        enabled = settingsState.filenameBehavior is FilenameBehavior.None && settingsState.addTimestampToFilename,
+        onDisabledClick = {
+            AppToastHost.showToast(
+                message = getString(R.string.enable_timestamps_to_format_them),
+                icon = Icons.Outlined.Timer
+            )
+        },
+        title = stringResource(R.string.formatted_timestamp),
+        subtitle = stringResource(R.string.formatted_timestamp_sub),
+        checked = settingsState.useFormattedFilenameTimestamp,
+        startIcon = Icons.Rounded.FormatParagraph
+    )
+}
