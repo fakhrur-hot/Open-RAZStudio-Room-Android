@@ -48,8 +48,7 @@ finished image:
    Details, Gradients, Vignette, and Masks. Your edits are stored as a stack of
    actions + a sidecar, so the original is never overwritten.
 4. **Preview** — A live GPU (OpenGL) preview shows your edits in real time.
-5. **Export** — Bake the edits and encode to your chosen format (JPEG, PNG,
-   16-bit TIFF, WebP, HEIC/AVIF, etc.).
+5. **Export** — Bake the edits and encode to your JPEG format.
 
 Optional **AI features** (subject masking, denoise, inpaint/heal, auto-exposure,
 low-light) run **on-device** using small neural networks. They are strictly
