@@ -116,8 +116,13 @@ private inline fun <reified T : KotlinBaseExtension> Project.configureKotlin() =
         "-opt-in=androidx.compose.ui.ExperimentalComposeUiApi",
         "-opt-in=androidx.compose.ui.text.ExperimentalTextApi",
         "-opt-in=kotlinx.coroutines.DelicateCoroutinesApi",
-        "-Xannotation-default-target=param-property",
-        "-XXLanguage:+PropertyParamAnnotationDefaultTargetMode"
+        // The param-property annotation default-target is requested via the stable
+        // flag below. On Kotlin 2.3.x the internal language flag
+        // "-XXLanguage:+PropertyParamAnnotationDefaultTargetMode" is redundant and
+        // only produces the "unsafe internal compiler arguments" warning, so it has
+        // been removed. Re-add only if downgrading below the Kotlin version where
+        // -Xannotation-default-target is honored on its own.
+        "-Xannotation-default-target=param-property"
     )
     // Treat all Kotlin warnings as errors (disabled by default)
     // Override by setting warningsAsErrors=true in your ~/.gradle/gradle.properties

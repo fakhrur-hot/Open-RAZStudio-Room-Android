@@ -35,7 +35,7 @@
     <string name="about_app">Tentang aplikasi</string>
     <string name="nothing_found_by_search">Tidak ada yang ditemukan oleh kueri Anda</string>
     <string name="add">Menambahkan</string>
-    <string name="loading">Memuat…</string>
+    <string name="loading">Memuatâ€¦</string>
     <string name="image_too_large_preview">Gambar terlalu besar untuk dipratinjau, tetapi akan dicoba untuk disimpan</string>
     <string name="pick_image">Pilih gambar untuk memulai</string>
     <string name="width">Lebar %1$s</string>
@@ -402,7 +402,7 @@
     <string name="keep_exif_sub">Metadata gambar asli akan disimpan</string>
     <string name="trim_image_sub">Ruang transparan di sekitar gambar akan dipangkas</string>
     <string name="blur_radius">Radius kabur</string>
-    <string name="something_went_wrong_emphasis">Ups… Ada yang tidak beres. Anda dapat menulis kepada saya menggunakan opsi di bawah ini dan saya akan mencoba mencari solusinya</string>
+    <string name="something_went_wrong_emphasis">Upsâ€¦ Ada yang tidak beres. Anda dapat menulis kepada saya menggunakan opsi di bawah ini dan saya akan mencoba mencari solusinya</string>
     <string name="resize_and_convert_sub">Ubah ukuran gambar tertentu atau konversikan ke format lain. Metadata EXIF juga dapat diedit di sini jika memilih satu gambar.</string>
     <string name="crashlytics_sub">Hal ini memungkinkan aplikasi mengumpulkan laporan kerusakan secara manual</string>
     <string name="analytics">Analisis</string>
@@ -576,7 +576,7 @@
     <string name="pdf_tools">Alat PDF</string>
     <string name="rate_app">Nilai Aplikasi</string>
     <string name="rate">Kecepatan</string>
-    <string name="rate_app_sub">Aplikasi ini sepenuhnya gratis, jika Anda ingin menjadi lebih besar, silakan bintangi proyek ini di Github 😄</string>
+    <string name="rate_app_sub">Aplikasi ini sepenuhnya gratis, jika Anda ingin menjadi lebih besar, silakan bintangi proyek ini di Github ðŸ˜„</string>
     <string name="color_matrix_4x4">Matriks Warna 4x4</string>
     <string name="vintage">Antik</string>
     <string name="protanopia">Protanopia</string>
@@ -797,7 +797,7 @@
     <string name="exit">Keluar</string>
     <string name="preview_closing">Jika Anda keluar dari pratinjau sekarang, Anda perlu menambahkan gambar lagi</string>
     <string name="image_format">Format Gambar</string>
-    <string name="material_you_sub">Membuat palet “Material You” dari gambar</string>
+    <string name="material_you_sub">Membuat palet â€œMaterial Youâ€ dari gambar</string>
     <string name="dark_colors">Warna Gelap</string>
     <string name="copy_as_compose_code">Salin sebagai kode\" Jetpack Compose\"</string>
     <string name="dark_colors_sub">Menggunakan skema warna mode malam alih-alih varian cahaya</string>
@@ -1367,7 +1367,7 @@
     <string name="recently_used">Baru-baru ini Digunakan</string>
     <string name="ci_channel">saluran CI</string>
     <string name="group">Kelompok</string>
-    <string name="studio_room_in_telegram">Kotak Alat Gambar di Telegram 🎉</string>
+    <string name="studio_room_in_telegram">Kotak Alat Gambar di Telegram ðŸŽ‰</string>
     <string name="studio_room_in_telegram_sub">Bergabunglah dengan obrolan kami di mana Anda dapat mendiskusikan apa pun yang Anda inginkan dan juga melihat saluran CI tempat saya memposting beta dan pengumuman</string>
     <string name="ci_channel_sub">Dapatkan pemberitahuan tentang versi aplikasi baru, dan baca pengumuman</string>
     <string name="fit_description">Sesuaikan gambar dengan dimensi tertentu dan terapkan buram atau warna pada latar belakang</string>
@@ -1530,8 +1530,6 @@
     <string name="rotation">Rotasi</string>
     <string name="checksum_as_filename">Checksum sebagai Nama File</string>
     <string name="checksum_as_filename_sub">Gambar keluaran akan memiliki nama yang sesuai dengan checksum datanya</string>
-    <string name="free_software_partner">Perangkat Lunak Gratis (Mitra)</string>
-    <string name="free_software_partner_sub">Perangkat lunak yang lebih berguna di saluran mitra aplikasi Android</string>
     <string name="algorithms">Algoritma</string>
     <string name="checksum_tools">Alat Checksum</string>
     <string name="checksum_tools_sub">Bandingkan checksum, hitung hash, atau buat string hex dari file menggunakan algoritma hashing yang berbeda</string>
@@ -1598,7 +1596,7 @@
     <string name="barcode_type">Jenis Kode Batang</string>
     <string name="enforce_bw">Menerapkan Hitam dan Putih</string>
     <string name="enforce_bw_sub">Gambar Barcode akan sepenuhnya hitam putih dan tidak diwarnai berdasarkan tema aplikasi</string>
-    <string name="barcodes_sub">Pindai Barcode apa pun (QR, EAN, AZTEC,…) dan dapatkan kontennya atau tempel teks Anda untuk menghasilkan yang baru</string>
+    <string name="barcodes_sub">Pindai Barcode apa pun (QR, EAN, AZTEC,â€¦) dan dapatkan kontennya atau tempel teks Anda untuk menghasilkan yang baru</string>
     <string name="no_barcode_found">Tidak Ditemukan Kode Batang</string>
     <string name="generated_barcode_will_be_here">Barcode yang Dihasilkan Akan Ada Di Sini</string>
     <string name="audio_cover_extractor">Sampul Audio</string>
@@ -1608,12 +1606,12 @@
     <string name="no_covers_found">Tidak Ada Sampul yang Ditemukan</string>
     <string name="send_logs">Kirim Log</string>
     <string name="send_logs_sub">Klik untuk membagikan file log aplikasi, ini dapat membantu saya menemukan masalah dan memperbaiki masalah</string>
-    <string name="crash_title">Ups… Ada yang tidak beres</string>
+    <string name="crash_title">Upsâ€¦ Ada yang tidak beres</string>
     <string name="crash_subtitle">Anda dapat menghubungi saya menggunakan opsi di bawah dan saya akan mencoba mencari solusinya.\n(Jangan lupa melampirkan log)</string>
     <string name="ocr_write_to_file">Tulis Ke File</string>
     <string name="ocr_write_to_file_sub">Ekstrak teks dari kumpulan gambar dan simpan dalam satu file teks</string>
     <string name="ocr_write_to_metadata">Tulis Ke Metadata</string>
-    <string name="ocr_write_to_metadata_sub">Ekstrak teks dari setiap gambar dan letakkan di info EXIF ​​​​dari foto relatif</string>
+    <string name="ocr_write_to_metadata_sub">Ekstrak teks dari setiap gambar dan letakkan di info EXIF â€‹â€‹â€‹â€‹dari foto relatif</string>
     <string name="invisible_mode">Modus Tak Terlihat</string>
     <string name="invisible_mode_sub">Gunakan steganografi untuk membuat tanda air yang tidak terlihat oleh mata di dalam byte gambar Anda</string>
     <string name="use_lsb">Gunakan LSB</string>
@@ -1977,7 +1975,7 @@
     <string name="model_itf_skin_diffdetail_lite">Meningkatkan tekstur dan detail kulit sekaligus menjaga tampilan alami, dioptimalkan untuk kecepatan.</string>
     <string name="model_sbdv_dejpeg">Menghapus artefak kompresi JPEG dan mengembalikan kualitas gambar untuk foto terkompresi.</string>
     <string name="model_iso_denoise_v1">Mengurangi noise ISO pada foto yang diambil dalam kondisi cahaya redup, menjaga detailnya.</string>
-    <string name="model_dejumbo">Memperbaiki sorotan yang terlalu terang atau “jumbo” dan mengembalikan keseimbangan warna yang lebih baik.</string>
+    <string name="model_dejumbo">Memperbaiki sorotan yang terlalu terang atau â€œjumboâ€ dan mengembalikan keseimbangan warna yang lebih baik.</string>
     <string name="model_ddcolor_tiny">Model pewarnaan yang ringan dan cepat yang menambahkan warna alami pada gambar skala abu-abu.</string>
     <string name="type_dejpeg">DEJPEG</string>
     <string name="type_denoise">Tolak kebisingan</string>
@@ -2167,7 +2165,7 @@
     <string name="extract_images">Ekstrak Gambar</string>
     <string name="extract_images_sub">Ekstrak gambar yang tertanam dalam PDF pada resolusi aslinya</string>
     <string name="pdf_no_embedded">File PDF ini tidak berisi gambar apa pun yang disematkan</string>
-    <string name="extract_images_info">Alat ini memindai setiap halaman dan memulihkan gambar sumber berkualitas penuh — sempurna untuk menyimpan dokumen asli</string>
+    <string name="extract_images_info">Alat ini memindai setiap halaman dan memulihkan gambar sumber berkualitas penuh â€” sempurna untuk menyimpan dokumen asli</string>
     <string name="draw_signature">Gambar Tanda Tangan</string>
     <string name="pen_params">Param Pena</string>
     <string name="draw_signature_sub">Gunakan tanda tangan sendiri sebagai gambar untuk ditempatkan pada dokumen</string>

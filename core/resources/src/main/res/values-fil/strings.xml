@@ -18,7 +18,7 @@
 
 <resources>
     <string name="size">Laki %1$s</string>
-    <string name="loading">Ikinakarga…</string>
+    <string name="loading">Ikinakargaâ€¦</string>
     <string name="pick_image">Pumili ng larawan para magsimula</string>
     <string name="width">Lapad %1$s</string>
     <string name="height">Taas %1$s</string>
@@ -374,7 +374,7 @@
     <string name="text">Text</string>
     <string name="font_scale">Sukat ng font</string>
     <string name="using_large_fonts_warn">Ang paggamit ng malalaking font scale ay maaaring magdulot ng mga aberya at problema sa UI, na hindi maaayos. Gamitin nang maingat.</string>
-    <string name="alphabet_and_numbers">Aa Bb Cc Dd Ee Ff Gg Hh Ii Jj Kk Ll Mm Nn Ññ Ngng Oo Pp Qq Rr Ss Tt Uu Vv Ww Xx Yy Zz 0123456789 !?</string>
+    <string name="alphabet_and_numbers">Aa Bb Cc Dd Ee Ff Gg Hh Ii Jj Kk Ll Mm Nn Ã‘Ã± Ngng Oo Pp Qq Rr Ss Tt Uu Vv Ww Xx Yy Zz 0123456789 !?</string>
     <string name="food_and_drink">Pagkain at Inumin</string>
     <string name="nature_and_animals">Kalikasan at Hayop</string>
     <string name="objects">Mga bagay</string>
@@ -392,7 +392,7 @@
     <string name="blur_radius">Blur radius</string>
     <string name="draw_mode">Draw mode</string>
     <string name="create_issue">Gumawa ng Isyu</string>
-    <string name="something_went_wrong_emphasis">Ooops… Nagkaproblema. Maaari kang sumulat sa akin gamit ang mga opsyon sa ibaba at susubukan kong maghanap ng solusyon</string>
+    <string name="something_went_wrong_emphasis">Ooopsâ€¦ Nagkaproblema. Maaari kang sumulat sa akin gamit ang mga opsyon sa ibaba at susubukan kong maghanap ng solusyon</string>
     <string name="resize_and_convert">Baguhin ang laki at I-convert</string>
     <string name="resize_and_convert_sub">Baguhin ang laki ng mga ibinigay na larawan o i-convert ang mga ito sa iba pang mga format. Ang EXIF metadata ay maaari ding i-edit dito kung pumipili ng isang larawan.</string>
     <string name="analytics_sub">Payagan ang pagkolekta ng hindi kilalang istatistika ng paggamit ng app</string>
@@ -593,7 +593,7 @@
     <string name="pdf_tools">Mga Tool sa PDF</string>
     <string name="rate_app">I-rate ang App</string>
     <string name="rate">Rate</string>
-    <string name="rate_app_sub">Ang app na ito ay libre, kung gusto mo itong lumaki, pakilagyan ng star ang proyekto sa Github 😄</string>
+    <string name="rate_app_sub">Ang app na ito ay libre, kung gusto mo itong lumaki, pakilagyan ng star ang proyekto sa Github ðŸ˜„</string>
     <string name="color_matrix_4x4">Color Matrix 4x4</string>
     <string name="color_matrix_3x3">Color Matrix 3x3</string>
     <string name="simple_effects">Mga Simple Effect</string>
@@ -966,7 +966,7 @@
     <string name="tag_standard_output_sensitivity">Standard Output Sensitivity</string>
     <string name="tag_recommended_exposure_index">Inirerekomendang Exposure Index</string>
     <string name="tag_iso_speed">Bilis ng ISO</string>
-    <string name="tag_iso_speed_latitude_yyy">ISO Speed ​​Latitude yyy</string>
+    <string name="tag_iso_speed_latitude_yyy">ISO Speed â€‹â€‹Latitude yyy</string>
     <string name="tag_iso_speed_latitude_zzz">Bilis ng ISO Latitude zzz</string>
     <string name="tag_shutter_speed_value">Halaga ng Bilis ng Shutter</string>
     <string name="tag_aperture_value">Halaga ng Aperture</string>
@@ -1367,7 +1367,7 @@
     <string name="recently_used">Kamakailang Ginamit</string>
     <string name="ci_channel">CI channel</string>
     <string name="group">Grupo</string>
-    <string name="studio_room_in_telegram">Toolbox ng Larawan sa Telegram 🎉</string>
+    <string name="studio_room_in_telegram">Toolbox ng Larawan sa Telegram ðŸŽ‰</string>
     <string name="studio_room_in_telegram_sub">Sumali sa aming chat kung saan maaari mong pag-usapan ang anumang gusto mo at tingnan din ang CI channel kung saan ako nagpo-post ng mga beta at anunsyo</string>
     <string name="ci_channel_sub">Maabisuhan tungkol sa mga bagong bersyon ng app, at magbasa ng mga anunsyo</string>
     <string name="fit_description">Pagkasyahin ang isang larawan sa mga ibinigay na dimensyon at ilapat ang blur o kulay sa background</string>
@@ -1530,8 +1530,6 @@
     <string name="rotation">Pag-ikot</string>
     <string name="checksum_as_filename">Checksum bilang Filename</string>
     <string name="checksum_as_filename_sub">Ang mga imahe ng output ay magkakaroon ng pangalang naaayon sa kanilang data checksum</string>
-    <string name="free_software_partner">Libreng Software (Kasosyo)</string>
-    <string name="free_software_partner_sub">Mas kapaki-pakinabang na software sa partner channel ng mga Android application</string>
     <string name="algorithms">Algorithm</string>
     <string name="checksum_tools">Mga Tool sa Checksum</string>
     <string name="checksum_tools_sub">Paghambingin ang mga checksum, kalkulahin ang mga hash o gumawa ng mga hex string mula sa mga file gamit ang iba\'t ibang algorithm ng hashing</string>
@@ -1598,7 +1596,7 @@
     <string name="barcode_type">Uri ng Barcode</string>
     <string name="enforce_bw">Ipatupad ang B/W</string>
     <string name="enforce_bw_sub">Ang Larawan ng Barcode ay magiging ganap na itim at puti at hindi makulayan ng tema ng app</string>
-    <string name="barcodes_sub">I-scan ang anumang Barcode (QR, EAN, AZTEC, …) at kunin ang nilalaman nito o i-paste ang iyong teksto upang makabuo ng bago</string>
+    <string name="barcodes_sub">I-scan ang anumang Barcode (QR, EAN, AZTEC, â€¦) at kunin ang nilalaman nito o i-paste ang iyong teksto upang makabuo ng bago</string>
     <string name="no_barcode_found">Walang Nakitang Barcode</string>
     <string name="generated_barcode_will_be_here">Naririto ang Binuo na Barcode</string>
     <string name="audio_cover_extractor">Mga Audio Cover</string>
@@ -1608,12 +1606,12 @@
     <string name="no_covers_found">Walang Nahanap na Cover</string>
     <string name="send_logs">Magpadala ng mga Log</string>
     <string name="send_logs_sub">I-click upang ibahagi ang file ng mga log ng app, makakatulong ito sa akin na makita ang problema at ayusin ang mga isyu</string>
-    <string name="crash_title">Oops… Nagkaproblema</string>
+    <string name="crash_title">Oopsâ€¦ Nagkaproblema</string>
     <string name="crash_subtitle">Maaari kang makipag-ugnayan sa akin gamit ang mga opsyon sa ibaba at susubukan kong maghanap ng solusyon.\n(Huwag kalimutang mag-attach ng mga log)</string>
     <string name="ocr_write_to_file">Sumulat sa File</string>
     <string name="ocr_write_to_file_sub">I-extract ang text mula sa batch ng mga imahe at iimbak ito sa isang text file</string>
     <string name="ocr_write_to_metadata">Sumulat sa Metadata</string>
-    <string name="ocr_write_to_metadata_sub">I-extract ang text mula sa bawat larawan at ilagay ito sa EXIF ​​na impormasyon ng mga kamag-anak na larawan</string>
+    <string name="ocr_write_to_metadata_sub">I-extract ang text mula sa bawat larawan at ilagay ito sa EXIF â€‹â€‹na impormasyon ng mga kamag-anak na larawan</string>
     <string name="invisible_mode">Invisible Mode</string>
     <string name="invisible_mode_sub">Gumamit ng steganography upang lumikha ng mga hindi nakikitang watermark ng mata sa loob ng mga byte ng iyong mga larawan</string>
     <string name="use_lsb">Gumamit ng LSB</string>
@@ -2168,7 +2166,7 @@
     <string name="extract_images">I-extract ang mga Larawan</string>
     <string name="extract_images_sub">I-extract ang mga larawang naka-embed sa mga PDF sa orihinal na resolution ng mga ito</string>
     <string name="pdf_no_embedded">Ang PDF file na ito ay hindi naglalaman ng anumang mga naka-embed na larawan</string>
-    <string name="extract_images_info">Ini-scan ng tool na ito ang bawat pahina at binabawi ang buong kalidad na mga larawan ng pinagmulan — perpekto para sa pag-save ng mga orihinal mula sa mga dokumento</string>
+    <string name="extract_images_info">Ini-scan ng tool na ito ang bawat pahina at binabawi ang buong kalidad na mga larawan ng pinagmulan â€” perpekto para sa pag-save ng mga orihinal mula sa mga dokumento</string>
     <string name="draw_signature">Gumuhit ng Lagda</string>
     <string name="pen_params">Panulat Params</string>
     <string name="draw_signature_sub">Gumamit ng sariling pirma bilang imahe na ilalagay sa mga dokumento</string>

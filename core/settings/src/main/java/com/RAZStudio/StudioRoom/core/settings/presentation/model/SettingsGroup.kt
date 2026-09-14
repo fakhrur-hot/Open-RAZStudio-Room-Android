@@ -312,7 +312,6 @@ sealed class SettingsGroup(
             Setting.OpenSourceLicenses,
             Setting.HelpTranslate,
             Setting.IssueTracker,
-            Setting.FreeSoftwarePartner,
             Setting.TelegramGroup,
             Setting.TelegramChannel,
             Setting.SourceCode

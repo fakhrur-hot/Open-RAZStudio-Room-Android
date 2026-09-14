@@ -27,7 +27,7 @@
     <string name="file_provider" translatable="false">com.RAZStudio.StudioRoom.fileprovider</string>
     <string name="smth_went_wrong">Something went wrong: %1$s</string>
     <string name="size">Size %1$s</string>
-    <string name="loading">Loading…</string>
+    <string name="loading">Loadingâ€¦</string>
     <string name="image_too_large_preview">Image is too large to preview, but saving will be attempted anyway</string>
     <string name="pick_image">Pick image to start</string>
     <string name="width">Width %1$s</string>
@@ -81,7 +81,7 @@
     <string name="gallery_workspace">Gallery Workspace</string>
     <string name="gallery_workspace_sub">Persistent photo project library</string>
     <string name="gallery_workspace_empty_title">No projects yet</string>
-    <string name="gallery_workspace_empty_body">A project keeps a set of photos together with their edits. Your originals are never changed — edits are saved alongside them.</string>
+    <string name="gallery_workspace_empty_body">A project keeps a set of photos together with their edits. Your originals are never changed â€” edits are saved alongside them.</string>
     <string name="gallery_project_create">Create project</string>
     <string name="gallery_project_rename">Rename project</string>
     <string name="gallery_project_delete">Delete project</string>
@@ -109,11 +109,11 @@
     <string name="gallery_folder_grant_body">Pick the folder your photos are in. Edits are then saved as a small .xmp file next to each photo, so they travel with your files and other apps can read them.</string>
     <string name="gallery_folder_grant_action">Choose folder</string>
     <string name="gallery_folder_grant_why">Why is this needed?</string>
-    <string name="gallery_folder_grant_explainer">Android does not let an app create a file next to a photo it was handed one at a time — that needs permission for the whole folder.
+    <string name="gallery_folder_grant_explainer">Android does not let an app create a file next to a photo it was handed one at a time â€” that needs permission for the whole folder.
 
 The permission is limited to the folder you pick. It is used only to read and write .xmp edit files; your photos are never modified.
 
-If you decline, your edits are still saved — just inside the app instead of next to your photos.</string>
+If you decline, your edits are still saved â€” just inside the app instead of next to your photos.</string>
     <string name="gallery_folder_grant_decline">Not now</string>
     <plurals name="gallery_migration_result">
         <item quantity="one">Moved %1$d edit file next to your photos</item>
@@ -133,18 +133,18 @@ Copy size: %1$s
 Free space now: %2$s
 Free space after: %3$s</string>
     <string name="gallery_copy_disclosure_confirm">Copy and add</string>
-    <string name="gallery_copy_declined">Not added — a shared photo cannot be linked permanently without copying it.</string>
+    <string name="gallery_copy_declined">Not added â€” a shared photo cannot be linked permanently without copying it.</string>
     <string name="gallery_copy_no_space">Not enough space. %1$s more is needed.</string>
     <string name="gallery_copy_failed">Copy failed: %1$s</string>
     <string name="gallery_stored_in_app">Stored in app</string>
     <string name="gallery_added_to_project">Added to %1$s</string>
     <string name="gallery_already_in_project">Already in %1$s</string>
     <string name="gallery_shared_photos_default_name">Shared photos %1$s</string>
-    <string name="gallery_no_projects_create">No projects yet — create one</string>
+    <string name="gallery_no_projects_create">No projects yet â€” create one</string>
     <string name="gallery_project_empty">No photos in this project yet. Use Import to add some.</string>
     <string name="gallery_sort">Sort</string>
-    <string name="gallery_sort_asc">Oldest / A–Z first</string>
-    <string name="gallery_sort_desc">Newest / Z–A first</string>
+    <string name="gallery_sort_asc">Oldest / Aâ€“Z first</string>
+    <string name="gallery_sort_desc">Newest / Zâ€“A first</string>
     <string name="gallery_sort_captured">Date taken</string>
     <string name="gallery_sort_added">Date added</string>
     <string name="gallery_sort_name">File name</string>
@@ -193,9 +193,9 @@ Free space after: %3$s</string>
         <item quantity="one">Remove %1$d photo from this project? Original files and edits saved next to them are kept. Photos stored in the app are deleted.</item>
         <item quantity="other">Remove %1$d photos from this project? Original files and edits saved next to them are kept. Photos stored in the app are deleted.</item>
     </plurals>
-    <string name="gallery_batch_no_targets">No other project yet — create one first.</string>
+    <string name="gallery_batch_no_targets">No other project yet â€” create one first.</string>
     <string name="gallery_undo">Undo</string>
-    <string name="gallery_menu_unreachable_reason">Photo is unreachable — relink or remove it</string>
+    <string name="gallery_menu_unreachable_reason">Photo is unreachable â€” relink or remove it</string>
     <string name="gallery_menu_no_edits">This photo has no edits</string>
     <string name="gallery_menu_copy_settings">Copy edit settings</string>
     <string name="gallery_menu_lens_profile">Camera and lens profile</string>
@@ -212,18 +212,18 @@ Free space after: %3$s</string>
     <string name="gallery_lens_applied">Profile applied to %1$d photo(s)</string>
     <string name="gallery_lens_cleared">Profile removed</string>
     <string name="gallery_lens_db_missing">Profile database unavailable</string>
-    <string name="gallery_lens_edits_kept">Your edits are kept — only the decode profile changes</string>
+    <string name="gallery_lens_edits_kept">Your edits are kept â€” only the decode profile changes</string>
     <string name="gallery_menu_paste_settings">Paste edit settings</string>
-    <string name="gallery_menu_paste_settings_from">Paste settings from %1$s…</string>
+    <string name="gallery_menu_paste_settings_from">Paste settings from %1$sâ€¦</string>
     <string name="gallery_menu_clear_clipboard">Clear copied settings</string>
-    <string name="gallery_menu_reset_edits">Reset edits…</string>
-    <string name="gallery_menu_remove">Remove from project…</string>
-    <string name="gallery_menu_relink">Relink…</string>
+    <string name="gallery_menu_reset_edits">Reset editsâ€¦</string>
+    <string name="gallery_menu_remove">Remove from projectâ€¦</string>
+    <string name="gallery_menu_relink">Relinkâ€¦</string>
     <string name="gallery_menu_relink_already_linked">Already linked</string>
-    <string name="gallery_relink_directory_action">%1$d unreachable — relink a folder…</string>
+    <string name="gallery_relink_directory_action">%1$d unreachable â€” relink a folderâ€¦</string>
     <string name="gallery_relink_report_title">Directory relink</string>
     <string name="gallery_relink_report_applied">%1$d repointed by exact match</string>
-    <string name="gallery_relink_report_pending">%1$d more matched by filename — link them too?</string>
+    <string name="gallery_relink_report_pending">%1$d more matched by filename â€” link them too?</string>
     <string name="gallery_relink_report_ambiguous">%1$d left unmatched (more than one candidate)</string>
     <string name="gallery_relink_report_unmatched">%1$d not found in that folder</string>
     <string name="gallery_relink_report_none">No unreachable photos in this project</string>
@@ -269,7 +269,7 @@ Free space after: %3$s</string>
         <item quantity="other">Keywords updated on %1$d photos</item>
     </plurals>
     <string name="gallery_versions">Versions</string>
-    <string name="gallery_versions_none">No saved versions yet — versions are recorded each time edits are saved</string>
+    <string name="gallery_versions_none">No saved versions yet â€” versions are recorded each time edits are saved</string>
     <string name="gallery_version_current">Current</string>
     <string name="gallery_version_restore">Restore</string>
     <string name="gallery_version_restored">Version restored</string>
@@ -290,13 +290,13 @@ Free space after: %3$s</string>
     <string name="gallery_loupe_edit">Edit</string>
     <string name="gallery_filter_camera">Camera</string>
     <string name="gallery_filter_lens">Lens</string>
-    <string name="gallery_export_photos_body">Bake every photo in this project into a finished file — the same result as Save on the export page: edits, masks, LUTs and the camera and lens profile from each photo. Files go to your default save folder.</string>
+    <string name="gallery_export_photos_body">Bake every photo in this project into a finished file â€” the same result as Save on the export page: edits, masks, LUTs and the camera and lens profile from each photo. Files go to your default save folder.</string>
     <string name="gallery_export_photos_format">Format</string>
     <string name="gallery_export_photos_watermark">Watermark preset</string>
     <string name="gallery_export_photos_no_watermark">None</string>
     <string name="gallery_export_photos_start">Export</string>
-    <string name="gallery_export_photos_progress">Exporting %1$d / %2$d — %3$s</string>
-    <string name="gallery_export_photos_done">%1$d exported, %2$d failed — saved to your default save folder</string>
+    <string name="gallery_export_photos_progress">Exporting %1$d / %2$d â€” %3$s</string>
+    <string name="gallery_export_photos_done">%1$d exported, %2$d failed â€” saved to your default save folder</string>
     <string name="gallery_export_photos_cancelled">Export cancelled after %1$d photo(s)</string>
     <string name="gallery_export_photos_empty">No photos to export</string>
     <string name="gallery_export_photos_busy">A batch export is already running</string>
@@ -304,25 +304,25 @@ Free space after: %3$s</string>
     <string name="gallery_export_body">Export this project\'s photos\' edits, ratings, flags, colour labels, and thumbnails to a folder you choose.</string>
     <string name="gallery_export_include_originals">Also copy the original photo files (uses more space)</string>
     <plurals name="gallery_export_result">
-        <item quantity="one">Exported %1$d photo — %2$d with edits, %3$d with thumbnails</item>
-        <item quantity="other">Exported %1$d photos — %2$d with edits, %3$d with thumbnails</item>
+        <item quantity="one">Exported %1$d photo â€” %2$d with edits, %3$d with thumbnails</item>
+        <item quantity="other">Exported %1$d photos â€” %2$d with edits, %3$d with thumbnails</item>
     </plurals>
-    <string name="gallery_project_import_bundle">Import project…</string>
+    <string name="gallery_project_import_bundle">Import projectâ€¦</string>
     <plurals name="gallery_project_import_result">
         <item quantity="one">Imported %1$d photo</item>
         <item quantity="other">Imported %1$d photos</item>
     </plurals>
     <plurals name="gallery_project_import_result_unreachable">
-        <item quantity="one">Imported %1$d photo — %2$d need relinking to their files</item>
-        <item quantity="other">Imported %1$d photos — %2$d need relinking to their files</item>
+        <item quantity="one">Imported %1$d photo â€” %2$d need relinking to their files</item>
+        <item quantity="other">Imported %1$d photos â€” %2$d need relinking to their files</item>
     </plurals>
-    <string name="gallery_project_import_failed">Could not import that folder — it doesn\'t look like an exported project</string>
+    <string name="gallery_project_import_failed">Could not import that folder â€” it doesn\'t look like an exported project</string>
     <string name="gallery_tile_copied_settings">Settings copied from this photo</string>
     <plurals name="gallery_paste_title">
         <item quantity="one">Paste settings onto %1$d photo</item>
         <item quantity="other">Paste settings onto %1$d photos</item>
     </plurals>
-    <!-- Task 12 (Req 13.1) — batch/context-menu outcome messages, previously
+    <!-- Task 12 (Req 13.1) â€” batch/context-menu outcome messages, previously
          hardcoded English concatenation in GalleryProjectComponent. -->
     <plurals name="gallery_batch_moved">
         <item quantity="one">Moved %1$d photo to %2$s</item>
@@ -351,7 +351,7 @@ Free space after: %3$s</string>
     <string name="gallery_paste_source_skipped">source skipped</string>
     <string name="gallery_paste_masks_never">masks never paste</string>
     <string name="gallery_no_edits_to_copy">This photo has no edits to copy</string>
-    <string name="gallery_edits_reset">Edits reset — history kept in the edit file</string>
+    <string name="gallery_edits_reset">Edits reset â€” history kept in the edit file</string>
     <string name="gallery_no_edits_to_reset">This photo has no edits to reset</string>
     <string name="gallery_relinked">Relinked</string>
     <string name="gallery_relink_unreadable">Could not read that file</string>
@@ -363,7 +363,7 @@ Free space after: %3$s</string>
     <string name="gallery_grant_keep_failed">Could not keep folder access</string>
     <string name="gallery_generic_error">Something went wrong: %1$s</string>
     <string name="gallery_msg_separator">", "</string>
-    <string name="gallery_list_separator">" · "</string>
+    <string name="gallery_list_separator">" Â· "</string>
     <string name="gallery_format_unknown">Unknown format</string>
     <plurals name="gallery_rating_stars">
         <item quantity="one">%1$d star</item>
@@ -376,14 +376,14 @@ Free space after: %3$s</string>
     <string name="gallery_filter_none">no filter</string>
     <string name="gallery_folder_grant_for_project">For the project \"%1$s\".</string>
     <!-- Shared-import failure reasons, rendered through gallery_copy_failed. -->
-    <string name="gallery_import_fail_no_space">insufficient storage — %1$s more needed</string>
+    <string name="gallery_import_fail_no_space">insufficient storage â€” %1$s more needed</string>
     <string name="gallery_import_fail_index_linked">could not index a linked photo</string>
     <string name="gallery_import_fail_copy">copy failed for %1$s</string>
     <string name="gallery_import_fail_index">could not index %1$s</string>
     <string name="gallery_create_failed">Could not create project</string>
     <string name="gallery_paste_apply">Paste</string>
-    <string name="gallery_paste_lens_warning">Lens profile is kit-specific — the target uses a different or unknown camera/lens</string>
-    <string name="gallery_paste_masks_note">Masks are never pasted — they are drawn for one photo\'s pixels.</string>
+    <string name="gallery_paste_lens_warning">Lens profile is kit-specific â€” the target uses a different or unknown camera/lens</string>
+    <string name="gallery_paste_masks_note">Masks are never pasted â€” they are drawn for one photo\'s pixels.</string>
     <string name="gallery_paste_crop_note">Crop isn\'t stored in edit files yet</string>
     <string name="gallery_cat_tone">Tone &amp; exposure</string>
     <string name="gallery_cat_color">Color</string>
@@ -409,10 +409,10 @@ Free space after: %3$s</string>
     <string name="lut_creator_tab_pairs">Before / After</string>
     <string name="lut_creator_tab_match">Match from photo</string>
     <string name="lut_creator_tab_look">Look from reference</string>
-    <string name="lut_creator_pairs_help">Build a color LUT from before/after photos. Add 2–5 pairs — each pair must be the SAME photo (before = original, after = your edit, same crop). The app learns the color change and saves a .cube LUT into your LUT library.</string>
+    <string name="lut_creator_pairs_help">Build a color LUT from before/after photos. Add 2â€“5 pairs â€” each pair must be the SAME photo (before = original, after = your edit, same crop). The app learns the color change and saves a .cube LUT into your LUT library.</string>
     <string name="lut_creator_match_help">Steal a look from a reference image. Colour (Lab), tone (histogram), and film tone (shadow lift / highlight roll-off / casts) bake into a .cube. Grain and glow stay in a separate sidecar so they are not baked into the LUT.</string>
-    <string name="lut_creator_look_help">Build a reusable look LUT from a single reference (no source photo). Residual colour + film tone from the reference alone — works on other photos in User\'s Lut.</string>
-    <string name="lut_creator_match_slots">Source → Reference look</string>
+    <string name="lut_creator_look_help">Build a reusable look LUT from a single reference (no source photo). Residual colour + film tone from the reference alone â€” works on other photos in User\'s Lut.</string>
+    <string name="lut_creator_match_slots">Source â†’ Reference look</string>
     <string name="lut_creator_look_slot">Reference look</string>
     <string name="lut_creator_source">Source</string>
     <string name="lut_creator_reference">Reference</string>
@@ -420,7 +420,7 @@ Free space after: %3$s</string>
     <string name="lut_creator_create">Create LUT</string>
     <string name="lut_creator_match_create">Match &amp; Create LUT</string>
     <string name="lut_creator_look_create">Create look LUT</string>
-    <string name="lut_creator_creating">Creating LUT…</string>
+    <string name="lut_creator_creating">Creating LUTâ€¦</string>
     <string name="lut_creator_pairs_min">Add at least %1$d complete pairs to create a LUT.</string>
     <string name="lut_creator_match_hint">Pick both a source photo and a reference look.</string>
     <string name="lut_creator_look_hint">Pick a reference look photo.</string>
@@ -431,8 +431,8 @@ Free space after: %3$s</string>
     <string name="lut_creator_str_film">Film tone</string>
     <string name="lut_creator_str_grain">Grain / glow</string>
     <string name="lut_creator_optical">Include optical sidecar</string>
-    <string name="lut_creator_optical_help">Grain and glow are saved beside the .cube and applied when you pick this LUT in the RAW editor — not inside the colour cube.</string>
-    <string name="lut_creator_saved">Saved “%1$s” — find it in the RAW editor\'s LUT tab under \"User\'s Lut\".</string>
+    <string name="lut_creator_optical_help">Grain and glow are saved beside the .cube and applied when you pick this LUT in the RAW editor â€” not inside the colour cube.</string>
+    <string name="lut_creator_saved">Saved â€œ%1$sâ€ â€” find it in the RAW editor\'s LUT tab under \"User\'s Lut\".</string>
     <string name="raw_editor_start_page">RAWEditor Start Page</string>
     <string name="raw_single_editor">Single RAWEditor</string>
     <string name="raw_batch_processing_button">Batch Processing</string>
@@ -522,21 +522,21 @@ Free space after: %3$s</string>
     <string name="raw_light_auto">Auto</string>
     <string name="raw_light_normalize_3dlut">Normalize for 3Dlut</string>
     <string name="raw_tonemap_import_xmp">Import XMP</string>
-    <string name="raw_hsl_header">HSL — Per-hue</string>
+    <string name="raw_hsl_header">HSL â€” Per-hue</string>
     <string name="raw_hsl_placeholder">Individual hue controls coming soon</string>
     <string name="raw_lut_none">No LUT selected</string>
 <!-- The picker behind this button accepts .cube, .3dl, Adobe .xmp presets,
-         .lrtemplate, and HaldCLUT images (PNG/JPEG/TIFF) — not only .cube, so
+         .lrtemplate, and HaldCLUT images (PNG/JPEG/TIFF) â€” not only .cube, so
          the label must not say ".cube" (renamed 2026-08-29 per owner request). -->
     <string name="raw_lut_pick">Import LUT / XMP</string>
     <string name="raw_lut_search_toggle">Search LUTs</string>
-    <string name="raw_lut_search_hint">Search LUTs…</string>
+    <string name="raw_lut_search_hint">Search LUTsâ€¦</string>
     <string name="raw_lut_search_clear">Clear search</string>
     <string name="raw_lut_intensity">Intensity</string>
     <string name="raw_lut_remove">Remove LUT</string>
     <string name="raw_tone_curves_placeholder">Interactive tone curves coming soon</string>
     <string name="raw_gradient_placeholder">Linear gradient mask coming soon</string>
-    <string name="raw_actions_empty">No actions yet — press Apply in any tab</string>
+    <string name="raw_actions_empty">No actions yet â€” press Apply in any tab</string>
     <string name="raw_apply">Apply</string>
     <string name="raw_apply_to_editor">Apply to Export</string>
     <string name="raw_go_to_editor">Go to Raw Editor</string>
@@ -558,7 +558,7 @@ Free space after: %3$s</string>
     <string name="raw_online_ai_strength_high">High</string>
     <string name="raw_online_ai_apply">Apply</string>
     <string name="raw_online_ai_cancel">Cancel</string>
-    <string name="raw_online_ai_quota_message">Cloud AI quota reached — try again later.</string>
+    <string name="raw_online_ai_quota_message">Cloud AI quota reached â€” try again later.</string>
     <string name="raw_online_ai_use_heal_instead">Use Heal instead</string>
     <string name="raw_online_ai_generic_error">Cloud AI edit failed. Please try again.</string>
     <string name="raw_details_apply">Apply &amp; Save</string>
@@ -572,7 +572,7 @@ Free space after: %3$s</string>
     <string name="raw_preset_deleted">Preset deleted</string>
     <string name="raw_preset_saved">Preset saved</string>
     <string name="raw_preset_loaded">Preset loaded</string>
-    <string name="go_to_editor">Go to Editor…</string>
+    <string name="go_to_editor">Go to Editorâ€¦</string>
     <string name="raw_curve_midtones">Midtones</string>
     <string name="raw_curve_channel_all">All</string>
     <string name="raw_curve_channel_r">R</string>
@@ -631,7 +631,7 @@ Free space after: %3$s</string>
     <string name="raw_lut_favorites">Favorites</string>
     <string name="raw_lut_no_favorites_hint">Touch and hold a preset to set as favorite</string>
     <string name="raw_lut_presets">Luts</string>
-    <string name="raw_lut_loading">Loading luts…</string>
+    <string name="raw_lut_loading">Loading lutsâ€¦</string>
     <string name="raw_lut_remove_favorite_title">Remove from Favorites?</string>
     <string name="raw_lut_remove_favorite_body">Remove \"%1$s\" from your favorites?</string>
     <string name="raw_lut_delete_custom_title">Delete Custom LUT?</string>
@@ -643,7 +643,7 @@ Free space after: %3$s</string>
     <string name="raw_cancel">Cancel</string>
     <string name="raw_batch_title">Batch Processing</string>
     <string name="raw_batch_folder_label">Source Folder</string>
-    <string name="raw_batch_browse">Browse folder…</string>
+    <string name="raw_batch_browse">Browse folderâ€¦</string>
     <string name="raw_batch_preset_label">Apply Preset</string>
     <string name="raw_batch_no_preset">No preset (original only)</string>
     <string name="raw_batch_auto_expo">Apply Auto Expo only</string>
@@ -655,7 +655,7 @@ Free space after: %3$s</string>
     <string name="raw_batch_run">Run Batch</string>
     <string name="raw_batch_clear">Clear Batch</string>
     <string name="raw_batch_cancel">Cancel Batch</string>
-    <string name="raw_batch_progress">%1$d / %2$d — %3$s</string>
+    <string name="raw_batch_progress">%1$d / %2$d â€” %3$s</string>
     <string name="raw_batch_done_title">Batch Complete</string>
     <string name="raw_batch_done_body">%1$d exported successfully, %2$d failed.</string>
     <string name="raw_batch_done_ok">OK</string>
@@ -664,8 +664,8 @@ Free space after: %3$s</string>
     <string name="raw_batch_output_in_orig">Create \'RAZStudio\' folder in source folder</string>
     <string name="raw_batch_output_subdir">Create original folder name inside RAZStudio</string>
     <string name="raw_batch_scale_mode_label">Scale Mode</string>
-    <string name="raw_full_res_processing">Processing high-res…</string>
-    <!-- v2 §8 — FailureKind → user-visible toast strings. Keep wording aligned with
+    <string name="raw_full_res_processing">Processing high-resâ€¦</string>
+    <!-- v2 Â§8 â€” FailureKind â†’ user-visible toast strings. Keep wording aligned with
          the SavePipelineEvent.Failed handler in the editor save sheet and the batch row. -->
     <string name="raw_failure_decode_timeout">Decode timed out. Try a lighter demosaic algorithm.</string>
     <string name="raw_failure_oom">Not enough memory. Try a lighter demosaic or close other apps.</string>
@@ -1012,7 +1012,7 @@ Free space after: %3$s</string>
     <string name="pipette">Pipette</string>
     <string name="draw_mode">Draw mode</string>
     <string name="create_issue">Create Issue</string>
-    <string name="something_went_wrong_emphasis">Oops… Something went wrong. You can write to me using options below and I\'ll try to find solution</string>
+    <string name="something_went_wrong_emphasis">Oopsâ€¦ Something went wrong. You can write to me using options below and I\'ll try to find solution</string>
     <string name="resize_and_convert">Resize and Convert</string>
     <string name="resize_and_convert_sub">Change size of given images or convert them to other formats. EXIF metadata can also be edited here if picking a single image.</string>
     <string name="max_colors_count">Max color count</string>
@@ -1244,7 +1244,7 @@ Free space after: %3$s</string>
     <string name="transparency">Transparency</string>
     <string name="rate_app">Rate App</string>
     <string name="rate">Rate</string>
-    <string name="rate_app_sub">This app is completely free, if you want it to become bigger, please star the project on Github 😄</string>
+    <string name="rate_app_sub">This app is completely free, if you want it to become bigger, please star the project on Github ðŸ˜„</string>
     <string name="segmentation_mode_osd_only">Orientation &amp; Script Detection only</string>
     <string name="segmentation_mode_auto_osd">Auto Orientation &amp; Script Detection</string>
     <string name="segmentation_mode_auto_only">Auto only</string>
@@ -1918,7 +1918,7 @@ Free space after: %3$s</string>
     <string name="lanczos_6_sharpest">Lanczos 6 Sharpest</string>
     <string name="lanczos_6_sharpest_sub">Separable Lanczos-6 with blur=0.8725 for maximum sharpness. Same sharpness target as Lanczos 4 Sharpest EWA but without the 2-D convolution, making it faster on rectangular images</string>
     <string name="spline64_sharp">Spline 64 Sharp</string>
-    <string name="spline64_sharp_sub">BC-spline with B=0, C=0.75 — sharper than Catmull-Rom (C=0.5), with strong edge accentuation and minimal blurring at the cost of slightly more ringing</string>
+    <string name="spline64_sharp_sub">BC-spline with B=0, C=0.75 â€” sharper than Catmull-Rom (C=0.5), with strong edge accentuation and minimal blurring at the cost of slightly more ringing</string>
     <string name="linear_box_blur">Linear Box Blur</string>
     <string name="linear_tent_blur">Linear Tent Blur</string>
     <string name="linear_gaussian_box_blur">Linear Gaussian Box Blur</string>
@@ -2047,7 +2047,7 @@ Free space after: %3$s</string>
     <string name="ci_channel">CI channel</string>
     <string name="group">Group</string>
     <string name="ungroup">Ungroup</string>
-    <string name="studio_room_in_telegram">StudioRoom in Telegram 🎉</string>
+    <string name="studio_room_in_telegram">StudioRoom in Telegram ðŸŽ‰</string>
     <string name="studio_room_in_telegram_sub">Join our chat where you can discuss anything you want and also look into the CI channel where I post betas and announcements</string>
     <string name="ci_channel_sub">Get notified about new versions of app, and read announcements</string>
     <string name="fit_description">Fit an image to given dimensions and apply blur or color to background</string>
@@ -2219,8 +2219,6 @@ Free space after: %3$s</string>
     <string name="rotation">Rotation</string>
     <string name="checksum_as_filename">Checksum as Filename</string>
     <string name="checksum_as_filename_sub">Output images will have name corresponding to their data checksum</string>
-    <string name="free_software_partner">Free Software (Partner)</string>
-    <string name="free_software_partner_sub">More useful software in the partner channel of Android applications</string>
     <string name="algorithms">Algorithm</string>
     <string name="checksum_tools">Checksum Tools</string>
     <string name="checksum_tools_sub">Compare checksums, calculate hashes or create hex strings from files using different hashing algorithms</string>
@@ -2287,7 +2285,7 @@ Free space after: %3$s</string>
     <string name="barcode_type">Barcode Type</string>
     <string name="enforce_bw">Enforce B/W</string>
     <string name="enforce_bw_sub">Barcode Image will be fully black and white and not colored by app\'s theme</string>
-    <string name="barcodes_sub">Scan any Barcode (QR, EAN, AZTEC, …) and get its content or paste your text to generate new one</string>
+    <string name="barcodes_sub">Scan any Barcode (QR, EAN, AZTEC, â€¦) and get its content or paste your text to generate new one</string>
     <string name="no_barcode_found">No Barcode Found</string>
     <string name="generated_barcode_will_be_here">Generated Barcode Will Be Here</string>
     <string name="audio_cover_extractor">Audio Covers</string>
@@ -2297,7 +2295,7 @@ Free space after: %3$s</string>
     <string name="no_covers_found">No Covers Found</string>
     <string name="send_logs">Send Logs</string>
     <string name="send_logs_sub">Click to share app logs file, this can help me to spot the problem and fix issues</string>
-    <string name="crash_title">Oops… Something went wrong</string>
+    <string name="crash_title">Oopsâ€¦ Something went wrong</string>
     <string name="crash_subtitle">You can contact me using options below and I will try to find solution.\n(Do not forget to attach logs)</string>
     <string name="ocr_write_to_file">Write To File</string>
     <string name="ocr_write_to_file_sub">Extract text from batch of images and store it in the one text file</string>
@@ -2676,7 +2674,7 @@ Free space after: %3$s</string>
     <string name="model_itf_skin_diffdetail_lite">Enhances skin textures and details while keeping a natural look, optimized for speed.</string>
     <string name="model_sbdv_dejpeg">Removes JPEG compression artifacts and restores image quality for compressed photos.</string>
     <string name="model_iso_denoise_v1">Reduces ISO noise in photos taken in low-light conditions, preserving details.</string>
-    <string name="model_dejumbo">Corrects overexposed or “jumbo” highlights and restores better tonal balance.</string>
+    <string name="model_dejumbo">Corrects overexposed or â€œjumboâ€ highlights and restores better tonal balance.</string>
     <string name="model_ddcolor_tiny">Lightweight and fast colorization model that adds natural colors to grayscale images.</string>
     <string name="type_dejpeg">DeJPEG</string>
     <string name="type_denoise">Denoise</string>
@@ -2862,8 +2860,8 @@ Free space after: %3$s</string>
     <string name="camera_failed_to_open">Could not start the camera. Please check permissions and make sure it\'s not being used by another app.</string>
     <string name="extract_images">Extract Images</string>
     <string name="extract_images_sub">Extract images embedded in PDFs at their original resolution</string>
-    <string name="pdf_no_embedded">This PDF file doesn’t contain any embedded images</string>
-    <string name="extract_images_info">This tool scans every page and recovers full-quality source images — perfect for saving originals from documents</string>
+    <string name="pdf_no_embedded">This PDF file doesnâ€™t contain any embedded images</string>
+    <string name="extract_images_info">This tool scans every page and recovers full-quality source images â€” perfect for saving originals from documents</string>
     <string name="draw_signature">Draw Signature</string>
     <string name="pen_params">Pen Params</string>
     <string name="draw_signature_sub">Use own signature as image to be placed on documents</string>
@@ -2930,7 +2928,7 @@ Free space after: %3$s</string>
     <string name="raw_export_file_info">File Info</string>
     <string name="raw_export_resolution_locked">Resolution locked (full sensor)</string>
     <string name="raw_export_format_quick_png">Quick PNG</string>
-    <string name="raw_export_format_quick_png_desc">Stage A preview — instant, no re-render</string>
+    <string name="raw_export_format_quick_png_desc">Stage A preview â€” instant, no re-render</string>
     <string name="raw_export_format_png">PNG</string>
     <string name="raw_export_format_png_desc">Lossless, full Stage C quality</string>
     <string name="raw_export_format_jpg">JPG</string>
@@ -2942,7 +2940,7 @@ Free space after: %3$s</string>
     <string name="raw_export_format_jpeg2000">JPEG 2000</string>
     <string name="raw_export_no_file">No photo selected</string>
     <string name="raw_export_pick_photo">Pick Photo</string>
-    <string name="raw_export_original_resolution">Original: %1$d × %2$d px</string>
+    <string name="raw_export_original_resolution">Original: %1$d Ã— %2$d px</string>
     <string name="raw_export_preset_original">Original</string>
     <string name="raw_export_preset_social">Social Media (1350px)</string>
     <string name="raw_export_preset_4k">4K (3840px)</string>
@@ -2954,10 +2952,10 @@ Free space after: %3$s</string>
     <string name="raw_export_clear_cache_title">Clear cache and pick new image?</string>
     <string name="raw_export_clear_cache_body">This will clear all RAW pipeline cache (Stage A, Stage C) and your current edits. This cannot be undone.</string>
     <string name="raw_export_clear_cache_confirm">Clear &amp; Pick</string>
-    <string name="raw_export_saving">Saving…</string>
+    <string name="raw_export_saving">Savingâ€¦</string>
     <string name="raw_export_saved">Saved to gallery</string>
     <string name="raw_export_save_failed">Save failed</string>
-    <string name="raw_export_sharing">Sharing…</string>
+    <string name="raw_export_sharing">Sharingâ€¦</string>
     <string name="raw_export_width">Width</string>
     <string name="raw_export_height">Height</string>
     <string name="raw_export_orientation">Orientation</string>
@@ -3041,10 +3039,10 @@ Free space after: %3$s</string>
     <string name="watermark_change">Change</string>
     <string name="watermark_enable_footer">Enable Footer Gradient</string>
     <string name="watermark_direction">Direction</string>
-    <string name="watermark_direction_down_to_up">Down → Up</string>
+    <string name="watermark_direction_down_to_up">Down â†’ Up</string>
     <string name="watermark_direction_feather_left">Feather Left</string>
     <string name="watermark_direction_feather_right">Feather Right</string>
-    <string name="watermark_exposure_summary">ISO · focal · aperture · shutter</string>
+    <string name="watermark_exposure_summary">ISO Â· focal Â· aperture Â· shutter</string>
     <string name="watermark_style">Style</string>
     <string name="watermark_length">Length %.0f%%</string>
     <string name="watermark_intensity">Intensity %.0f%%</string>

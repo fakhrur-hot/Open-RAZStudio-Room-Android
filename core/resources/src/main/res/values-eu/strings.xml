@@ -19,7 +19,7 @@
 <resources>
     <string name="size">Tamaina %1$s</string>
     <string name="smth_went_wrong">Zerbait gaizki atera da: %1$s</string>
-    <string name="loading">Kargatzen…</string>
+    <string name="loading">Kargatzenâ€¦</string>
     <string name="image_too_large_preview">Irudia handiegia da aurreikusteko, hala ere, gordetzen saiatuko da</string>
     <string name="pick_image">Aukeratu irudia hasteko</string>
     <string name="width">Zabalera %1$s</string>
@@ -148,7 +148,7 @@
     <string name="spacing">Tartea</string>
     <string name="line_width">Lerroaren zabalera</string>
     <string name="laplacian">Laplazianoa</string>
-    <string name="vignette">Viñeta</string>
+    <string name="vignette">ViÃ±eta</string>
     <string name="radius">Erradioa</string>
     <string name="scale">Eskala</string>
     <string name="order_sub">Pantaila nagusiko aukeren ordena zehazten du</string>
@@ -368,7 +368,7 @@
     <string name="font">Letra-tipoa</string>
     <string name="text">Testua</string>
     <string name="font_scale">Letra-tipoen eskala</string>
-    <string name="alphabet_and_numbers">Aa Bb Cc Dd Ee Ff Gg Hh Ii Jj Kk Ll Mm Nn Ññ Oo Pp Qq Rr Ss Tt Uu Vv Ww Xx Yy Zz 0123456789 !?</string>
+    <string name="alphabet_and_numbers">Aa Bb Cc Dd Ee Ff Gg Hh Ii Jj Kk Ll Mm Nn Ã‘Ã± Oo Pp Qq Rr Ss Tt Uu Vv Ww Xx Yy Zz 0123456789 !?</string>
     <string name="defaultt">Lehenetsia</string>
     <string name="emotions">Emozioak</string>
     <string name="using_large_fonts_warn">Letra-tipo-eskala handiak erabiltzeak UI akatsak eta arazoak sor ditzake, eta horiek ez dira konponduko. Erabili kontu handiz.</string>
@@ -390,7 +390,7 @@
     <string name="blur_radius">Lausotze erradioa</string>
     <string name="pipette">Pipeta</string>
     <string name="create_issue">Sortu alea</string>
-    <string name="something_went_wrong_emphasis">Aupa… Arazoren bat izan da. Beheko aukerak erabiliz idatz diezadazu eta irtenbidea bilatzen saiatuko naiz</string>
+    <string name="something_went_wrong_emphasis">Aupaâ€¦ Arazoren bat izan da. Beheko aukerak erabiliz idatz diezadazu eta irtenbidea bilatzen saiatuko naiz</string>
     <string name="resize_and_convert_sub">Emandako irudien tamaina aldatu edo beste formatu batzuetara bihurtu. EXIF metadatuak hemen ere edita daitezke irudi bakarra hautatuz gero.</string>
     <string name="crashlytics_sub">Horri esker, aplikazioak hutsegiteen txostenak eskuz bil ditzake</string>
     <string name="analytics">Analitika</string>
@@ -436,7 +436,7 @@
     <string name="tonal_spot_sub">Paleta estilo lehenetsia, lau koloreak pertsonalizatzeko aukera ematen du, beste batzuek gako kolorea soilik ezartzeko aukera ematen dute</string>
     <string name="neutral_sub">Monokromoa baino apur bat kromatikoagoa den estiloa</string>
     <string name="vibrant_sub">Gai ozena, koloretsutasuna maximoa da Lehen mailako paletarentzat, besteentzat areagotua</string>
-    <string name="playful_scheme">Gai dibertigarria - iturriko kolorearen ñabardura ez da gaian agertzen</string>
+    <string name="playful_scheme">Gai dibertigarria - iturriko kolorearen Ã±abardura ez da gaian agertzen</string>
     <string name="monochrome_sub">Gai monokromoa, koloreak beltza / zuria / grisa dira</string>
     <string name="content_sub">Iturburu-kolorea Scheme.primaryContainer-en jartzen duen eskema</string>
     <string name="fidelity_sub">Edukien eskemaren oso antzekoa den eskema</string>
@@ -493,7 +493,7 @@
     <string name="force_exif_widget_initial_value">Indartu hasierako balioa</string>
     <string name="force_exif_widget_initial_value_sub">Exif widget-a hasiera batean egiaztatzea behartzen du</string>
     <string name="toggle_tap">Aktibatu/Sakatu</string>
-    <string name="rate_app_sub">Aplikazio hau guztiz doakoa da, handiagoa izan nahi baduzu, izarra ezazu proiektua Github-en 😄</string>
+    <string name="rate_app_sub">Aplikazio hau guztiz doakoa da, handiagoa izan nahi baduzu, izarra ezazu proiektua Github-en ðŸ˜„</string>
     <string name="segmentation_mode_auto">Autoa</string>
     <string name="segmentation_mode_single_column">Zutabe bakarra</string>
     <string name="segmentation_mode_single_word">Hitz bakarra</string>
@@ -1317,7 +1317,7 @@
     <string name="lut512x512">512x512 2D LUT</string>
     <string name="target_lut_image">Helburuko LUT irudia</string>
     <string name="amatorka">Afizionatua</string>
-    <string name="miss_etikate">Etiketa andereñoa</string>
+    <string name="miss_etikate">Etiketa andereÃ±oa</string>
     <string name="soft_elegance">Dotorezia leuna</string>
     <string name="soft_elegance_variant">Soft Elegance Aldaera</string>
     <string name="palette_transfer_variant">Paleta transferentzia aldaera</string>
@@ -1367,7 +1367,7 @@
     <string name="recently_used">Duela gutxi erabilia</string>
     <string name="ci_channel">CI kanala</string>
     <string name="group">Taldea</string>
-    <string name="studio_room_in_telegram">Irudi-tresnak Telegram-en 🎉</string>
+    <string name="studio_room_in_telegram">Irudi-tresnak Telegram-en ðŸŽ‰</string>
     <string name="studio_room_in_telegram_sub">Sartu gure txatean, nahi duzun guztia eztabaidatu ahal izateko eta beta eta iragarkiak argitaratzen ditudan CI kanalean ere begiratu</string>
     <string name="ci_channel_sub">Jaso jakinarazpenak aplikazioaren bertsio berriei buruz eta irakurri iragarkiak</string>
     <string name="fit_description">Egokitu irudi bat emandako neurrietara eta aplikatu lausotasuna edo kolorea atzeko planoari</string>
@@ -1530,8 +1530,6 @@
     <string name="rotation">Errotazioa</string>
     <string name="checksum_as_filename">Checksum fitxategi-izen gisa</string>
     <string name="checksum_as_filename_sub">Irteerako irudiek beren datuen kontrol-sumari dagokion izena izango dute</string>
-    <string name="free_software_partner">Software librea (bazkidea)</string>
-    <string name="free_software_partner_sub">Software erabilgarriagoa Android aplikazioen bazkide kanalean</string>
     <string name="algorithms">Algoritmoa</string>
     <string name="checksum_tools">Checksum tresnak</string>
     <string name="checksum_tools_sub">Konparatu kontrol batuketak, kalkulatu hashak edo sortu hashing-algoritmo desberdinak erabiliz fitxategietatik hex kateak</string>
@@ -1598,7 +1596,7 @@
     <string name="barcode_type">Barra-kode mota</string>
     <string name="enforce_bw">B/N betearazi</string>
     <string name="enforce_bw_sub">Barra-kodearen irudia zuri-beltzean izango da eta ez da aplikazioaren gaiaren arabera koloreztatu</string>
-    <string name="barcodes_sub">Eskaneatu edozein barra-kode (QR, EAN, AZTEC, …) eta lortu bere edukia edo itsatsi zure testua berri bat sortzeko</string>
+    <string name="barcodes_sub">Eskaneatu edozein barra-kode (QR, EAN, AZTEC, â€¦) eta lortu bere edukia edo itsatsi zure testua berri bat sortzeko</string>
     <string name="no_barcode_found">Ez da barra-koderik aurkitu</string>
     <string name="generated_barcode_will_be_here">Sortutako barra-kodea hemen egongo da</string>
     <string name="audio_cover_extractor">Audio Azalak</string>
@@ -1608,12 +1606,12 @@
     <string name="no_covers_found">Ez da azala aurkitu</string>
     <string name="send_logs">Bidali erregistroak</string>
     <string name="send_logs_sub">Egin klik aplikazioaren erregistro-fitxategia partekatzeko, honek arazoa antzematen eta arazoak konpontzen lagunduko dit</string>
-    <string name="crash_title">Aupa… Arazoren bat izan da</string>
+    <string name="crash_title">Aupaâ€¦ Arazoren bat izan da</string>
     <string name="crash_subtitle">Nirekin harremanetan jar zaitezke beheko aukeren bidez eta irtenbidea bilatzen saiatuko naiz.\n(Ez ahaztu erregistroak eranstea)</string>
     <string name="ocr_write_to_file">Idatzi fitxategira</string>
     <string name="ocr_write_to_file_sub">Atera testua irudi sortatik eta gorde testu fitxategi bakarrean</string>
     <string name="ocr_write_to_metadata">Idatzi metadatuetara</string>
-    <string name="ocr_write_to_metadata_sub">Atera testua irudi bakoitzetik eta jarri argazki erlatiboen EXIF ​​informazioan</string>
+    <string name="ocr_write_to_metadata_sub">Atera testua irudi bakoitzetik eta jarri argazki erlatiboen EXIF â€‹â€‹informazioan</string>
     <string name="invisible_mode">Modu Ikusezina</string>
     <string name="invisible_mode_sub">Erabili esteganografia begi-markak ikusezinak sortzeko zure irudien byteen barruan</string>
     <string name="use_lsb">Erabili LSB</string>
@@ -1952,7 +1950,7 @@
     <string name="model_nmkd_detoon">Gehiegizko kolore-tonua kentzen du eta kolore oreka neutralagoa eta naturalagoa berreskuratzen du.</string>
     <string name="model_noise_toner_poisson_detailed">Poisson-en oinarritutako zarata-tonua aplikatzen du, xehetasun eta ehundura finak zaintzean arreta jarriz.</string>
     <string name="model_noise_toner_poisson_soft">Poisson zarata-tonu leuna aplikatzen du, ikusmen emaitza leunagoak eta ez hain oldarkorrak lortzeko.</string>
-    <string name="model_noise_toner_uniform_detailed">Zarata-tonu uniformea ​​xehetasunen kontserbazioan eta irudiaren argitasunean zentratua.</string>
+    <string name="model_noise_toner_uniform_detailed">Zarata-tonu uniformea â€‹â€‹xehetasunen kontserbazioan eta irudiaren argitasunean zentratua.</string>
     <string name="model_noise_toner_uniform_soft">Zarata tonu uniforme leuna, ehundura sotila eta itxura leuna lortzeko.</string>
     <string name="model_repainter">Kaltetutako edo irregularrak diren eremuak konpontzen ditu artefaktuak berriro margotuz eta irudiaren koherentzia hobetuz.</string>
     <string name="model_debandurh_fs_ultra_lite">Debanding eredu arina, kolore-bandak kentzen dituena, errendimendu kostu minimoarekin.</string>
