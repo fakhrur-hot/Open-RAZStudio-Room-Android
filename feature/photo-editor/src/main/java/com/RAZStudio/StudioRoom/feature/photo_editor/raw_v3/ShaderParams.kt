@@ -137,6 +137,17 @@ data class ShaderParams(
      */
     val lutBwForce: Boolean = false, // [450]
     /**
+     * Luminance-preserving filmic S-curve, slot [451]. Tone-maps Y then
+     * scales RGB (brief / selective-bokeh look). 0 = off; shader also
+     * auto-applies 0.65 when depth CoC bokeh is live.
+     */
+    val filmicLuma: Float = 0f, // [451]
+    /**
+     * OKLab highlight chroma compression, slot [452]. Midtone chroma
+     * lift + highlight desat toward neutral. Auto 0.70 with depth+bokeh.
+     */
+    val oklabHlChroma: Float = 0f, // [452]
+    /**
      * LUT highlight vibrancy [-1..+1], slot [200]. Creative overlay on the
      * always-on headroom-aware pre-LUT map (identity on [0,1], compress >1):
      *  0   → headroom map only (default protect path).
@@ -648,6 +659,8 @@ data class ShaderParams(
         a[30] = gamutOut.toFloat()
         a[31] = lutIntensity
         a[450] = if (lutBwForce) 1f else 0f
+        a[451] = filmicLuma
+        a[452] = oklabHlChroma
         a[32] = if (xmpEnabled) 1f else 0f
         a[33] = xmpExposure
         a[34] = xmpContrast
@@ -875,6 +888,8 @@ data class ShaderParams(
         a[30] = gamutOut.toFloat()
         a[31] = lutIntensity
         a[450] = if (lutBwForce) 1f else 0f
+        a[451] = filmicLuma
+        a[452] = oklabHlChroma
         a[32] = if (xmpEnabled) 1f else 0f
         a[33] = xmpExposure
         a[34] = xmpContrast
@@ -1087,14 +1102,15 @@ data class ShaderParams(
     }
 
     companion object {
-        // Append-only ABI. Highest used slot [450] (lutBwForce);
-        // next free is [451].
+        // Append-only ABI. Highest used slot [452] (oklabHlChroma);
+        // next free is [453].
         // lensFlare [400,401,409,430,431] + lensFlareWarmth [435],
         // colorShift [432,433,434],
         // film response [436..446], cinematic bloom [447..448],
         // purpleFringeMode [449] (moved off contested [199] — shadowsBackground),
         // lutBwForce [450] — B&W pack chroma lock on intensity mix.
-        const val FLOAT_COUNT = 451
+        // filmicLuma [451], oklabHlChroma [452] — selective-bokeh look.
+        const val FLOAT_COUNT = 453
         const val XMP_BLOB_FLOAT_COUNT = 25
         /** Brush-mask layer count — matches GlesRenderer::kMaskLayers. */
         const val MASK_LAYER_COUNT = 4
@@ -1150,6 +1166,8 @@ data class ShaderParams(
                 gamutOut     = arr[30].toInt(),
                 lutIntensity = arr[31].coerceIn(0f, 1f),
                 lutBwForce   = arr.getOrElse(450) { 0f } > 0.5f,
+                filmicLuma   = arr.getOrElse(451) { 0f }.coerceIn(0f, 1f),
+                oklabHlChroma = arr.getOrElse(452) { 0f }.coerceIn(0f, 1f),
                 xmpEnabled   = arr[32] > 0.5f,
                 xmpExposure  = arr[33],
                 xmpContrast  = arr[34],
@@ -1470,6 +1488,8 @@ fun ShaderParams.withUpdate(slot: Int, value: Float): ShaderParams = when (slot)
     // [30] gamutOut int — skip
     31   -> copy(lutIntensity         = value.coerceIn(0f, 1f))
     450  -> copy(lutBwForce           = value > 0.5f)
+    451  -> copy(filmicLuma           = value.coerceIn(0f, 1f))
+    452  -> copy(oklabHlChroma        = value.coerceIn(0f, 1f))
     // [32] xmpEnabled bool — skip
     33   -> copy(xmpExposure          = value.coerceIn(-4f, 4f))
     34   -> copy(xmpContrast          = value.coerceIn(-1f, 1f))

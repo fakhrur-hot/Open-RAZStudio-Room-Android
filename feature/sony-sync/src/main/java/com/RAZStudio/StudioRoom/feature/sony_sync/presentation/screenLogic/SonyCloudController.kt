@@ -5,6 +5,8 @@
 
 package com.RAZStudio.StudioRoom.feature.sony_sync.presentation.screenLogic
 
+import com.RAZStudio.StudioRoom.feature.sony_sync.data.SonyModelNames
+
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -348,7 +350,11 @@ class SonyCloudController(
             val out = ByteArrayOutputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 85, it); it.toByteArray() }
 
             // 5) Overwrite the EXIF lens name on the output (naming only).
-            if (lensName != null) writeLensExif(out, lensName) else out
+            if (lensName != null) writeLensExif(
+                out, lensName,
+                cameraModel = ex.model,
+                firmwareVersion = ex.software.takeIf { it.isNotBlank() && !it.startsWith("RAZStudio") },
+            ) else out
         }.getOrNull()
     }
 
@@ -359,6 +365,7 @@ class SonyCloudController(
         val focalMin: Float, val focalMax: Float,
         val focalMm: Float, val aperture: Float, val iso: Int,
         val shutter: Float, val dateTime: String, val hasLens: Boolean,
+        val software: String,
     )
 
     private fun readExif(jpeg: ByteArray): ExifLens = runCatching {
@@ -371,6 +378,7 @@ class SonyCloudController(
         val iso = e.getAttributeInt(ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY, 0)
         val shutter = e.getAttributeDouble(ExifInterface.TAG_EXPOSURE_TIME, 0.0).toFloat()
         val dt = e.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL).orEmpty()
+        val software = e.getAttribute(ExifInterface.TAG_SOFTWARE).orEmpty().trim()
         // LensSpecification = "minFocal maxFocal minAp maxAp" as rationals.
         var fMin = 0f; var fMax = 0f
         e.getAttribute(ExifInterface.TAG_LENS_SPECIFICATION)?.let { spec ->
@@ -382,8 +390,8 @@ class SonyCloudController(
         }
         // "No lens info" = fully manual adapted lens → no aperture, no model/spec.
         val hasLens = aperture > 0f || lensModel.isNotBlank() || fMin > 0f
-        ExifLens(make, model, lensModel, fMin, fMax, focalMm, aperture, iso, shutter, dt, hasLens)
-    }.getOrDefault(ExifLens("", "", "", 0f, 0f, 0f, 0f, 0, 0f, "", false))
+        ExifLens(make, model, lensModel, fMin, fMax, focalMm, aperture, iso, shutter, dt, hasLens, software)
+    }.getOrDefault(ExifLens("", "", "", 0f, 0f, 0f, 0f, 0, 0f, "", false, ""))
 
     /**
      * Map an incoming photo to one enabled brought-lens row. No lens EXIF → the
@@ -430,12 +438,25 @@ class SonyCloudController(
     }
 
     /** Rewrite the EXIF LensModel + Software on JPEG bytes (via a temp file). */
-    private fun writeLensExif(jpeg: ByteArray, lensName: String): ByteArray = runCatching {
+    private fun writeLensExif(
+        jpeg: ByteArray,
+        lensName: String,
+        cameraModel: String? = null,
+        firmwareVersion: String? = null,
+    ): ByteArray = runCatching {
         val tmp = File(context.cacheDir, "cloud_exif_${System.nanoTime()}.jpg")
         tmp.writeBytes(jpeg)
         val e = ExifInterface(tmp.absolutePath)
         e.setAttribute(ExifInterface.TAG_LENS_MODEL, lensName)
-        e.setAttribute(ExifInterface.TAG_SOFTWARE, "RAZStudio Room")
+        // Keep Model canonical (ILCE-…) so camera-and-lens-profile lookups still hit.
+        val model = SonyModelNames.canonicalForLensfun(
+            cameraModel ?: e.getAttribute(ExifInterface.TAG_MODEL),
+        )
+        if (model.isNotEmpty()) {
+            e.setAttribute(ExifInterface.TAG_MODEL, model)
+            e.setAttribute(ExifInterface.TAG_MAKE, "Sony")
+        }
+        e.setAttribute(ExifInterface.TAG_SOFTWARE, SonyModelNames.softwareTag(firmwareVersion))
         e.saveAttributes()
         val result = tmp.readBytes()
         tmp.delete()

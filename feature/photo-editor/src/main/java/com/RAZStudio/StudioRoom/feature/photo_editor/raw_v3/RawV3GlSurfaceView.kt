@@ -445,6 +445,31 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
     }
 
     /**
+     * Upload relative depth (MASK_SIZE gray8) for depth→CoC bokeh.
+     * Packed into unit-10 RG8 .g beside attenuation. [focusDepth01] is the
+     * subject-median depth (focus plane); subject pixels stay sharp via mask.
+     */
+    fun uploadDepthMap(grayBytes: ByteArray, width: Int, height: Int, focusDepth01: Float) {
+        renderHandler.post {
+            val h = rendererHandle
+            if (h != 0L) {
+                val ok = nativeUploadDepthMap(h, grayBytes, width, height, focusDepth01)
+                if (ok) render(h, "uploadDepthMap")
+            }
+        }
+    }
+
+    fun clearDepthMap() {
+        renderHandler.post {
+            val h = rendererHandle
+            if (h != 0L) {
+                nativeClearDepthMap(h)
+                render(h, "clearDepthMap")
+            }
+        }
+    }
+
+    /**
      * Tell the renderer the UV rectangle inside the 320×320 subject mask
      * where the actual source image lives (the rest is letterbox
      * padding from the U2Net input prep). Defaults to (0,0,1,1) — full
@@ -831,6 +856,8 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
     private external fun nativeClearLut3d(handle: Long)
     private external fun nativeUploadSubjectMask(handle: Long, gray: ByteArray, width: Int, height: Int): Boolean
     private external fun nativeUploadBokehAttenuation(handle: Long, gray: ByteArray, width: Int, height: Int): Boolean
+    private external fun nativeUploadDepthMap(handle: Long, gray: ByteArray, width: Int, height: Int, focusDepth01: Float): Boolean
+    private external fun nativeClearDepthMap(handle: Long)
     private external fun nativeClearSubjectMask(handle: Long)
     private external fun nativeSetSubjectMaskInnerRect(handle: Long, u0: Float, v0: Float, u1: Float, v1: Float)
     private external fun nativeSetViewTransform(handle: Long, scale: Float, offsetX: Float, offsetY: Float)

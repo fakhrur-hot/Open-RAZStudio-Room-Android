@@ -473,6 +473,10 @@ bool GlesRenderer::createProgram() {
                 sharpenLocTex_       = glGetUniformLocation(sharpenProg_, "uTex");
                 sharpenLocSharpness_ = glGetUniformLocation(sharpenProg_, "uSharpness");
                 sharpenLocTexelSize_ = glGetUniformLocation(sharpenProg_, "uTexelSize");
+                sharpenLocSubjectMask_ = glGetUniformLocation(sharpenProg_, "uSubjectMask");
+                sharpenLocSubjectEn_   = glGetUniformLocation(sharpenProg_, "uSubjectMaskEnabled");
+                sharpenLocSubjectRect_ = glGetUniformLocation(sharpenProg_, "uSubjectMaskRect");
+                sharpenLocSubjectOnly_ = glGetUniformLocation(sharpenProg_, "uSubjectOnly");
             }
         }
         if (vs) glDeleteShader(vs);
@@ -1016,6 +1020,8 @@ void GlesRenderer::cacheUniformLocations() {
     uBloomRadiusLoc_    = L("uBloomRadius");
     uBloomShapeLoc_     = L("uBloomShape");
     uFilmRolloffLoc_    = L("uFilmRolloff");
+    uFilmicLumaLoc_     = L("uFilmicLuma");
+    uOklabHlChromaLoc_  = L("uOklabHlChroma");
     uFilmRecoveryLoc_   = L("uFilmRecovery");
     uFilmFillLightLoc_  = L("uFilmFillLight");
     uFilmMonochromeLoc_ = L("uFilmMonochrome");
@@ -1070,6 +1076,8 @@ void GlesRenderer::cacheUniformLocations() {
     uSubjectMaskRectLoc_    = L("uSubjectMaskRect");
     uBokehAttenLoc_         = L("uBokehAttenuation");
     uBokehAttenEnabledLoc_  = L("uBokehAttenuationEnabled");
+    uDepthMapEnabledLoc_    = L("uDepthMapEnabled");
+    uBokehFocusDepthLoc_    = L("uBokehFocusDepth");
     uGradTopApplyToLoc_     = L("uGradTopApplyTo");
     uGradBottomApplyToLoc_  = L("uGradBottomApplyTo");
     uGradLeftApplyToLoc_    = L("uGradLeftApplyTo");
@@ -1525,21 +1533,22 @@ bool GlesRenderer::uploadSubjectMask(const uint8_t* gray8, int width, int height
     return true;
 }
 
-bool GlesRenderer::uploadBokehAttenuation(const uint8_t* gray8, int width, int height) {
-    // Same shape as uploadSubjectMask: GL_R8 immutable, unit 10, sampled
-    // via uSubjectMaskRect in the shader so the same letterbox UV remap
-    // works without a second rect uniform.
-    if (display_ == EGL_NO_DISPLAY) {
-        LOGE("uploadBokehAttenuation: renderer not initialized");
-        return false;
+
+// Rebuild unit-10 GL_RG8 from CPU planes (R=atten, G=depth). Either plane
+// may be empty — missing channel uploads as 0.
+bool GlesRenderer::rebuildBokehAuxTexLocked(int width, int height) {
+    if (width <= 0 || height <= 0) return false;
+    const size_t n = size_t(width) * size_t(height);
+    if (bokehAttenPlane_.size() != n) {
+        bokehAttenPlane_.assign(n, 0);
     }
-    if (!gray8 || width <= 0 || height <= 0) {
-        LOGE("uploadBokehAttenuation: bad args (%p %dx%d)", gray8, width, height);
-        return false;
+    if (depthPlane_.size() != n) {
+        depthPlane_.assign(n, 0);
     }
-    if (!eglMakeCurrent(display_, surface_, surface_, context_)) {
-        LOGE("uploadBokehAttenuation: eglMakeCurrent failed err=0x%x", eglGetError());
-        return false;
+    std::vector<uint8_t> rg(n * 2);
+    for (size_t i = 0; i < n; ++i) {
+        rg[i * 2 + 0] = bokehAttenPlane_[i];
+        rg[i * 2 + 1] = depthPlane_[i];
     }
     if (bokehAttenTex_ == 0 || width != bokehAttenW_ || height != bokehAttenH_) {
         if (bokehAttenTex_) {
@@ -1552,7 +1561,7 @@ bool GlesRenderer::uploadBokehAttenuation(const uint8_t* gray8, int width, int h
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexStorage2D(GL_TEXTURE_2D, 1, GL_R8, width, height);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_RG8, width, height);
         bokehAttenW_ = width;
         bokehAttenH_ = height;
     } else {
@@ -1560,10 +1569,76 @@ bool GlesRenderer::uploadBokehAttenuation(const uint8_t* gray8, int width, int h
     }
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height,
-                    GL_RED, GL_UNSIGNED_BYTE, gray8);
+                    GL_RG, GL_UNSIGNED_BYTE, rg.data());
     glBindTexture(GL_TEXTURE_2D, 0);
+    return true;
+}
+
+bool GlesRenderer::uploadBokehAttenuation(const uint8_t* gray8, int width, int height) {
+    // Packs into unit-10 GL_RG8 .r (depth lives in .g). Same letterbox UV
+    // as subject mask via uSubjectMaskRect.
+    if (display_ == EGL_NO_DISPLAY) {
+        LOGE("uploadBokehAttenuation: renderer not initialized");
+        return false;
+    }
+    if (!gray8 || width <= 0 || height <= 0) {
+        LOGE("uploadBokehAttenuation: bad args (%p %dx%d)", gray8, width, height);
+        return false;
+    }
+    if (!eglMakeCurrent(display_, surface_, surface_, context_)) {
+        LOGE("uploadBokehAttenuation: eglMakeCurrent failed err=0x%x", eglGetError());
+        return false;
+    }
+    const size_t n = size_t(width) * size_t(height);
+    // Size change: keep depth if same resolution, else reset depth plane.
+    if (depthPlane_.size() != n) {
+        depthPlane_.assign(n, 0);
+        depthMapReady_ = false;
+    }
+    bokehAttenPlane_.assign(gray8, gray8 + n);
+    if (!rebuildBokehAuxTexLocked(width, height)) return false;
     bokehAttenReady_ = true;
     return true;
+}
+
+bool GlesRenderer::uploadDepthMap(const uint8_t* gray8, int width, int height,
+                                  float focusDepth01) {
+    if (display_ == EGL_NO_DISPLAY) {
+        LOGE("uploadDepthMap: renderer not initialized");
+        return false;
+    }
+    if (!gray8 || width <= 0 || height <= 0) {
+        LOGE("uploadDepthMap: bad args (%p %dx%d)", gray8, width, height);
+        return false;
+    }
+    if (!eglMakeCurrent(display_, surface_, surface_, context_)) {
+        LOGE("uploadDepthMap: eglMakeCurrent failed err=0x%x", eglGetError());
+        return false;
+    }
+    const size_t n = size_t(width) * size_t(height);
+    if (bokehAttenPlane_.size() != n) {
+        bokehAttenPlane_.assign(n, 0);
+        bokehAttenReady_ = false;
+    }
+    depthPlane_.assign(gray8, gray8 + n);
+    bokehFocusDepth_ = focusDepth01 < 0.f ? 0.f : (focusDepth01 > 1.f ? 1.f : focusDepth01);
+    if (!rebuildBokehAuxTexLocked(width, height)) return false;
+    depthMapReady_ = true;
+    return true;
+}
+
+void GlesRenderer::clearDepthMap() {
+    depthMapReady_ = false;
+    bokehFocusDepth_ = 0.5f;
+    if (!depthPlane_.empty()) {
+        std::fill(depthPlane_.begin(), depthPlane_.end(), 0);
+        if (display_ != EGL_NO_DISPLAY && bokehAttenTex_ != 0 &&
+            bokehAttenW_ > 0 && bokehAttenH_ > 0) {
+            if (eglMakeCurrent(display_, surface_, surface_, context_)) {
+                rebuildBokehAuxTexLocked(bokehAttenW_, bokehAttenH_);
+            }
+        }
+    }
 }
 
 bool GlesRenderer::uploadSobelEdgeMask(const uint8_t* gray8, int width, int height) {
@@ -1768,6 +1843,8 @@ void GlesRenderer::pushUniforms() {
     if (uBloomRadiusLoc_    >= 0) glUniform1f(uBloomRadiusLoc_,    params_.bloomRadius);
     if (uBloomShapeLoc_     >= 0) glUniform1f(uBloomShapeLoc_,     params_.bloomShape);
     if (uFilmRolloffLoc_    >= 0) glUniform1f(uFilmRolloffLoc_,    params_.filmRolloff);
+    if (uFilmicLumaLoc_     >= 0) glUniform1f(uFilmicLumaLoc_,     params_.filmicLuma);
+    if (uOklabHlChromaLoc_  >= 0) glUniform1f(uOklabHlChromaLoc_,  params_.oklabHlChroma);
     // Film Response (Tone Highlights Recovery / Fill Light / GrayMixer).
     // Export already sets these in pushGradingUniforms; live preview must too.
     if (uFilmRecoveryLoc_   >= 0) glUniform1f(uFilmRecoveryLoc_,   params_.filmRecovery);
@@ -2168,7 +2245,7 @@ bool GlesRenderer::renderFrame() {
         blurPassDirty_ = false;
         float radiusPx;
         if (bokehActive)
-            radiusPx = 2.0f + params_.bokehSpread * 6.0f;
+            radiusPx = 6.0f + params_.bokehBlur * 28.0f + params_.bokehSpread * 18.0f; // scale with strength+spread
         else if (fxBlurActive) {
             float amt = std::max({params_.fxGaussBlur, params_.fxDirBlurAmt,
                                   params_.fxRadBlurAmt, params_.fxZoomBlurAmt});
@@ -2248,7 +2325,12 @@ bool GlesRenderer::renderFrame() {
     //   default framebuffer (window surface). When sharpen is off, the
     //   uber-shader draws directly to the window surface (zero overhead).
     // Task 4.6: C++ guard — sharpen FBO pass only when slider > 0.
-    const bool sharpenActive = params_.sharpenAmount > 0.0f && sharpenProg_ != 0;
+    // Selective-bokeh: auto subject sharpen 0.35 when depth+bokehBlur and
+    // slot 379 is still 0. Explicit sharpenAmount always wins.
+    const bool selBokehSharpen = depthMapReady_ && params_.bokehBlur > 0.f;
+    float sharpenAmt = params_.sharpenAmount;
+    // auto subject sharpen removed — explicit only
+    const bool sharpenActive = sharpenAmt > 0.0f && sharpenProg_ != 0;
     int vpX = 0, vpY = 0, vpW = surfaceW_, vpH = surfaceH_;
 
     // Letterbox: clear to transparent so the Compose background (letterboxColor)
@@ -2325,6 +2407,8 @@ bool GlesRenderer::renderFrame() {
     glBindTexture(GL_TEXTURE_2D, bokehAttenTex_);
     if (uBokehAttenLoc_         >= 0) glUniform1i(uBokehAttenLoc_, 10);
     if (uBokehAttenEnabledLoc_  >= 0) glUniform1i(uBokehAttenEnabledLoc_, bokehAttenReady_ ? 1 : 0);
+    if (uDepthMapEnabledLoc_    >= 0) glUniform1i(uDepthMapEnabledLoc_, depthMapReady_ ? 1 : 0);
+    if (uBokehFocusDepthLoc_    >= 0) glUniform1f(uBokehFocusDepthLoc_, bokehFocusDepth_);
 
     // Brush-painted Mask tab layers: 0→unit3, 1→unit5, 2→unit6, 3→unit7.
     // Unit 4 stays the Sobel edge mask. Bind 0 for empty layers so the
@@ -2376,9 +2460,16 @@ bool GlesRenderer::renderFrame() {
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, sharpenTex_);
         if (sharpenLocTex_       >= 0) glUniform1i(sharpenLocTex_, 0);
-        if (sharpenLocSharpness_ >= 0) glUniform1f(sharpenLocSharpness_, params_.sharpenAmount);
+        if (sharpenLocSharpness_ >= 0) glUniform1f(sharpenLocSharpness_, sharpenAmt);
         if (sharpenLocTexelSize_ >= 0) glUniform2f(sharpenLocTexelSize_,
             1.0f / float(vpW), 1.0f / float(vpH));
+        // Subject-only when selective bokeh look is live (depth+bokeh).
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, subjectMaskReady_ ? subjectMaskTex_ : 0);
+        if (sharpenLocSubjectMask_ >= 0) glUniform1i(sharpenLocSubjectMask_, 1);
+        if (sharpenLocSubjectEn_   >= 0) glUniform1i(sharpenLocSubjectEn_, subjectMaskReady_ ? 1 : 0);
+        if (sharpenLocSubjectRect_ >= 0) glUniform4fv(sharpenLocSubjectRect_, 1, subjectMaskRect_);
+        if (sharpenLocSubjectOnly_ >= 0) glUniform1i(sharpenLocSubjectOnly_, selBokehSharpen ? 1 : 0);
 
         glBindVertexArray(vao_);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -2488,7 +2579,7 @@ bool GlesRenderer::snapshotGradedToAhb(AHardwareBuffer* dst) {
     if (snapBlurNeeded) {
         float radiusPx;
         if (snapBokeh)
-            radiusPx = 2.0f + params_.bokehSpread * 6.0f;
+            radiusPx = 6.0f + params_.bokehBlur * 28.0f + params_.bokehSpread * 18.0f; // scale with strength+spread
         else if (snapFxBlur) {
             float amt = std::max({params_.fxGaussBlur, params_.fxDirBlurAmt,
                                   params_.fxRadBlurAmt, params_.fxZoomBlurAmt});
@@ -2562,6 +2653,8 @@ bool GlesRenderer::snapshotGradedToAhb(AHardwareBuffer* dst) {
     glBindTexture(GL_TEXTURE_2D, bokehAttenTex_);
     if (snapBokehAttenLoc   >= 0) glUniform1i(snapBokehAttenLoc, 10);
     if (snapBokehAttenEnLoc >= 0) glUniform1i(snapBokehAttenEnLoc, bokehAttenReady_ ? 1 : 0);
+    if (uDepthMapEnabledLoc_    >= 0) glUniform1i(uDepthMapEnabledLoc_, depthMapReady_ ? 1 : 0);
+    if (uBokehFocusDepthLoc_    >= 0) glUniform1f(uBokehFocusDepthLoc_, bokehFocusDepth_);
     // 4 brush mask layers on units 3,5,6,7 (sampler uniforms set in
     // pushUniformsForProgram below).
     {
@@ -2670,6 +2763,8 @@ bool GlesRenderer::histogramGraded(int side, int* outHist) {
     glBindTexture(GL_TEXTURE_2D, bokehAttenTex_);
     if (bokehAttLoc   >= 0) glUniform1i(bokehAttLoc, 10);
     if (bokehAttEnLoc >= 0) glUniform1i(bokehAttEnLoc, bokehAttenReady_ ? 1 : 0);
+    if (uDepthMapEnabledLoc_    >= 0) glUniform1i(uDepthMapEnabledLoc_, depthMapReady_ ? 1 : 0);
+    if (uBokehFocusDepthLoc_    >= 0) glUniform1f(uBokehFocusDepthLoc_, bokehFocusDepth_);
     // 4 brush mask layers on units 3,5,6,7.
     {
         static const GLenum kMaskTexUnits[kMaskLayers] =
@@ -2741,7 +2836,7 @@ bool GlesRenderer::snapshotGradedToBitmap(int outW, int outH, uint8_t* outRgba) 
     if (snapBlurNeeded) {
         float radiusPx;
         if (snapBokeh)
-            radiusPx = 2.0f + params_.bokehSpread * 6.0f;
+            radiusPx = 6.0f + params_.bokehBlur * 28.0f + params_.bokehSpread * 18.0f; // scale with strength+spread
         else if (snapFxBlur2) {
             float amt = std::max({params_.fxGaussBlur, params_.fxDirBlurAmt,
                                   params_.fxRadBlurAmt, params_.fxZoomBlurAmt});
@@ -2813,6 +2908,8 @@ bool GlesRenderer::snapshotGradedToBitmap(int outW, int outH, uint8_t* outRgba) 
     glBindTexture(GL_TEXTURE_2D, bokehAttenTex_);
     if (bokehAttLoc2   >= 0) glUniform1i(bokehAttLoc2, 10);
     if (bokehAttEnLoc2 >= 0) glUniform1i(bokehAttEnLoc2, bokehAttenReady_ ? 1 : 0);
+    if (uDepthMapEnabledLoc_    >= 0) glUniform1i(uDepthMapEnabledLoc_, depthMapReady_ ? 1 : 0);
+    if (uBokehFocusDepthLoc_    >= 0) glUniform1f(uBokehFocusDepthLoc_, bokehFocusDepth_);
     {
         static const GLenum kMaskTexUnits[kMaskLayers] =
             {GL_TEXTURE3, GL_TEXTURE5, GL_TEXTURE6, GL_TEXTURE7};
@@ -2871,6 +2968,8 @@ void GlesRenderer::release() {
         subjectMaskW_ = 0; subjectMaskH_ = 0; subjectMaskReady_ = false;
         if (bokehAttenTex_) { glDeleteTextures(1, &bokehAttenTex_); bokehAttenTex_ = 0; }
         bokehAttenW_ = 0; bokehAttenH_ = 0; bokehAttenReady_ = false;
+        depthMapReady_ = false; bokehFocusDepth_ = 0.5f;
+        bokehAttenPlane_.clear(); depthPlane_.clear();
         for (int i = 0; i < kMaskLayers; ++i) {
             if (brushMaskTex_[i]) { glDeleteTextures(1, &brushMaskTex_[i]); brushMaskTex_[i] = 0; }
             brushMaskW_[i] = 0; brushMaskH_[i] = 0; brushMaskReady_[i] = false;

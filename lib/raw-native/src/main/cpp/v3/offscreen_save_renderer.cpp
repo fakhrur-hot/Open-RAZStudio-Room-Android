@@ -654,6 +654,9 @@ bool OffscreenSaveRenderer::renderGradedToRgba8(
         const float subjectMaskRect[4],
         const float* brushMaskLayers, int brushMaskW, int brushMaskH,
         int brushMaskCount,
+        const float* attenMask, int attenW, int attenH,
+        const float* depthMap, int depthW, int depthH,
+        float focusDepth01,
         uint8_t* outRgba) {
     if (!srcFp16 || !outRgba || !params || paramsCount < 57 || srcW <= 0 || srcH <= 0) {
         LOGE("renderGradedToRgba8: bad args");
@@ -941,11 +944,62 @@ bool OffscreenSaveRenderer::renderGradedToRgba8(
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        subjTex = subjOwned;
+                subjTex = subjOwned;
         subjReady = true;
     }
 
-    // ── Output FBO at full source resolution ──
+    // Unit-10 GL_RG8: .r = sky/terrain atten, .g = relative depth (CoC).
+    GLuint auxOwned = 0;
+    GLuint auxTex = blackTex;
+    bool attenReady = false;
+    bool depthReady = false;
+    {
+        int aw = 0, ah = 0;
+        if (attenMask && attenW > 0 && attenH > 0) { aw = attenW; ah = attenH; attenReady = true; }
+        if (depthMap && depthW > 0 && depthH > 0) {
+            if (aw == 0) { aw = depthW; ah = depthH; }
+            else if (aw != depthW || ah != depthH) {
+                // Mismatch — prefer depth grid (MASK_SIZE); atten resampled nearest.
+                aw = depthW; ah = depthH;
+            }
+            depthReady = true;
+        }
+        if (aw > 0 && ah > 0 && (attenReady || depthReady)) {
+            std::vector<uint8_t> rg(size_t(aw) * size_t(ah) * 2, 0);
+                        for (int y = 0; y < ah; ++y) {
+                for (int x = 0; x < aw; ++x) {
+                    float ar = 0.f, dg = 0.f;
+                    if (attenReady) {
+                        const int sx = (attenW == aw) ? x : (x * attenW / aw);
+                        const int sy = (attenH == ah) ? y : (y * attenH / ah);
+                        ar = attenMask[sy * attenW + sx];
+                        if (ar < 0.f) ar = 0.f; else if (ar > 1.f) ar = 1.f;
+                    }
+                    if (depthReady) {
+                        const int sx = (depthW == aw) ? x : (x * depthW / aw);
+                        const int sy = (depthH == ah) ? y : (y * depthH / ah);
+                        dg = depthMap[sy * depthW + sx];
+                        if (dg < 0.f) dg = 0.f; else if (dg > 1.f) dg = 1.f;
+                    }
+                    const size_t i = (size_t(y) * aw + x) * 2;
+                    rg[i] = uint8_t(ar * 255.f + 0.5f);
+                    rg[i + 1] = uint8_t(dg * 255.f + 0.5f);
+                }
+            }
+            glGenTextures(1, &auxOwned);
+            glBindTexture(GL_TEXTURE_2D, auxOwned);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RG8, aw, ah, 0,
+                         GL_RG, GL_UNSIGNED_BYTE, rg.data());
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            auxTex = auxOwned;
+        }
+    }
+
+    // Output FBO at full source resolution
     GLuint fbo = 0, fboTex = 0;
     glGenTextures(1, &fboTex);
     glBindTexture(GL_TEXTURE_2D, fboTex);
@@ -967,6 +1021,7 @@ bool OffscreenSaveRenderer::renderGradedToRgba8(
         if (lutTex) glDeleteTextures(1, &lutTex);
         if (toneReady) glDeleteTextures(1, &toneTex);
         if (subjOwned) glDeleteTextures(1, &subjOwned);
+    if (auxOwned) glDeleteTextures(1, &auxOwned);
         glDeleteTextures(1, &blackTex);
         glDeleteTextures(1, &whiteMask);
         glDeleteVertexArrays(1, &vao);
@@ -991,6 +1046,9 @@ bool OffscreenSaveRenderer::renderGradedToRgba8(
     }
     in.toneCurveReady = toneReady;
     in.subjectMaskReady = subjReady;
+    in.bokehAttenReady = attenReady;
+    in.depthMapReady = depthReady;
+    in.bokehFocusDepth = focusDepth01 < 0.f ? 0.f : (focusDepth01 > 1.f ? 1.f : focusDepth01);
     if (subjectMaskRect) {
         in.subjectMaskRect[0] = subjectMaskRect[0];
         in.subjectMaskRect[1] = subjectMaskRect[1];
@@ -1012,7 +1070,7 @@ bool OffscreenSaveRenderer::renderGradedToRgba8(
     glActiveTexture(GL_TEXTURE7);  glBindTexture(GL_TEXTURE_2D, blackTex);
     glActiveTexture(GL_TEXTURE8);  glBindTexture(GL_TEXTURE_2D, blurTex);
     glActiveTexture(GL_TEXTURE9);  glBindTexture(GL_TEXTURE_2D, toneTex);
-    glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, blackTex);
+    glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, auxTex);
     glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, bloomTex);
     glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, blackTex);
     glActiveTexture(GL_TEXTURE13); glBindTexture(GL_TEXTURE_2D, blackTex);
@@ -1040,6 +1098,7 @@ bool OffscreenSaveRenderer::renderGradedToRgba8(
     if (lutTex) glDeleteTextures(1, &lutTex);
     if (toneReady) glDeleteTextures(1, &toneTex);
     if (subjOwned) glDeleteTextures(1, &subjOwned);
+    if (auxOwned) glDeleteTextures(1, &auxOwned);
     glDeleteTextures(1, &blackTex);
     glDeleteTextures(1, &whiteMask);
     glDeleteVertexArrays(1, &vao);

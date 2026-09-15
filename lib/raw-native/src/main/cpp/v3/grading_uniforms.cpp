@@ -84,6 +84,8 @@ void pushGradingUniforms(unsigned int prog,
     glUniform1f(L("uMistTightness"),  params.mistTightness);
     glUniform1f(L("uMistHalation"),   params.mistHalation);
     glUniform1f(L("uFilmRolloff"),    params.filmRolloff);
+    glUniform1f(L("uFilmicLuma"),     params.filmicLuma);
+    glUniform1f(L("uOklabHlChroma"),  params.oklabHlChroma);
     glUniform1f(L("uGamutCompress"),  params.gamutCompress);
     glUniform1f(L("uBloomExcludeSubject"), params.bloomExcludeSubject);
     glUniform1f(L("uSubjectBloom"), params.subjectBloom);
@@ -107,6 +109,9 @@ void pushGradingUniforms(unsigned int prog,
     glUniform1f(L("uGradTabOpacity"), params.gradTabOpacity);
     glUniform1i(L("uSubjectMaskEnabled"), in.subjectMaskReady ? 1 : 0);
     glUniform4fv(L("uSubjectMaskRect"), 1, in.subjectMaskRect);
+    glUniform1i(L("uBokehAttenuationEnabled"), in.bokehAttenReady ? 1 : 0);
+    glUniform1i(L("uDepthMapEnabled"), in.depthMapReady ? 1 : 0);
+    glUniform1f(L("uBokehFocusDepth"), in.bokehFocusDepth);
     glUniform1i(L("uGradTopApplyTo"),    int(params.gradTopApplyTo));
     glUniform1i(L("uGradBottomApplyTo"), int(params.gradBottomApplyTo));
     glUniform1i(L("uGradLeftApplyTo"),   int(params.gradLeftApplyTo));

@@ -169,6 +169,9 @@ public:
         const float subjectMaskRect[4],
         const float* brushMaskLayers, int brushMaskW, int brushMaskH,
         int brushMaskCount,
+        const float* attenMask, int attenW, int attenH,
+        const float* depthMap, int depthW, int depthH,
+        float focusDepth01,
         uint8_t* outRgba);
 
     /** Tear down EGL display/context/surface. Safe to call multiple times. */

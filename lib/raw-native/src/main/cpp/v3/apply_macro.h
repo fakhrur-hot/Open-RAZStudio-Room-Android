@@ -143,6 +143,8 @@ struct ApplyMacroParams {
 
     // Phase-1 backport: effects previously GL-only (slots match ShaderParams.kt).
     float filmRolloff      = 0.f;  // [207] highlight shoulder 0..1
+    float filmicLuma       = 0.f;  // [451] luminance filmic 0..1
+    float oklabHlChroma    = 0.f;  // [452] OKLab HL chroma 0..1
     float gamutCompress    = 0.f;  // [237] gamut compress 0..1
     // Color grading wheels [240..251]. Tint defaults 0.5 = neutral.
     float cgShadowsR       = 0.5f; // [240]

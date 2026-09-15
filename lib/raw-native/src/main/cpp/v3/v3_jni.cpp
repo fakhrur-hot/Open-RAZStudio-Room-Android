@@ -1304,6 +1304,35 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_n
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
+// Depth map → unit-10 RG8 .g + focus plane for CoC bokeh.
+JNIEXPORT jboolean JNICALL
+Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_nativeUploadDepthMap(
+        JNIEnv* env, jobject /*thiz*/,
+        jlong       handle,
+        jbyteArray  jMask,
+        jint        width,
+        jint        height,
+        jfloat      focusDepth) {
+    if (!handle || !jMask || width <= 0 || height <= 0) return JNI_FALSE;
+    const jsize expected = jsize(width) * jsize(height);
+    if (env->GetArrayLength(jMask) < expected) return JNI_FALSE;
+    jbyte* bytes = env->GetByteArrayElements(jMask, nullptr);
+    if (!bytes) return JNI_FALSE;
+    bool ok = reinterpret_cast<raw_v3::GlesRenderer*>(handle)->uploadDepthMap(
+        reinterpret_cast<const uint8_t*>(bytes), int(width), int(height), float(focusDepth));
+    env->ReleaseByteArrayElements(jMask, bytes, JNI_ABORT);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_nativeClearDepthMap(
+        JNIEnv* /*env*/, jobject /*thiz*/,
+        jlong handle) {
+    if (!handle) return;
+    reinterpret_cast<raw_v3::GlesRenderer*>(handle)->clearDepthMap();
+}
+
+
 JNIEXPORT void JNICALL
 Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_nativeClearSubjectMask(
         JNIEnv* /*env*/, jobject /*thiz*/,
@@ -1996,6 +2025,9 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeRe
         jfloatArray jSubjectMaskRect,
         jfloatArray jBrushMasks, jint brushMaskW, jint brushMaskH,
         jint brushMaskCount,
+        jfloatArray jAttenMask, jint attenW, jint attenH,
+        jfloatArray jDepthMap, jint depthW, jint depthH,
+        jfloat focusDepth,
         jobject jBitmap) {
     if (!jStageAPath || !jParams || !jBitmap) return JNI_FALSE;
 
@@ -2117,6 +2149,25 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeRe
         }
     }
 
+    jfloat* attenMask = nullptr;
+    int attenWw = 0, attenHh = 0;
+    if (jAttenMask && attenW > 0 && attenH > 0) {
+        const jsize need = jsize(attenW) * jsize(attenH);
+        if (env->GetArrayLength(jAttenMask) >= need) {
+            attenMask = env->GetFloatArrayElements(jAttenMask, nullptr);
+            if (attenMask) { attenWw = int(attenW); attenHh = int(attenH); }
+        }
+    }
+    jfloat* depthArr = nullptr;
+    int depthWw = 0, depthHh = 0;
+    if (jDepthMap && depthW > 0 && depthH > 0) {
+        const jsize need = jsize(depthW) * jsize(depthH);
+        if (env->GetArrayLength(jDepthMap) >= need) {
+            depthArr = env->GetFloatArrayElements(jDepthMap, nullptr);
+            if (depthArr) { depthWw = int(depthW); depthHh = int(depthH); }
+        }
+    }
+
     void* pixels = nullptr;
     if (AndroidBitmap_lockPixels(env, jBitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS || !pixels) {
         env->ReleaseFloatArrayElements(jParams, params, JNI_ABORT);
@@ -2124,6 +2175,8 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeRe
         if (tone) env->ReleaseByteArrayElements(jToneCurve768, tone, JNI_ABORT);
         if (mask) env->ReleaseFloatArrayElements(jSubjectMask, mask, JNI_ABORT);
         if (brushMasks) env->ReleaseFloatArrayElements(jBrushMasks, brushMasks, JNI_ABORT);
+        if (attenMask) env->ReleaseFloatArrayElements(jAttenMask, attenMask, JNI_ABORT);
+        if (depthArr) env->ReleaseFloatArrayElements(jDepthMap, depthArr, JNI_ABORT);
         raw_v3::closeStageATiff(rd);
         return JNI_FALSE;
     }
@@ -2138,6 +2191,9 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeRe
         mask, int(maskW), int(maskH),
         maskRect,
         brushMasks, brushW, brushH, brushN,
+        attenMask, attenWw, attenHh,
+        depthArr, depthWw, depthHh,
+        float(focusDepth),
         reinterpret_cast<uint8_t*>(pixels));
     r.release();
     // Drop the subsample heap before releasing the mmap lock.
@@ -2151,6 +2207,8 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeRe
     if (tone) env->ReleaseByteArrayElements(jToneCurve768, tone, JNI_ABORT);
     if (mask) env->ReleaseFloatArrayElements(jSubjectMask, mask, JNI_ABORT);
     if (brushMasks) env->ReleaseFloatArrayElements(jBrushMasks, brushMasks, JNI_ABORT);
+    if (attenMask) env->ReleaseFloatArrayElements(jAttenMask, attenMask, JNI_ABORT);
+    if (depthArr) env->ReleaseFloatArrayElements(jDepthMap, depthArr, JNI_ABORT);
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 

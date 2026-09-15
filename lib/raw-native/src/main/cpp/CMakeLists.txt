@@ -42,6 +42,7 @@ add_library(raw_decoder SHARED
         v3/lmmse_demosaic.cpp
         v3/dual_blend.cpp
         v3/stage_c_export.cpp
+        v3/selective_bokeh_stage_c.cpp
         v3/offscreen_save_renderer.cpp
         v3/film_sim.cpp
         v3/v3_debug_log.cpp

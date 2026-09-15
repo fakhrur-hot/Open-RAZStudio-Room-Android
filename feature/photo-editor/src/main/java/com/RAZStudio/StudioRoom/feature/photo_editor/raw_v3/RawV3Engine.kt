@@ -1159,6 +1159,14 @@ object RawV3Engine {
         maskLayerW: Int = 0,
         maskLayerH: Int = 0,
         maskLayerCount: Int = 0,
+        // Unit-10 RG8: sky/terrain atten (.r) + relative depth (.g) for CoC bokeh.
+        attenMask: FloatArray? = null,
+        attenMaskW: Int = 0,
+        attenMaskH: Int = 0,
+        depthMap: FloatArray? = null,
+        depthMapW: Int = 0,
+        depthMapH: Int = 0,
+        focusDepth: Float = 0.5f,
     ): Boolean = runCatching {
         nativeRenderGradedOffscreen(
             stageATifPath, actionParams,
@@ -1166,6 +1174,8 @@ object RawV3Engine {
             toneCurveLut,
             subjectMask, subjectMaskW, subjectMaskH, subjectMaskRect,
             maskLayers, maskLayerW, maskLayerH, maskLayerCount,
+            attenMask, attenMaskW, attenMaskH,
+            depthMap, depthMapW, depthMapH, focusDepth,
             outputBitmap,
         )
     }.onFailure { e ->
@@ -1193,6 +1203,13 @@ object RawV3Engine {
         brushMaskW: Int,
         brushMaskH: Int,
         brushMaskCount: Int,
+        attenMask: FloatArray?,
+        attenMaskW: Int,
+        attenMaskH: Int,
+        depthMap: FloatArray?,
+        depthMapW: Int,
+        depthMapH: Int,
+        focusDepth: Float,
         outputBitmap: android.graphics.Bitmap,
     ): Boolean
 

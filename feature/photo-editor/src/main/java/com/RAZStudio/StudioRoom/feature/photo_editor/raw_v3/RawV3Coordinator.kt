@@ -100,6 +100,14 @@ class RawV3Coordinator(private val context: Context) {
     val segmentationMasks: StateFlow<RawV3SegmentationMasks?> = _segmentationMasks.asStateFlow()
 
     /**
+     * Relative depth from Depth-Anything-V2-Small (Apache-2.0). Null when the
+     * onnx asset is absent, inference failed, or session closed. Independent
+     * of [segmentationMasks] so subject protect and CoC can compose later.
+     */
+    private val _depthMap = MutableStateFlow<RawV3DepthMap?>(null)
+    val depthMap: StateFlow<RawV3DepthMap?> = _depthMap.asStateFlow()
+
+    /**
      * True from the moment [ensureSegmentation] launches the chain until the
      * whole job finishes (success OR failure). The editor uses this to grey out
      * subject-mask-dependent controls (Bokeh, subject/background Vignette &
@@ -213,6 +221,8 @@ class RawV3Coordinator(private val context: Context) {
      *  coordinator (i.e. one per editor surface); the 168 MB OrtSession
      *  init runs on first compute call. Released on [closeSession]. */
     private var segmentationProcessor: RawV3SegmentationProcessor? = null
+    /** Depth-Anything-V2-Small OrtSession; released on [closeSession]. */
+    private var depthProcessor: RawV3DepthProcessor? = null
     /**
      * General-saliency FALLBACK subject model (U2Net, 320² input, ~1 s, ~170 MB
      * session). Used whenever BiRefNet is skipped (memory gate) or fails/times
@@ -662,6 +672,7 @@ class RawV3Coordinator(private val context: Context) {
         // finishes drops the previous run cleanly.
         segmentationJob?.cancel()
         _segmentationMasks.value = null  // reset so editor doesn't see stale masks
+        _depthMap.value = null           // reset depth — new photo, new CoC map
         _segmentationRunning.value = false  // stale run cancelled; new photo re-triggers
         _multiclassMasks.value = null    // reset multiclass too — new image, new classes
         _multiclassLoading.value = false  // will flip to true just before inference starts
@@ -775,6 +786,23 @@ class RawV3Coordinator(private val context: Context) {
                         ?.also { maskSource = "U2Net" }
                 } else null
                 val masks = biRefNetMasks ?: u2
+                // Depth-Anything-V2-Small (optional asset). Same RGB decode as
+                // subject seg; independent OrtSession. Null when onnx absent.
+                val depthMap = runCatching {
+                    val dp = depthProcessor
+                        ?: RawV3DepthProcessor(context).also { depthProcessor = it }
+                    if (!dp.hasModel) {
+                        Log.i(TAG, "$sourceName: depth skipped — depth_anything_v2_vits.onnx absent")
+                        null
+                    } else {
+                        withTimeoutOrNull(60_000L) { dp.compute(bmp) }
+                    }
+                }.onFailure { Log.w(TAG, "$sourceName: depth failed: ${it.message}") }
+                    .getOrNull()
+                _depthMap.value = depthMap
+                if (depthMap != null) {
+                    Log.i(TAG, "$sourceName: depth ready ${depthMap.width}x${depthMap.height}")
+                }
                 bmp.recycle()
                 if (biRefNetMasks == null && segmentationProcessor != null) {
                     // Ran but timed-out / failed / empty. Request release — gate
@@ -1143,6 +1171,7 @@ class RawV3Coordinator(private val context: Context) {
         segStageATif = null
         segLaunched = false
         _segmentationMasks.value = null
+        _depthMap.value = null
         _segmentationRunning.value = false
         _stageAResult.value = null
         // Request release of any sessions still resident. Under UNLOAD_PER_PASS
@@ -1151,6 +1180,8 @@ class RawV3Coordinator(private val context: Context) {
         synchronized(segModelLock) {
             segmentationProcessor?.release()
             segmentationProcessor = null
+            depthProcessor?.release()
+            depthProcessor = null
             u2netFallbackProcessor?.release()
             u2netFallbackProcessor = null
             multiclassSegmenter?.close()
@@ -2053,6 +2084,35 @@ class RawV3Coordinator(private val context: Context) {
             } else {
                 val maskSide = exportBest?.second ?: 0
                 val maskH = exportBest?.third ?: maskSide
+                                val exportDepth = _depthMap.value?.takeIf { !it.isEmpty }
+                var exportFocus = 0.5f
+                if (exportDepth != null) {
+                    val dm = exportDepth
+                    val samples = ArrayList<Float>(4096)
+                    val subj = exportBest?.first
+                    val sw = exportBest?.second ?: 0
+                    val sh = exportBest?.third ?: sw
+                    if (subj != null && sw > 0 && sh > 0) {
+                        if (sw == dm.width && sh == dm.height) {
+                            for (i in dm.depth.indices) if (subj[i] > 0.5f) samples.add(dm.depth[i])
+                        } else {
+                            for (y in 0 until dm.height) {
+                                val my = ((y + 0.5f) * sh / dm.height).toInt().coerceIn(0, sh - 1)
+                                for (x in 0 until dm.width) {
+                                    val mx = ((x + 0.5f) * sw / dm.width).toInt().coerceIn(0, sw - 1)
+                                    if (subj[my * sw + mx] > 0.5f) samples.add(dm.depth[y * dm.width + x])
+                                }
+                            }
+                        }
+                    }
+                    if (samples.isNotEmpty()) {
+                        samples.sort()
+                        exportFocus = samples[samples.size / 2]
+                    } else {
+                        val sorted = dm.depth.copyOf().also { it.sort() }
+                        exportFocus = sorted[sorted.size / 2]
+                    }
+                }
                 val ok = RawV3Engine.renderGradedOffscreen(
                     stageATifPath = stageATif.absolutePath,
                     actionParams = paramsArr,
@@ -2078,6 +2138,13 @@ class RawV3Coordinator(private val context: Context) {
                     maskLayerW = maskBundle?.w ?: 0,
                     maskLayerH = maskBundle?.h ?: 0,
                     maskLayerCount = maskBundle?.count ?: 0,
+                    attenMask = exportAtten?.second,
+                    attenMaskW = exportAtten?.first ?: 0,
+                    attenMaskH = exportAtten?.first ?: 0,
+                    depthMap = exportDepth?.depth,
+                    depthMapW = exportDepth?.width ?: 0,
+                    depthMapH = exportDepth?.height ?: 0,
+                    focusDepth = exportFocus,
                 )
                 if (ok) {
                     Log.i(TAG, "$sourceName: export path = GPU offscreen graded " +

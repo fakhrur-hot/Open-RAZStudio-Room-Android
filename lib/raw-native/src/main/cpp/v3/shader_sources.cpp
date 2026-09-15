@@ -222,6 +222,12 @@ uniform vec4 uSubjectMaskRect;
 // that would flatten distant scenery. 0 disabled, 1 active.
 uniform sampler2D uBokehAttenuation;
 uniform int       uBokehAttenuationEnabled;
+// Depth map packed in uBokehAttenuation.g (GL_RG8 on unit 10). R stays
+// Cityscapes sky/terrain attenuation. Same letterbox UV as subject mask.
+// Focus depth = subject-median relative depth; CoC = |depth - focus|.
+// Subject pixels stay sharp via subjectGate(2) (coc forced 0 on subject).
+uniform int   uDepthMapEnabled;
+uniform float uBokehFocusDepth;
 // M12.2c.4 — Sobel edge mask (same 320×320 grid as subject mask), used
 // to snap U2Net's soft silhouette to true image gradients (hair / feathers
 // / fur). uEdgeSnapStrength controls how aggressively the mask is pushed
@@ -327,6 +333,10 @@ uniform float uOrtonStrength;
 uniform float uBloomRadius;
 uniform float uBloomShape;
 uniform float uFilmRolloff;
+// [451] luminance-preserving filmic S-curve (0..1). Auto 0.65 with depth+bokeh.
+uniform float uFilmicLuma;
+// [452] OKLab highlight chroma compression (0..1). Auto 0.70 with depth+bokeh.
+uniform float uOklabHlChroma;
 uniform float uGamutCompress;
 // 0 = bloom applies everywhere. 1 = bloom is gated to background only
 // via the U2Net subject mask, so the subject (person / main object)
@@ -683,6 +693,80 @@ float mapLutSampleCoord(float x) {
 //
 // Derivation: this is Reinhard-family power compression applied to (1-c).
 // No code copied from external projects.
+
+// Depth-aware portrait look (chatgpt_prompt_idea): luminance-preserving
+// filmic S-curve + OKLab highlight chroma compression. Applied when the
+// matching strength > 0, OR auto at 0.65/0.70 when depth CoC bokeh is live
+// (uDepthMapEnabled && bokeh). Preview = export (apply_macro mirrors).
+
+float filmicLumaCurve(float x) {
+    float v = clamp(x, 0.0, 1.0);
+    // Gentle shadow lift
+    float shadow = v + 0.025 * (1.0 - v);
+    // Smoothstep S-contrast
+    float sCurve = shadow * shadow * (3.0 - 2.0 * shadow);
+    // Highlight compression (Reinhard-family shoulder)
+    return clamp(sCurve / (sCurve + 0.18), 0.0, 1.0);
+}
+
+vec3 applyFilmicLuma(vec3 c, float strength) {
+    if (strength <= 0.0) return c;
+    float Y = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    float mapped = filmicLumaCurve(Y);
+    float scale = mapped / max(Y, 1e-4);
+    vec3 outc = c * scale;
+    return mix(c, outc, clamp(strength, 0.0, 1.0));
+}
+
+// Compact linear sRGB ↔ OKLab (Björn Ottosson). Reuse existing
+// srgbToLinear / linearToSrgb above — do NOT redefine (Mali S0023).
+vec3 linearToOklab(vec3 c) {
+    float l = 0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b;
+    float m = 0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b;
+    float s = 0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b;
+    float l_ = pow(max(l, 0.0), 1.0 / 3.0);
+    float m_ = pow(max(m, 0.0), 1.0 / 3.0);
+    float s_ = pow(max(s, 0.0), 1.0 / 3.0);
+    return vec3(
+        0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_,
+         1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_,
+         0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_);
+}
+vec3 oklabToLinear(vec3 lab) {
+    float l_ = lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z;
+    float m_ = lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z;
+    float s_ = lab.x - 0.0894789779 * lab.y - 1.2914855480 * lab.z;
+    float l = l_ * l_ * l_;
+    float m = m_ * m_ * m_;
+    float s = s_ * s_ * s_;
+    return vec3(
+         4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+        -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+        -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s);
+}
+
+// Midtone chroma boost + highlight chroma compression (brief table).
+float oklabChromaMul(float L) {
+    // Piecewise-ish via smoothsteps approximating:
+    // 0.00→1.00, 0.40→1.08, 0.55→1.00, 0.75→0.82, 0.95→0.52, 1.00→0.40
+    float midBoost = mix(1.0, 1.08, smoothstep(0.15, 0.40, L) * (1.0 - smoothstep(0.45, 0.60, L)));
+    float hl = smoothstep(0.55, 1.0, L);
+    float hlMul = mix(1.0, 0.40, hl);
+    // Blend mid boost only where not yet in deep highlight
+    return mix(midBoost, hlMul, hl);
+}
+
+vec3 applyOklabHlChroma(vec3 c, float strength) {
+    if (strength <= 0.0) return c;
+    vec3 lin = srgbToLinear(clamp(c, 0.0, 1.0));
+    vec3 lab = linearToOklab(lin);
+    float mul = oklabChromaMul(lab.x);
+    lab.y *= mul;
+    lab.z *= mul;
+    vec3 outc = clamp(linearToSrgb(oklabToLinear(lab)), 0.0, 1.0);
+    return mix(c, outc, clamp(strength, 0.0, 1.0));
+}
+
 vec3 applyFilmRolloff(vec3 c, float strength) {
     if (strength <= 0.0) return c;
     float N = 1.0 + strength * 4.0;
@@ -1890,6 +1974,12 @@ void main() {
     // no-op; at strength=1 the upper-third of the range bends back
     // toward midtones for the soft analog-negative look.
     lightTab = applyFilmRolloff(lightTab, uFilmRolloff);
+    // Filmic luma (brief): preserve chroma, tone-map Y only.
+    {
+        float fl = uFilmicLuma;
+                // auto filmic removed
+        lightTab = applyFilmicLuma(lightTab, fl);
+    }
     // ── Ambiance ────────────────────────────────────────────────────────
     //   Edge-aware local-contrast + midtone-only saturation lift. Snapseed's
     //   secret-sauce slider; approximated here with a Gaussian-blurred
@@ -2318,34 +2408,69 @@ void main() {
             float att = clamp(texture(uBokehAttenuation, attUV).r, 0.0, 1.0);
             bgGate *= (1.0 - 0.75 * att);
         }
+        // Depth → CoC. LOCKED abs gate for golden 8/8:
+        //   cocAbs = abs(depth - focus); bgGate *= smoothstep(0.02, 0.55, cocAbs)
+        // Phase 3: also keep signed CoC for separate near/far disc paths
+        //   cocSigned < 0 → near/foreground; =0 focus; >0 far/background
+        float nearGate = 0.0;
+        float farGate  = 0.0;
+        if (uDepthMapEnabled == 1 && bgGate > 0.0) {
+            vec2 dUV = mix(uSubjectMaskRect.xy, uSubjectMaskRect.zw, vTexCoord);
+            float depth = clamp(texture(uBokehAttenuation, dUV).g, 0.0, 1.0);
+            float cocSigned = depth - uBokehFocusDepth; // Phase 3 signed
+            float coc = clamp(abs(cocSigned), 0.0, 1.0); // LOCKED abs
+            // Soft knee so mid-distance still gets readable blur.
+            bgGate *= smoothstep(0.02, 0.55, coc);
+            if (cocSigned >= 0.0) farGate = bgGate;
+            else                  nearGate = bgGate;
+        } else {
+            // Depth-off: treat as far-only (legacy full-bg soft).
+            farGate = bgGate;
+        }
         if (bgGate > 0.0) {
-            // uBlurTex is a Gaussian of the *ungraded* base, so mixing it
-            // straight into the graded `c` made the background jump to the
-            // ungraded look the instant bokeh engaged — very visible now that
-            // AI Color Enhance applies a real grade on open. Transfer this
-            // fragment's local grade onto the blurred colour before mixing:
-            // baseRGB is the ungraded sample and `c` is its fully-graded value,
-            // so (c / baseRGB) is the per-channel grade here. Applying it to the
-            // blurred base yields "blur of the graded image" for a slowly-
-            // varying grade — exact for the linear ops (exposure / WB / gain),
-            // a close per-pixel match through the tone curve. The background now
-            // keeps the foreground's colour; only focus changes. Ratio clamped
-            // to avoid division blow-ups in near-black.
+            // Grade transfer onto ungraded samples (same as before): keep
+            // background colour while only focus changes.
             vec3 gradeRatio = clamp(c / max(baseRGB, vec3(1.0 / 255.0)),
                                     vec3(0.25), vec3(4.0));
-            vec3 blurC = clamp(texture(uBlurTex, vTexCoord).rgb * gradeRatio,
-                               0.0, 1.0);
-            // Background blur: mix the blurred copy into the background.
-            c = mix(c, blurC, clamp(uBokehBlur, 0.0, 1.0) * bgGate);
-            // Highlight bloom ("bokeh balls"): bright spots in the BLURRED
-            // image bloom outward. Threshold rolls off with spread so a
-            // wider spread catches dimmer highlights. Add screen-style so we
-            // never darken, only lift toward white.
-            if (uBokehBalls > 0.0) {
+            vec3 blurC;
+            // Phase 2+3: CoC Vogel disc (near/far). Quiet kernel — no whole-frame lift.
+            if (uDepthMapEnabled == 1) {
+                float blurAmt = clamp(uBokehBlur, 0.0, 1.0);
+                float spread  = clamp(uBokehSpread, 0.0, 1.0);
+                float rFar  = (0.022 + 0.100 * spread) * farGate  * blurAmt;
+                float rNear = (0.018 + 0.080 * spread) * nearGate * blurAmt;
+                float rUV = max(rFar, rNear);
+                vec3 acc = texture(uTex, vTexCoord).rgb;
+                vec3 soft = texture(uBlurTex, vTexCoord).rgb;
+                acc = mix(acc, soft, 0.50 * smoothstep(0.0, 0.012, rUV));
+                if (rUV > 1e-5) {
+                    const int N = 24;
+                    const float GOLDEN = 2.399963229728653;
+                    for (int i = 1; i < N; ++i) {
+                        float fi = float(i);
+                        float rr = rUV * sqrt(fi / float(N - 1));
+                        float ang = fi * GOLDEN;
+                        vec2 off = vec2(cos(ang), sin(ang)) * rr;
+                        vec2 uv = clamp(vTexCoord + off, 0.0, 1.0);
+                        acc += mix(texture(uTex, uv).rgb, texture(uBlurTex, uv).rgb, 0.45);
+                    }
+                    acc /= float(N);
+                }
+                blurC = clamp(acc * gradeRatio, 0.0, 1.0);
+                float mixW = smoothstep(0.0, 0.008, rUV);
+                c = mix(c, blurC, mixW);
+            } else {
+                blurC = clamp(texture(uBlurTex, vTexCoord).rgb * gradeRatio,
+                              0.0, 1.0);
+                c = mix(c, blurC, clamp(uBokehBlur, 0.0, 1.0) * bgGate);
+            }
+            // Highlight bloom — explicit uBokehBalls only (no auto).
+            float balls = uBokehBalls;
+            if (balls > 0.0) {
                 float bl = dot(blurC, vec3(0.2627, 0.6780, 0.0593));
                 float thr = mix(0.78, 0.55, clamp(uBokehSpread, 0.0, 1.0));
                 float bloom = smoothstep(thr, 1.0, bl);
-                vec3 lift = blurC * bloom * uBokehBalls * bgGate;
+                vec3 lift = blurC * bloom * balls * bgGate;
                 c = 1.0 - (1.0 - c) * (1.0 - lift);   // screen blend
             }
         }
@@ -2592,6 +2717,12 @@ void main() {
     // before the WB trims so those still act as the last finishing touch.
     // Mirrored at the same point in apply_macro.cpp.
     c = applyFilmResponse(c);
+    // OKLab highlight chroma compression — creamy HL, rich mids.
+    {
+        float oc = uOklabHlChroma;
+                // auto oklab removed
+        c = applyOklabHlChroma(c, oc);
+    }
 
     // ── Tonal-zone WB trims (LUT-tab "Highlight vibrancy" group) ────────
     //   Smoothstep-weighted RGB shifts gated to the highlight vs shadow

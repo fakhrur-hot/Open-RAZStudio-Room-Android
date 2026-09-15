@@ -6,6 +6,7 @@
 #include "stage_c_export.h"
 #include "tiff_mmap_io.h"
 #include "apply_macro.h"
+#include "selective_bokeh_stage_c.h"
 #include "raw_v3_clahe.h"
 #include "raw_v3_nr.h"
 #include "raw_v3_detail.h"
@@ -1408,6 +1409,7 @@ StageCResult runStageC(const std::string& stageATifPath,
     const uint32_t W = srcW;
     std::vector<float>    rowFloat(W * 3);
     std::vector<uint16_t> rowU16  (W * 3);
+    std::vector<uint16_t> fullU16Bokeh(size_t(W) * size_t(srcH) * 3u);
 
     auto tHeader = std::chrono::steady_clock::now();
     LOGI("runStageC: header + IFD written in %lld ms",
@@ -1489,7 +1491,51 @@ StageCResult runStageC(const std::string& stageATifPath,
             rowU16[x * 3 + 1] = uint16_t(fg < 0.f ? 0.f : (fg > 65535.f ? 65535.f : fg));
             rowU16[x * 3 + 2] = uint16_t(fb < 0.f ? 0.f : (fb > 65535.f ? 65535.f : fb));
         }
-        if (std::fwrite(rowU16.data(), 1, plan.bytesPerRow, fp) != plan.bytesPerRow) {
+        std::memcpy(fullU16Bokeh.data() + size_t(y) * size_t(W) * 3u,
+                    rowU16.data(), size_t(W) * 3u * sizeof(uint16_t));
+    }
+
+    // Selective disc bokeh on full graded RGB16 before TIFF write (Stage C).
+    {
+        const float bokehBlurP = (options.paramsCount > 179) ? options.params[179] : 0.f;
+        const float bokehBallsP = (options.paramsCount > 180) ? options.params[180] : 0.f;
+        const float bokehSpreadP = (options.paramsCount > 181) ? options.params[181] : 0.f;
+        if (bokehBlurP > 0.f && options.subjectMask != nullptr && options.subjectMaskSize > 0) {
+            ApplyMacroSubjectMask subj{};
+            subj.data = options.subjectMask;
+            subj.w = options.subjectMaskSize;
+            subj.h = (options.subjectMaskH > 0) ? options.subjectMaskH : options.subjectMaskSize;
+            subj.rectU0 = options.subjectMaskRectU0; subj.rectV0 = options.subjectMaskRectV0;
+            subj.rectU1 = options.subjectMaskRectU1; subj.rectV1 = options.subjectMaskRectV1;
+            ApplyMacroSubjectMask atten{};
+            const ApplyMacroSubjectMask* attenPtr = nullptr;
+            if (options.attenMask != nullptr && options.attenMaskSize > 0) {
+                atten.data = options.attenMask;
+                atten.w = options.attenMaskSize;
+                atten.h = (options.attenMaskH > 0) ? options.attenMaskH : options.attenMaskSize;
+                atten.rectU0 = options.subjectMaskRectU0; atten.rectV0 = options.subjectMaskRectV0;
+                atten.rectU1 = options.subjectMaskRectU1; atten.rectV1 = options.subjectMaskRectV1;
+                attenPtr = &atten;
+            }
+            SelectiveBokehInputs bin;
+            bin.subject = &subj;
+            bin.atten = attenPtr;
+            bin.depthMap = options.depthMap;
+            bin.depthW = options.depthMapW;
+            bin.depthH = options.depthMapH;
+            bin.focusDepth = options.focusDepth;
+            bin.bokehBlur = bokehBlurP;
+            bin.bokehSpread = bokehSpreadP;
+            bin.bokehBalls = bokehBallsP;
+            applySelectiveBokehDiscRGB16(fullU16Bokeh.data(), int(W), int(srcH), bin);
+            LOGI("runStageC: selective bokeh disc applied blur=%.3f depth=%dx%d focus=%.3f",
+                 bokehBlurP, options.depthMapW, options.depthMapH, options.focusDepth);
+        }
+    }
+
+    for (uint32_t y = 0; y < srcH; ++y) {
+        if (std::fwrite(fullU16Bokeh.data() + size_t(y) * size_t(W) * 3u,
+                        1, plan.bytesPerRow, fp) != plan.bytesPerRow) {
             r.error = "row write failed";
             std::fclose(fp); std::remove(outputPath.c_str());
             closeStageATiff(reader);
@@ -1875,6 +1921,45 @@ StageCResult runStageCToRGBA8(const std::string& stageATifPath,
     });  // end parallelRows
     closeStageATiff(reader);
 
+    // --- Selective disc bokeh (Phase 2) --- Stage C mirror of kFragSrc ---
+    // Must run BEFORE Laplacian so subject sharpen still gates on bg.
+    {
+        const float bokehBlurP = (options.paramsCount > 179) ? options.params[179] : 0.f;
+        const float bokehBallsP = (options.paramsCount > 180) ? options.params[180] : 0.f;
+        const float bokehSpreadP = (options.paramsCount > 181) ? options.params[181] : 0.f;
+        if (bokehBlurP > 0.f && options.subjectMask != nullptr && options.subjectMaskSize > 0) {
+            ApplyMacroSubjectMask subj{};
+            subj.data = options.subjectMask;
+            subj.w = options.subjectMaskSize;
+            subj.h = (options.subjectMaskH > 0) ? options.subjectMaskH : options.subjectMaskSize;
+            subj.rectU0 = options.subjectMaskRectU0; subj.rectV0 = options.subjectMaskRectV0;
+            subj.rectU1 = options.subjectMaskRectU1; subj.rectV1 = options.subjectMaskRectV1;
+            ApplyMacroSubjectMask atten{};
+            const ApplyMacroSubjectMask* attenPtr = nullptr;
+            if (options.attenMask != nullptr && options.attenMaskSize > 0) {
+                atten.data = options.attenMask;
+                atten.w = options.attenMaskSize;
+                atten.h = (options.attenMaskH > 0) ? options.attenMaskH : options.attenMaskSize;
+                atten.rectU0 = options.subjectMaskRectU0; atten.rectV0 = options.subjectMaskRectV0;
+                atten.rectU1 = options.subjectMaskRectU1; atten.rectV1 = options.subjectMaskRectV1;
+                attenPtr = &atten;
+            }
+            SelectiveBokehInputs bin;
+            bin.subject = &subj;
+            bin.atten = attenPtr;
+            bin.depthMap = options.depthMap;
+            bin.depthW = options.depthMapW;
+            bin.depthH = options.depthMapH;
+            bin.focusDepth = options.focusDepth;
+            bin.bokehBlur = bokehBlurP;
+            bin.bokehSpread = bokehSpreadP;
+            bin.bokehBalls = bokehBallsP;
+            applySelectiveBokehDiscRGBA8(outPixels, int(srcW), int(srcH), int(outStride), bin);
+            LOGI("runStageCToRGBA8: selective bokeh disc applied blur=%.3f depth=%dx%d focus=%.3f",
+                 bokehBlurP, options.depthMapW, options.depthMapH, options.focusDepth);
+        }
+    }
+
     // ── Laplacian post-sharpen (slot 379) — parity with GL preview ────────────
     // The GL renderer applies a 3×3 Laplacian sharpen as a final post-pass
     // (shader_sharpen.h). Stage C skipped it, making saved photos softer than
@@ -1886,11 +1971,25 @@ StageCResult runStageCToRGBA8(const std::string& stageATifPath,
     // where n[i] are the 9 texels of a 3×3 neighbourhood, offset by
     // uSharpness*texelSize. At uSharpness==1 that equals exactly one texel step
     // so offsets are just ±1 pixel (nearest-neighbour style).
-    const float sharpenAmount = (options.paramsCount > 379) ? options.params[379] : 0.f;
+    float sharpenAmount = (options.paramsCount > 379) ? options.params[379] : 0.f;
+    const float bokehBlurP = (options.paramsCount > 179) ? options.params[179] : 0.f;
+    const float filmicP    = (options.paramsCount > 451) ? options.params[451] : 0.f;
+    const float oklabP     = (options.paramsCount > 452) ? options.params[452] : 0.f;
+    // Mirror GL selective-bokeh: auto subject sharpen when bokeh/filmic look on.
+    const bool selBokehSubjectSharpen =
+        (bokehBlurP > 0.f || filmicP > 0.f || oklabP > 0.f) &&
+        options.subjectMask != nullptr && options.subjectMaskSize > 0;
+    // auto subject sharpen removed
     if (srcW >= 3 && srcH >= 3) {
         // Baseline boost so even sharpenAmount==0 gives subtle crispness matching
-        // the GL preview's always-on Laplacian.
+        // the GL preview's always-on Laplacian. Selective-bokeh subject gate
+        // below zeros the blend on background so OOF stays soft.
         const float sBase = sharpenAmount + 0.1f;
+        const int maskW = options.subjectMaskSize;
+        const int maskH = (options.subjectMaskH > 0) ? options.subjectMaskH : maskW;
+        const float* mask = options.subjectMask;
+        const float ru0 = options.subjectMaskRectU0, rv0 = options.subjectMaskRectV0;
+        const float ru1 = options.subjectMaskRectU1, rv1 = options.subjectMaskRectV1;
 
         // Float-precision copy to avoid rounding jitter during neighbourhood ops.
         std::vector<float> src(size_t(srcH) * outStride);
@@ -1918,7 +2017,20 @@ StageCResult runStageCToRGBA8(const std::string& stageATifPath,
                         // Edge-aware: stronger blend on edges, gentler in flat areas.
                         const float edgeMag = std::fabs(laplacian - centre);
                         const float weight  = (edgeMag > 8.f) ? sBase : sBase * 0.5f;
-                        const float blended = centre + weight * (laplacian - centre);
+                        float blended = centre + weight * (laplacian - centre);
+                        if (selBokehSubjectSharpen && mask && maskW > 0 && maskH > 0) {
+                            const float u = (float(x) + 0.5f) / float(srcW);
+                            const float v = (float(y) + 0.5f) / float(srcH);
+                            const float mu = ru0 + (ru1 - ru0) * u;
+                            const float mv = rv0 + (rv1 - rv0) * v;
+                            int mx = int(mu * float(maskW - 1) + 0.5f);
+                            int my = int(mv * float(maskH - 1) + 0.5f);
+                            if (mx < 0) mx = 0; else if (mx > maskW - 1) mx = maskW - 1;
+                            if (my < 0) my = 0; else if (my > maskH - 1) my = maskH - 1;
+                            const float p = mask[my * maskW + mx];
+                            const float gate = p * p;  // subjectGate(1)
+                            blended = centre + (blended - centre) * gate;
+                        }
                         const int   out8    = int(std::round(std::min(std::max(blended, 0.f), 255.f)));
                         outPixels[size_t(y) * outStride + size_t(x) * 4 + c] = uint8_t(out8);
                     }

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * StudioRoom is an image editor for android
  * Copyright (c) 2026 RAZStudio (Fakhrurraze)
  *
@@ -766,6 +766,14 @@ class RawEditorComponent @AssistedInject internal constructor(
     val cityscapesMasks: StateFlow<com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.RawV3CityscapesMasks?> =
         v3.cityscapesMasks
 
+    /**
+     * Relative depth from Depth-Anything-V2-Small (MASK_SIZE). Drives
+     * depth→CoC bokeh on the GL preview. Null until inference finishes
+     * or when the Small onnx isn't bundled.
+     */
+    val depthMap: StateFlow<com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.RawV3DepthMap?> =
+        v3.depthMap
+
     /** True while SegFormer cityscapes inference is running; false once done or model unavailable. */
     val cityscapesLoading: StateFlow<Boolean> = v3.cityscapesLoading
 
@@ -989,6 +997,21 @@ class RawEditorComponent @AssistedInject internal constructor(
     }
 
     fun clearAllActions() = replaceActions(emptyList())
+
+    /**
+     * Swap the mask PNG path on an existing action (identified by [actionId])
+     * without touching the rest of the stack. Used by preset replay to inject
+     * segmentation bitmaps asynchronously: [replaceActions] installs the cards
+     * first so global-only cards take effect immediately, then [ensureSegmentation]
+     * runs in the background and each mask card is patched in as its bitmap is ready.
+     */
+    fun updateActionMask(actionId: String, maskPath: String?) {
+        val idx = actions.indexOfFirst { it.id == actionId }
+        if (idx < 0) return
+        actions[idx] = actions[idx].copy(maskPath = maskPath)
+        persistActions()
+        rebuildShaderParams()
+    }
 
     fun addAction(action: RawAction) {
         // AE actions are singletons: a new auto-exposure card always replaces

@@ -97,6 +97,11 @@ fun RawV3PreviewComposable(
      */
     cityscapesMasks: RawV3CityscapesMasks? = null,
     /**
+     * Relative depth (Depth-Anything-V2-Small @ MASK_SIZE). Uploaded into
+     * unit-10 RG8 .g for depth→CoC bokeh. Pass null to clear.
+     */
+    depthMap: RawV3DepthMap? = null,
+    /**
      * M12.2c.3 — brush-painted Mask tab mask (ARGB_8888). The alpha
      * channel of every pixel is the painted strength. Quantised to
      * GL_R8 and uploaded to the renderer's brush-mask texture (unit 3)
@@ -588,6 +593,65 @@ fun RawV3PreviewComposable(
         v.uploadBokehAttenuation(bytes, side, side)
         Log.i(TAG, "Bokeh attenuation uploaded ${side}×$side (max sky/terrain)")
     }
+
+    // Depth → CoC bokeh: gray8 + subject-median focus plane.
+    val lastUploadedDepth = remember { mutableStateOf<RawV3DepthMap?>(null) }
+    val lastDepthView = remember { mutableStateOf<RawV3GlSurfaceView?>(null) }
+    LaunchedEffect(depthMap, subjectMask, glViewState.value) {
+        val v = glViewState.value ?: return@LaunchedEffect
+        val sameView = lastDepthView.value === v
+        if (sameView && depthMap === lastUploadedDepth.value) return@LaunchedEffect
+        lastDepthView.value = v
+        val dm = depthMap
+        if (dm == null || dm.isEmpty) {
+            v.clearDepthMap()
+            lastUploadedDepth.value = dm
+            Log.i(TAG, "Depth map cleared")
+            return@LaunchedEffect
+        }
+        val n = dm.width * dm.height
+        if (dm.depth.size != n) {
+            Log.w(TAG, "Depth map size mismatch ${dm.depth.size} vs ${dm.width}x${dm.height}")
+            return@LaunchedEffect
+        }
+        val bytes = ByteArray(n)
+        for (i in 0 until n) {
+            bytes[i] = (dm.depth[i] * 255f + 0.5f).toInt().coerceIn(0, 255).toByte()
+        }
+        var focus = 0.5f
+        val mask = subjectMask
+        if (mask != null && mask.hasSubject) {
+            val refined = mask.refinedMask
+            val (src, mw, mh) = if (refined != null && mask.refinedWidth > 0 && mask.refinedHeight > 0) {
+                Triple(refined, mask.refinedWidth, mask.refinedHeight)
+            } else {
+                Triple(mask.subjectMask, RawV3SegmentationMasks.MASK_SIZE, RawV3SegmentationMasks.MASK_SIZE)
+            }
+            val samples = ArrayList<Float>(4096)
+            if (mw == dm.width && mh == dm.height) {
+                for (i in 0 until n) if (src[i] > 0.5f) samples.add(dm.depth[i])
+            } else {
+                for (y in 0 until dm.height) {
+                    val my = ((y + 0.5f) * mh / dm.height).toInt().coerceIn(0, mh - 1)
+                    for (x in 0 until dm.width) {
+                        val mx = ((x + 0.5f) * mw / dm.width).toInt().coerceIn(0, mw - 1)
+                        if (src[my * mw + mx] > 0.5f) samples.add(dm.depth[y * dm.width + x])
+                    }
+                }
+            }
+            if (samples.isNotEmpty()) {
+                samples.sort()
+                focus = samples[samples.size / 2]
+            }
+        } else {
+            val sorted = dm.depth.copyOf().also { it.sort() }
+            focus = sorted[sorted.size / 2]
+        }
+        v.uploadDepthMap(bytes, dm.width, dm.height, focus)
+        lastUploadedDepth.value = dm
+        Log.i(TAG, "Depth map uploaded ${dm.width}x${dm.height} focus=${"%.3f".format(focus)}")
+    }
+
 
     // M12.2c.3 — Brush mask upload. The brush canvas mutates the same
     // Bitmap instance across strokes, so React-style identity comparison

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * StudioRoom is an image editor for android
  * Copyright (c) 2026 RAZStudio (Fakhrurraze)
  *
@@ -17,6 +17,7 @@
 
 package com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw
 
+import kotlinx.coroutines.flow.first
 
 import com.RAZStudio.StudioRoom.core.utils.AppLog
 import android.content.res.Configuration
@@ -2146,6 +2147,7 @@ fun RawEditorContent(component: RawEditorComponent) {
                     // metadata survives into the renderer (it's missing
                     // from the v2 RawSegmentationMasks bridge type).
                     val v3Masks by component.segmentationMasksV3.collectAsState()
+                    val depthMap by component.depthMap.collectAsState()
                     val pathSnapshot = stageAPath
                     val brushMaskDirtyState by component.maskDirty.collectAsState()
                     // Read the committed mask flow from the component so
@@ -2275,6 +2277,7 @@ fun RawEditorContent(component: RawEditorComponent) {
                                 else -1,
                                 subjectMask = v3Masks,
                                 cityscapesMasks = cityscapesMasks,
+                                depthMap = depthMap,
                                 // MUST be null here: [brushMaskLayers] below already
                                 // carries committed layers + the in-flight bitmap, and
                                 // the preview APPENDS brushMask on top of that list.
@@ -2566,8 +2569,48 @@ fun RawEditorContent(component: RawEditorComponent) {
             },
             onLoadPreset        = { index ->
                 val loaded = component.loadPreset(index) ?: return@RawAdjustmentPanel
+                // Install all cards immediately so global-only edits take effect
+                // at once; mask cards will have maskPath=null until the async
+                // segmentation pass below patches them in.
                 component.replaceActions(loaded)
                 deltaMacro = UserMacro()
+                // Re-derive segmentation bitmaps for any card that was saved with
+                // a maskClass/maskClasses (Subject, Background, Sky, etc.). We run
+                // ensureSegmentation() and await the result on a background thread,
+                // then patch each card's maskPath via updateActionMask so the render
+                // updates incrementally rather than blocking the UI.
+                val maskCards = loaded.filter {
+                    it.maskClasses.isNotEmpty() || it.maskClass != null
+                }
+                if (maskCards.isNotEmpty()) {
+                    scope.launch(kotlinx.coroutines.Dispatchers.Default) {
+                        // Trigger segmentation chain if not already running.
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            component.ensureSegmentation()
+                        }
+                        // Wait up to 30 s for masks to arrive.
+                        kotlinx.coroutines.withTimeoutOrNull(30_000L) {
+                            component.segmentationMasks.first { it != null }
+                        }
+                        // Re-derive each mask card's bitmap and patch it in.
+                        for (a in maskCards) {
+                            val classes = a.maskClasses.ifEmpty {
+                                listOfNotNull(a.maskClass)
+                            }
+                            val merged = mergeMaskClasses(classes) ?: continue
+                            // component.segmentationMasks is a StateFlow — safe to
+                            // read .value from any thread (no Compose snapshot needed).
+                            val edges = component.segmentationMasks.value?.edgeMask
+                            val bmp = buildSegmentationBitmap(merged, edges = edges) ?: continue
+                            val newPath = com.RAZStudio.StudioRoom
+                                .feature.photo_editor.raw.RawMaskStorage
+                                .save(context, a.id, bmp)
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                if (newPath != null) component.updateActionMask(a.id, newPath)
+                            }
+                        }
+                    }
+                }
             },
             // Settings clipboard — Copy/Paste Settings + Apply from previous.
             // Paste/apply replace the stack, so drop any in-flight delta too.
@@ -4310,6 +4353,21 @@ fun RawEditorContent(component: RawEditorComponent) {
                     // upsampling to full preview dims is ~50-150 ms.
                     presetApplyInFlight = true
                     scope.launch(kotlinx.coroutines.Dispatchers.Default) {
+                        // If any card requires segmentation and masks aren't ready
+                        // yet, trigger the chain and wait before iterating cards.
+                        // This ensures Subject / Background / Sky cards get their
+                        // bitmaps from THIS photo, not silently applying globally.
+                        val needsSeg = preset.cards.any {
+                            it.maskClasses.isNotEmpty() || it.maskClass != null
+                        }
+                        if (needsSeg && segmentationMasks == null) {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                component.ensureSegmentation()
+                            }
+                            kotlinx.coroutines.withTimeoutOrNull(30_000L) {
+                                component.segmentationMasks.first { it != null }
+                            }
+                        }
                         var skippedMaskCards = 0
                         for (c in preset.cards) {
                             // Collect the class set, falling back to the
@@ -4334,13 +4392,11 @@ fun RawEditorContent(component: RawEditorComponent) {
                                         .save(context, newId, bmp)
                                     if (maskPath == null) skippedMaskCards++
                                 } else {
-                                    // Segmentation source wasn't available
-                                    // (e.g. preset has Sky but cityscapes
-                                    // hasn't finished, or the photo is JPG
-                                    // without subject detection). Skip the
-                                    // bitmap so the macro values still apply
-                                    // globally — the user can re-tap the
-                                    // class button later to populate it.
+                                    // Segmentation ran but this class had no result
+                                    // for this photo (e.g. Sky card on an indoor
+                                    // portrait, or cityscapes model not loaded).
+                                    // Macro values still apply globally; the user
+                                    // can re-tap the class button to populate it.
                                     skippedMaskCards++
                                 }
                             }
@@ -4365,7 +4421,7 @@ fun RawEditorContent(component: RawEditorComponent) {
                         ) {
                             presetApplyInFlight = false
                             val suffix = if (skippedMaskCards > 0)
-                                " (${skippedMaskCards} mask${if (skippedMaskCards == 1) "" else "s"} await segmentation)"
+                                " ($skippedMaskCards mask${if (skippedMaskCards == 1) "" else "s"} had no matching region)"
                             else ""
                             snackbarHostState.showSnackbar(
                                 "Applied preset: ${preset.name} (${preset.cards.size} cards)$suffix"

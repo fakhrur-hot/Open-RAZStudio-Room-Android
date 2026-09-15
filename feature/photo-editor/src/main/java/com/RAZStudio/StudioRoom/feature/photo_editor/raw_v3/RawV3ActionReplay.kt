@@ -561,8 +561,8 @@ object RawV3ActionReplay {
             detailFilmGrainWash  = m.filmGrainWashOut.coerceIn(0f, 1f),
             detailSmoothBackground = m.smoothBackground.coerceIn(0f, 1f),
             // ── Bokeh (GL real-time) — normalise UI ranges to [0..1] ──
-            bokehBlur   = (m.bokehBlur  / 100f).coerceIn(0f, 1f),
-            bokehBalls  = (m.bokehBalls / 100f).coerceIn(0f, 1f),
+            bokehBlur   = (m.bokehBlur  / 50f).coerceIn(0f, 1f),  // UI 0..50 → full strength
+            bokehBalls  = (m.bokehBalls / 50f).coerceIn(0f, 1f),  // UI 0..50 match blur
             bokehSpread = m.bokehSpread.coerceIn(0f, 1f),
             // ── PREQ-Port mappings ─────────────────────────────────────────
             detailGrainRoughness = (m.grainRoughness / 100f).coerceIn(0f, 1f),

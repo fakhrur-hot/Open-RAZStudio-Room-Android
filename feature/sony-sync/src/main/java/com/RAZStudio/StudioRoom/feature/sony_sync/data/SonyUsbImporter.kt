@@ -230,7 +230,8 @@ class SonyUsbImporter(
     private fun hex2(v: Int) = "0x%02X".format(v)
 
     /** Best-effort model name from the Sony USB product id (product string wins when present). */
-    private fun sonyModelFor(pid: Int): String? = SONY_PIDS[pid]
+    private fun sonyModelFor(pid: Int): String? =
+        SONY_PIDS[pid]?.let { id -> "${SonyModelNames.pretty(id)} ($id)" }
 
     companion object {
         /** Sony Corporation USB vendor id. */
@@ -249,11 +250,35 @@ class SonyUsbImporter(
         // A few common Sony Alpha USB product ids (Mass Storage mode). The USB
         // product string ("ILCE-7M2" etc.) is authoritative when the device
         // grants it; this table is a fallback for a nicer label pre-permission.
+        // Verified / commonly reported Mass-Storage / MTP / PC-Remote PIDs
+        // (VID 0x054C). Same body uses DIFFERENT PIDs per USB mode — product
+        // string always wins after permission. Values are canonical ILCE/… IDs
+        // so [SonyModelNames.pretty] / [SonyModelNames.canonicalForLensfun] work.
         private val SONY_PIDS = mapOf(
-            0x079C to "ILCE-7 / A7-series (Mass Storage)",
-            0x094E to "ILCE-7M2 / A7 II (Mass Storage)",
-            0x0994 to "ILCE-7M3 / A7 III (Mass Storage)",
-            0x0A6A to "ILCE-7RM4 / A7R IV (Mass Storage)",
+            // ILCE-7 / 7R early
+            0x03E2 to "ILCE-7R",
+            0x079C to "ILCE-7",
+            0x07C2 to "ILCE-7R",
+            // ILCE-6000 family (usb-ids)
+            0x07C3 to "ILCE-6000",
+            0x07C4 to "ILCE-6000",
+            0x08B7 to "ILCE-6000",
+            0x094E to "ILCE-6000",
+            0x0994 to "ILCE-6000",
+            // ILCE-7M3 (usb-ids / DeviceHunt)
+            0x0C02 to "ILCE-7M3",
+            0x0C03 to "ILCE-7M3",
+            0x0C34 to "ILCE-7M3",
+            // NEX / SLT (forum captures)
+            0x048E to "NEX-5",
+            0x04A5 to "NEX-5",
+            0x0677 to "NEX-6",
+            0x0678 to "NEX-6",
+            0x066B to "SLT-A37",
+            0x066C to "SLT-A37",
+            // Keep prior 0x0A6A as a soft label only if still observed on-device;
+            // prefer product string when available.
+            0x0A6A to "ILCE-7RM4",
         )
     }
 }

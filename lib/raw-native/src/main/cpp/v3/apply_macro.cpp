@@ -222,6 +222,77 @@ inline float mapLutSampleCoordP(float x) {
     return 1.f / (1.f + e);
 }
 
+
+// Mirrors applyFilmicLuma / applyOklabHlChroma in shader_sources.cpp.
+inline float filmicLumaCurveP(float x) {
+    float v = x < 0.f ? 0.f : (x > 1.f ? 1.f : x);
+    float shadow = v + 0.025f * (1.f - v);
+    float sCurve = shadow * shadow * (3.f - 2.f * shadow);
+    float out = sCurve / (sCurve + 0.18f);
+    return out < 0.f ? 0.f : (out > 1.f ? 1.f : out);
+}
+inline void applyFilmicLumaP(float& r, float& g, float& b, float strength) {
+    if (strength <= 0.f) return;
+    float s = strength < 0.f ? 0.f : (strength > 1.f ? 1.f : strength);
+    float Y = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+    float mapped = filmicLumaCurveP(Y);
+    float scale = mapped / (Y > 1e-4f ? Y : 1e-4f);
+    float nr = r * scale, ng = g * scale, nb = b * scale;
+    r = r + (nr - r) * s;
+    g = g + (ng - g) * s;
+    b = b + (nb - b) * s;
+}
+inline float srgbToLinP(float c) {
+    return (c <= 0.04045f) ? (c / 12.92f) : std::pow((c + 0.055f) / 1.055f, 2.4f);
+}
+inline float linToSrgbP(float c) {
+    if (c <= 0.0031308f) return 12.92f * c;
+    return 1.055f * std::pow(c > 0.f ? c : 0.f, 1.f / 2.4f) - 0.055f;
+}
+inline void applyOklabHlChromaP(float& r, float& g, float& b, float strength) {
+    if (strength <= 0.f) return;
+    float s = strength < 0.f ? 0.f : (strength > 1.f ? 1.f : strength);
+    float lr = srgbToLinP(r < 0.f ? 0.f : (r > 1.f ? 1.f : r));
+    float lg = srgbToLinP(g < 0.f ? 0.f : (g > 1.f ? 1.f : g));
+    float lb = srgbToLinP(b < 0.f ? 0.f : (b > 1.f ? 1.f : b));
+    float l = 0.4122214708f * lr + 0.5363325363f * lg + 0.0514459929f * lb;
+    float m = 0.2119034982f * lr + 0.6806995451f * lg + 0.1073969566f * lb;
+    float ss = 0.0883024619f * lr + 0.2817188376f * lg + 0.6299787005f * lb;
+    float l_ = std::cbrt(l > 0.f ? l : 0.f);
+    float m_ = std::cbrt(m > 0.f ? m : 0.f);
+    float s_ = std::cbrt(ss > 0.f ? ss : 0.f);
+    float L = 0.2104542553f * l_ + 0.7936177850f * m_ - 0.0040720468f * s_;
+    float a = 1.9779984951f * l_ - 2.4285922050f * m_ + 0.4505937099f * s_;
+    float bb = 0.0259040371f * l_ + 0.7827717662f * m_ - 0.8086757660f * s_;
+    float midBoost = 1.f;
+    {
+        float t1 = (L - 0.15f) / 0.25f; if (t1 < 0.f) t1 = 0.f; else if (t1 > 1.f) t1 = 1.f;
+        t1 = t1 * t1 * (3.f - 2.f * t1);
+        float t2 = (L - 0.45f) / 0.15f; if (t2 < 0.f) t2 = 0.f; else if (t2 > 1.f) t2 = 1.f;
+        t2 = t2 * t2 * (3.f - 2.f * t2);
+        midBoost = 1.f + 0.08f * t1 * (1.f - t2);
+    }
+    float hl = (L - 0.55f) / 0.45f; if (hl < 0.f) hl = 0.f; else if (hl > 1.f) hl = 1.f;
+    hl = hl * hl * (3.f - 2.f * hl);
+    float hlMul = 1.f + (0.40f - 1.f) * hl;
+    float mul = midBoost + (hlMul - midBoost) * hl;
+    a *= mul; bb *= mul;
+    float l2 = L + 0.3963377774f * a + 0.2158037573f * bb;
+    float m2 = L - 0.1055613458f * a - 0.0638541728f * bb;
+    float s2 = L - 0.0894789779f * a - 1.2914855480f * bb;
+    l2 = l2 * l2 * l2; m2 = m2 * m2 * m2; s2 = s2 * s2 * s2;
+    float nr =  4.0767416621f * l2 - 3.3077115913f * m2 + 0.2309699292f * s2;
+    float ng = -1.2684380046f * l2 + 2.6097574011f * m2 - 0.3413193965f * s2;
+    float nb = -0.0041960863f * l2 - 0.7034186147f * m2 + 1.7076147010f * s2;
+    nr = linToSrgbP(nr); ng = linToSrgbP(ng); nb = linToSrgbP(nb);
+    if (nr < 0.f) nr = 0.f; else if (nr > 1.f) nr = 1.f;
+    if (ng < 0.f) ng = 0.f; else if (ng > 1.f) ng = 1.f;
+    if (nb < 0.f) nb = 0.f; else if (nb > 1.f) nb = 1.f;
+    r = r + (nr - r) * s;
+    g = g + (ng - g) * s;
+    b = b + (nb - b) * s;
+}
+
 // filmRolloff: S-curve highlight rolloff. Mirrors applyFilmRolloff() GLSL.
 // Slot 207. Runs in light tab, after tone regions, before ambiance.
 //
@@ -1522,6 +1593,8 @@ ApplyMacroParams ApplyMacroParams::fromFloatArray(const float* arr, int count) {
     p.ambianceBackground   = getOr(232, 0.f);
     // Phase-1 backport slots.
     p.filmRolloff       = getOr(207, 0.f);
+    p.filmicLuma        = getOr(451, 0.f);
+    p.oklabHlChroma     = getOr(452, 0.f);
     p.gamutCompress     = getOr(237, 0.f);
     p.cgShadowsR        = getOr(240, 0.5f);
     p.cgShadowsG        = getOr(241, 0.5f);
@@ -1923,6 +1996,9 @@ static void applyMacroPixelImpl(float* io, float u, float v,
     }
     // filmRolloff — after tone regions, before ambiance. Mirrors GL pipeline order.
     applyFilmRolloffP(lR, lG, lB, p.filmRolloff);
+    // Auto filmic when depth+bokeh would be live on GL — CPU Stage C
+    // has no depth gate yet; honor explicit strengths only here.
+    applyFilmicLumaP(lR, lG, lB, p.filmicLuma);
     // Ambiance — mirrors shader gles_renderer.cpp:1211-1224. Critical: the
     // blur sample passed in is UNGRADED (raw Gaussian of source), so before
     // doing detail = light - blur, we must re-apply the same upstream grade
@@ -2375,6 +2451,7 @@ static void applyMacroPixelImpl(float* io, float u, float v,
     // at the same point in the chain (after the LUT, before the WB trims).
     applyFilmResponseP(r, g, b, p.filmRecovery, p.filmFillLight,
                        p.filmMonochrome, p.filmGrayMix);
+    applyOklabHlChromaP(r, g, b, p.oklabHlChroma);
 
     // Tonal-zone WB trims — mirror of the GLSL block in gles_renderer.cpp.
     {

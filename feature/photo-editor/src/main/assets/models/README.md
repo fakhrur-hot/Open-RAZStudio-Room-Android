@@ -24,6 +24,7 @@ if absent.
 | Expected filename | Feature | Where to get it (original source) |
 |---|---|---|
 | `birefnet_lite.onnx` | Subject/background segmentation | BiRefNet — https://github.com/ZhengPeng7/BiRefNet (export to ONNX, e.g. via rembg) |
+| `depth_anything_v2_vits.onnx` | Relative depth for depth-aware bokeh (CoC) | Depth-Anything-V2-**Small** only (Apache-2.0) — https://github.com/DepthAnything/Depth-Anything-V2 ; ONNX: https://github.com/fabio-sim/Depth-Anything-ONNX/releases/tag/v2.0.0 — never Base/Large/Giant |
 | `u2net.onnx` | Saliency segmentation, Heal/blemish base | U^2-Net — https://github.com/xuebinqin/U-2-Net |
 | `deeplabv3p_human.onnx` | Human parsing mask | DeepLabV3+ human-parsing model of your choice |
 | `segformer_cityscapes_remap_fp16.onnx` | Landscape/sky/terrain masking | SegFormer-B1 Cityscapes — smp-hub/segformer-b1-1024x1024-city-160k, remapped to 4 classes + fp16 |

@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include <vector>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES3/gl3.h>
@@ -53,6 +54,8 @@ struct ShaderParams {
     int   lutAuthoredSpace  = 0;  // Rec.709 default — matches most consumer LUTs
     float lutIntensity   = 1.f;   // [31]  0..1 mix between input and LUT-sampled colour
     int   lutBwForce     = 0;     // [450] B&W pack: mix from achromatic luma
+    float filmicLuma     = 0.f;   // [451] luminance filmic S-curve 0..1
+    float oklabHlChroma  = 0.f;   // [452] OKLab HL chroma compress 0..1
     float lutHighlightVibrancy = 0.f; // [200] -1..+1 — see ShaderParams.kt
     // Tonal-zone WB trims (LUT-tab "Highlight vibrancy" expandable group)
     float highlightTemperature = 0.f; // [201] -1..+1 (warm/cool in highlights)
@@ -322,7 +325,7 @@ struct ShaderParams {
     // Kept in lockstep with ShaderParams.kt FLOAT_COUNT. This had drifted
     // to 410 while Kotlin was already sending 435, which is exactly the
     // kind of gap that makes a slot look free when it is not.
-    static constexpr int FLOAT_COUNT = 451;  // highest used slot [450] lutBwForce
+    static constexpr int FLOAT_COUNT = 453;  // highest used slot [452] oklabHlChroma
     static ShaderParams fromFloatArray(const float* arr, int count);
 };
 
@@ -379,6 +382,13 @@ public:
      * the user's bokeh strength instead of the full pull.
      */
     bool uploadBokehAttenuation(const uint8_t* gray8, int width, int height);
+    /**
+     * Upload relative depth (0..255 → [0,1] in .g of the unit-10 RG8 tex).
+     * Packs beside attenuation (.r) so we stay within 16 texture units.
+     * [focusDepth01] is the subject-median depth used as the CoC focus plane.
+     */
+    bool uploadDepthMap(const uint8_t* gray8, int width, int height, float focusDepth01);
+    void clearDepthMap();
     /**
      * Upload the Sobel edge mask (same 320×320 grid as the subject
      * mask) on texture unit 4. Used by the fragment shader to snap
@@ -617,6 +627,10 @@ private:
     int    sharpenW_            = 0;  int    sharpenH_   = 0;
     GLint  sharpenLocTex_       = -1;  // sampler2D uTex
     GLint  sharpenLocSharpness_ = -1;  // float uSharpness
+    GLint  sharpenLocSubjectMask_ = -1;
+    GLint  sharpenLocSubjectEn_   = -1;
+    GLint  sharpenLocSubjectRect_ = -1;
+    GLint  sharpenLocSubjectOnly_ = -1;
     GLint  sharpenLocTexelSize_ = -1;  // vec2 uTexelSize
     bool   ensureSharpenTargets(int w, int h);
 
@@ -780,16 +794,23 @@ private:
     bool      bloomEnabled_ = true;
     BloomMode bloomMode_    = BLOOM_KARIS;
 
-    // Bokeh attenuation mask — Cityscapes max(sky, terrain) packed into a
-    // single R8 plane and uploaded on unit 10. Used by the bokeh block to
-    // soften (but not eliminate) blur in sky/ground regions so portrait
-    // backgrounds keep tasteful 25% blur on the horizon.
+    // Bokeh aux on unit 10 as GL_RG8: .r = Cityscapes sky/terrain atten,
+    // .g = relative depth (Depth-Anything-V2-Small). Keeps us inside the
+    // 16-unit GLES budget. CPU planes retained so either upload can rebuild.
+    bool rebuildBokehAuxTexLocked(int width, int height);
+
     GLuint bokehAttenTex_       = 0;
     int    bokehAttenW_         = 0;
     int    bokehAttenH_         = 0;
     bool   bokehAttenReady_     = false;
+    bool   depthMapReady_       = false;
+    float  bokehFocusDepth_     = 0.5f;
+    std::vector<uint8_t> bokehAttenPlane_;
+    std::vector<uint8_t> depthPlane_;
     GLint  uBokehAttenLoc_      = -1;
     GLint  uBokehAttenEnabledLoc_ = -1;
+    GLint  uDepthMapEnabledLoc_ = -1;
+    GLint  uBokehFocusDepthLoc_ = -1;
 
     // M12.2c.4 — Sobel edge mask on unit 4 + edge-snap controls.
     GLuint sobelEdgeTex_         = 0;
@@ -836,6 +857,8 @@ private:
     GLint  uTonemapHighlightsLoc_ = -1;
     GLint  uTonemapShadowsLoc_    = -1;
     GLint  uFilmicHlProtectLoc_   = -1;
+    GLint  uFilmicLumaLoc_        = -1;
+    GLint  uOklabHlChromaLoc_     = -1;
     GLint  uGradTopApplyToLoc_     = -1;
     GLint  uGradBottomApplyToLoc_  = -1;
     GLint  uGradLeftApplyToLoc_    = -1;

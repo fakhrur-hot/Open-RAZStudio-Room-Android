@@ -42,6 +42,8 @@ ShaderParams ShaderParams::fromFloatArray(const float* arr, int count) {
     p.gamutOut       = get(30);
     p.lutIntensity   = get(31);
     p.lutBwForce     = getOr(450, 0.f) > 0.5f ? 1 : 0;
+    p.filmicLuma     = getOr(451, 0.f);
+    p.oklabHlChroma  = getOr(452, 0.f);
     p.lutHighlightVibrancy = getOr(200, 0.f);
     p.highlightTemperature = getOr(201, 0.f);
     p.highlightTint        = getOr(202, 0.f);

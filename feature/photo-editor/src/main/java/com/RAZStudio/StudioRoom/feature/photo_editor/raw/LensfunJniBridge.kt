@@ -82,7 +82,7 @@ object LensfunJniBridge {
                 width       = width,
                 height      = height,
                 cameraMake  = metadata.cameraMake,
-                cameraModel = metadata.cameraModel,
+                cameraModel = normalizeSonyCameraModel(metadata.cameraMake, metadata.cameraModel),
                 lensInfo    = metadata.lensInfo,
                 focalLength = metadata.focalLength,
                 aperture    = metadata.aperture,
@@ -92,6 +92,39 @@ object LensfunJniBridge {
     }
 
     // ── Native declarations ───────────────────────────────────────────────────
+
+
+    /**
+     * Keep camera-and-lens-profile matching stable for Sony bodies: strip a
+     * leading "Sony " maker duplication and map common marketing aliases back
+     * to ILCE-/ILME- product IDs. Non-Sony strings pass through unchanged.
+     */
+    private fun normalizeSonyCameraModel(make: String, model: String): String {
+        val m = model.trim()
+        if (m.isEmpty()) return m
+        val makeSony = make.contains("Sony", ignoreCase = true) ||
+            m.startsWith("Sony ", ignoreCase = true)
+        if (!makeSony) return m
+        var s = if (m.startsWith("Sony ", ignoreCase = true)) m.substring(5).trim() else m
+        val key = s.uppercase()
+        val prefixes = listOf("ILCE-", "ILCA-", "ILME-", "DSC-", "ZV-", "NEX-", "SLT-", "DSLR-")
+        if (prefixes.any { key.startsWith(it) }) return s
+        val aliases = mapOf(
+            "a7" to "ILCE-7", "a7 ii" to "ILCE-7M2", "a7 iii" to "ILCE-7M3", "a7 iv" to "ILCE-7M4",
+            "a7r" to "ILCE-7R", "a7r ii" to "ILCE-7RM2", "a7r iii" to "ILCE-7RM3",
+            "a7r iv" to "ILCE-7RM4", "a7r v" to "ILCE-7RM5",
+            "a7s" to "ILCE-7S", "a7s ii" to "ILCE-7SM2", "a7s iii" to "ILCE-7SM3",
+            "a7c" to "ILCE-7C", "a7c ii" to "ILCE-7CM2", "a7cr" to "ILCE-7CR",
+            "a9" to "ILCE-9", "a9 ii" to "ILCE-9M2", "a9 iii" to "ILCE-9M3",
+            "a1" to "ILCE-1", "a1 ii" to "ILCE-1M2",
+            "fx3" to "ILME-FX3", "fx30" to "ILME-FX30", "fx2" to "ILME-FX2",
+        )
+        // Also try α-stripped lowercase ("α7 ii")
+        val prettyKey = s.lowercase()
+            .replace("\u03b1", "a")
+            .replace("α", "a")
+        return aliases[prettyKey] ?: aliases[s.lowercase()] ?: s
+    }
 
     @JvmStatic
     private external fun nativeInitDatabase(dbPath: String): Boolean

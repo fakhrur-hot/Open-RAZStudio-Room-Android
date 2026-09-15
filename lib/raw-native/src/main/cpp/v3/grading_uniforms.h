@@ -60,6 +60,11 @@ struct GradingInputs {
     bool  subjectMaskReady = false;
     float subjectMaskRect[4] = {0.f, 0.f, 1.f, 1.f};   // u0, v0, u1, v1
 
+    // Unit-10 RG8: .r atten, .g depth (depth→CoC bokeh).
+    bool  bokehAttenReady = false;
+    bool  depthMapReady = false;
+    float bokehFocusDepth = 0.5f;
+
     bool  sobelEdgeReady = false;
     float edgeSnapStrength = 0.35f;
     float edgeSnapThreshold = 0.20f;
