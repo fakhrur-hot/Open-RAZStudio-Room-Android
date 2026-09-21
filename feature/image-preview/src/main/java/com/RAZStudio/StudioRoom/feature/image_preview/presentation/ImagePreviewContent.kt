@@ -269,7 +269,9 @@ fun ImagePreviewContent(
                                 // not only once a frame is selected. Requiring a
                                 // select step first is awkward for the main case
                                 // this exists for: one photo just shared in.
-                                visible = !component.uris.isNullOrEmpty(),
+                                visible =
+                                    com.RAZStudio.StudioRoom.core.ui.edition.EditionCapabilities.galleryWorkspace &&
+                                        !component.uris.isNullOrEmpty(),
                                 enter = fadeIn() + scaleIn() + expandHorizontally(),
                                 exit = fadeOut() + scaleOut() + shrinkHorizontally()
                             ) {

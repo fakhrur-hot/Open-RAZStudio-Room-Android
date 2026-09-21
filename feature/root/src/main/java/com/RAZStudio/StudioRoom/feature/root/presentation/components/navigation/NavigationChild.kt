@@ -36,16 +36,10 @@ import com.RAZStudio.StudioRoom.feature.canon_sync.presentation.CanonBatchDownlo
 import com.RAZStudio.StudioRoom.feature.canon_sync.presentation.CanonRemoteShootContent
 import com.RAZStudio.StudioRoom.feature.canon_sync.presentation.CanonSyncContent
 import com.RAZStudio.StudioRoom.feature.sony_sync.presentation.SonySyncContent
-import com.RAZStudio.StudioRoom.feature.gallery_workspace.presentation.GalleryWorkspaceContent
-import com.RAZStudio.StudioRoom.feature.gallery_workspace.presentation.AddToProjectContent
-import com.RAZStudio.StudioRoom.feature.gallery_workspace.presentation.GalleryProjectContent
 import com.RAZStudio.StudioRoom.feature.canon_sync.presentation.screenLogic.CanonBatchDownloadComponent
 import com.RAZStudio.StudioRoom.feature.canon_sync.presentation.screenLogic.CanonRemoteShootComponent
 import com.RAZStudio.StudioRoom.feature.canon_sync.presentation.screenLogic.CanonSyncComponent
 import com.RAZStudio.StudioRoom.feature.sony_sync.presentation.screenLogic.SonySyncComponent
-import com.RAZStudio.StudioRoom.feature.gallery_workspace.presentation.screenLogic.GalleryWorkspaceComponent
-import com.RAZStudio.StudioRoom.feature.gallery_workspace.presentation.screenLogic.AddToProjectComponent
-import com.RAZStudio.StudioRoom.feature.gallery_workspace.presentation.screenLogic.GalleryProjectComponent
 import com.RAZStudio.StudioRoom.feature.filters.presentation.FiltersContent
 import com.RAZStudio.StudioRoom.feature.filters.presentation.screenLogic.FiltersComponent
 import com.RAZStudio.StudioRoom.feature.gradient_maker.presentation.GradientMakerContent
@@ -215,27 +209,6 @@ internal sealed interface NavigationChild {
     class SonySync(private val component: SonySyncComponent) : NavigationChild {
         @Composable
         override fun Content() = SonySyncContent(component)
-    }
-
-    class GalleryWorkspace(
-        private val component: GalleryWorkspaceComponent,
-    ) : NavigationChild {
-        @Composable
-        override fun Content() = GalleryWorkspaceContent(component)
-    }
-
-    class AddToProject(
-        private val component: AddToProjectComponent,
-    ) : NavigationChild {
-        @Composable
-        override fun Content() = AddToProjectContent(component)
-    }
-
-    class GalleryProject(
-        private val component: GalleryProjectComponent,
-    ) : NavigationChild {
-        @Composable
-        override fun Content() = GalleryProjectContent(component)
     }
 
     class CanonRemoteShoot(private val component: CanonRemoteShootComponent) : NavigationChild {

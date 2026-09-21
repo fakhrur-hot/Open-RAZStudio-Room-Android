@@ -24,9 +24,6 @@ import com.RAZStudio.StudioRoom.feature.canon_sync.presentation.screenLogic.Cano
 import com.RAZStudio.StudioRoom.feature.canon_sync.presentation.screenLogic.CanonRemoteShootComponent
 import com.RAZStudio.StudioRoom.feature.canon_sync.presentation.screenLogic.CanonSyncComponent
 import com.RAZStudio.StudioRoom.feature.sony_sync.presentation.screenLogic.SonySyncComponent
-import com.RAZStudio.StudioRoom.feature.gallery_workspace.presentation.screenLogic.GalleryWorkspaceComponent
-import com.RAZStudio.StudioRoom.feature.gallery_workspace.presentation.screenLogic.AddToProjectComponent
-import com.RAZStudio.StudioRoom.feature.gallery_workspace.presentation.screenLogic.GalleryProjectComponent
 import com.RAZStudio.StudioRoom.feature.compare.presentation.screenLogic.CompareComponent
 import com.RAZStudio.StudioRoom.feature.crop.presentation.screenLogic.CropComponent
 import com.RAZStudio.StudioRoom.feature.delete_exif.presentation.screenLogic.DeleteExifComponent
@@ -47,9 +44,6 @@ import com.RAZStudio.StudioRoom.feature.root.presentation.components.navigation.
 import com.RAZStudio.StudioRoom.feature.root.presentation.components.navigation.NavigationChild.CanonRemoteShoot
 import com.RAZStudio.StudioRoom.feature.root.presentation.components.navigation.NavigationChild.CanonSync
 import com.RAZStudio.StudioRoom.feature.root.presentation.components.navigation.NavigationChild.SonySync
-import com.RAZStudio.StudioRoom.feature.root.presentation.components.navigation.NavigationChild.GalleryWorkspace
-import com.RAZStudio.StudioRoom.feature.root.presentation.components.navigation.NavigationChild.AddToProject
-import com.RAZStudio.StudioRoom.feature.root.presentation.components.navigation.NavigationChild.GalleryProject
 import com.RAZStudio.StudioRoom.feature.root.presentation.components.navigation.NavigationChild.CollageMaker
 import com.RAZStudio.StudioRoom.feature.root.presentation.components.navigation.NavigationChild.Compare
 import com.RAZStudio.StudioRoom.feature.root.presentation.components.navigation.NavigationChild.Crop
@@ -111,9 +105,6 @@ internal class ChildProvider @Inject constructor(
     private val rawDetailsEditorComponentFactory: RawDetailsEditorComponent.Factory,
     private val canonSyncComponentFactory: CanonSyncComponent.Factory,
     private val sonySyncComponentFactory: SonySyncComponent.Factory,
-    private val galleryWorkspaceComponentFactory: GalleryWorkspaceComponent.Factory,
-    private val addToProjectComponentFactory: AddToProjectComponent.Factory,
-    private val galleryProjectComponentFactory: GalleryProjectComponent.Factory,
     private val canonRemoteShootComponentFactory: CanonRemoteShootComponent.Factory,
     private val canonBatchDownloadComponentFactory: CanonBatchDownloadComponent.Factory,
     private val unstableFeatureScreens: UnstableFeatureScreensImpl,
@@ -357,33 +348,7 @@ internal class ChildProvider @Inject constructor(
                 onNavigate = ::navigateTo,
             )
         )
-
-        Screen.GalleryWorkspace -> GalleryWorkspace(
-            galleryWorkspaceComponentFactory(
-                componentContext = componentContext,
-                onGoBack = ::navigateBack,
-                onNavigate = ::navigateTo,
-            )
-        )
-
-        is Screen.AddToProject -> AddToProject(
-            addToProjectComponentFactory(
-                componentContext = componentContext,
-                onGoBack = ::navigateBack,
-                onNavigate = ::navigateTo,
-                uris = config.uris.orEmpty(),
-            )
-        )
-
-        is Screen.GalleryProject -> GalleryProject(
-            galleryProjectComponentFactory(
-                componentContext = componentContext,
-                onGoBack = ::navigateBack,
-                onNavigate = ::navigateTo,
-                projectId = config.projectId,
-                revealPhotoId = config.revealPhotoId,
-            )
-        )
+        Screen.GalleryWorkspace, is Screen.AddToProject, is Screen.GalleryProject -> NavigationChild.Unavailable
 
         Screen.CanonRemoteShoot -> CanonRemoteShoot(
             canonRemoteShootComponentFactory(

@@ -338,7 +338,9 @@ fun ImagePager(
                         },
                         actions = {
                             AnimatedVisibility(
-                                visible = !uris.isNullOrEmpty(),
+                                visible =
+                                    com.RAZStudio.StudioRoom.core.ui.edition.EditionCapabilities.galleryWorkspace &&
+                                        !uris.isNullOrEmpty(),
                                 enter = fadeIn() + scaleIn(),
                                 exit = fadeOut() + scaleOut()
                             ) {

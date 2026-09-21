@@ -16,11 +16,18 @@ object EditionCapabilities {
     val privateTrial: Boolean get() = BuildConfig.EDITION_PRIVATE_TRIAL
     val lutCreator: Boolean get() = BuildConfig.FEATURE_LUT_CREATOR
     val videoEditor: Boolean get() = BuildConfig.FEATURE_VIDEO_EDITOR
+    val galleryWorkspace: Boolean get() = BuildConfig.FEATURE_GALLERY_WORKSPACE
     val openAllowlistOnly: Boolean get() = BuildConfig.FEATURE_OPEN_ALLOWLIST_ONLY
 
     fun includeOnHome(screen: Screen): Boolean {
         if (screen is Screen.LutCreator && !lutCreator) return false
         if (screen is Screen.VideoEditor && !videoEditor) return false
+        if (!galleryWorkspace && (
+                screen is Screen.GalleryWorkspace ||
+                    screen is Screen.AddToProject ||
+                    screen is Screen.GalleryProject
+            )
+        ) return false
         return true
     }
 

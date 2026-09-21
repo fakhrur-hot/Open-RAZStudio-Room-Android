@@ -29,6 +29,7 @@ android {
         buildConfigField("boolean", "FEATURE_OPEN_ALLOWLIST_ONLY", "true")
         buildConfigField("boolean", "FEATURE_LUT_CREATOR", "false")
         buildConfigField("boolean", "FEATURE_VIDEO_EDITOR", "false")
+        buildConfigField("boolean", "FEATURE_GALLERY_WORKSPACE", "false")
     }
     buildTypes {
         release {

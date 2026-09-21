@@ -88,7 +88,6 @@ include(":feature:mesh-gradients")
 include(":feature:edit-exif")
 include(":feature:canon-sync")
 include(":feature:sony-sync")
-include(":feature:gallery-workspace")
 include(":feature:ai-enhance")
 
 include(":feature:root")

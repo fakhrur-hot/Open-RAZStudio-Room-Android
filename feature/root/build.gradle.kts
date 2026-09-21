@@ -48,7 +48,6 @@ dependencies {
     implementation(projects.feature.editExif)
     implementation(projects.feature.canonSync)
     implementation(projects.feature.sonySync)
-    implementation(projects.feature.galleryWorkspace)
 
     testImplementation(libs.junit)
 }

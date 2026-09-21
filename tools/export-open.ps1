@@ -31,6 +31,7 @@ Get-ChildItem $Dest -Force | ForEach-Object {
 $xd = @(
     ".git", ".gradle", ".gradle-foss", ".kotlin", ".cursor", ".kiro", ".idea",
     "build", "node_modules", "_foss_export", "feature\video-editor",
+    "feature\gallery-workspace",
     "feature\photo-editor\src\main\assets\luts"
 )
 $xf = @(
@@ -210,6 +211,8 @@ Set-Content -Path (Join-Path $luts ".gitkeep") -Value ""
 
 $video = Join-Path $Dest "feature\video-editor"
 if (Test-Path $video) { Remove-Item -Recurse -Force $video }
+$gallery = Join-Path $Dest "feature\gallery-workspace"
+if (Test-Path $gallery) { Remove-Item -Recurse -Force $gallery }
 
 foreach ($secret in @("keystore.properties", "local.properties")) {
     # local.properties restored for *this machine* build; still gitignored
@@ -222,18 +225,122 @@ if (Test-Path $uiGradle) {
     $g = $g -replace 'FEATURE_OPEN_ALLOWLIST_ONLY", "false"', 'FEATURE_OPEN_ALLOWLIST_ONLY", "true"'
     $g = $g -replace 'FEATURE_LUT_CREATOR", "true"', 'FEATURE_LUT_CREATOR", "false"'
     $g = $g -replace 'FEATURE_VIDEO_EDITOR", "true"', 'FEATURE_VIDEO_EDITOR", "false"'
+    $g = $g -replace 'FEATURE_GALLERY_WORKSPACE", "true"', 'FEATURE_GALLERY_WORKSPACE", "false"'
     Set-Content -Path $uiGradle -Value $g -NoNewline
 }
 
 $settings = Join-Path $Dest "settings.gradle.kts"
 if (Test-Path $settings) {
-    (Get-Content $settings) | Where-Object { $_ -notmatch "video-editor" } | Set-Content $settings
+    (Get-Content $settings) |
+        Where-Object { $_ -notmatch "video-editor|gallery-workspace" } |
+        Set-Content $settings
 }
 
 $rootGradle = Join-Path $Dest "feature\root\build.gradle.kts"
 if (Test-Path $rootGradle) {
-    (Get-Content $rootGradle) | Where-Object { $_ -notmatch "videoEditor" } | Set-Content $rootGradle
+    (Get-Content $rootGradle) |
+        Where-Object { $_ -notmatch "videoEditor|galleryWorkspace" } |
+        Set-Content $rootGradle
 }
+
+# Remove Gallery Workspace factories/content from root navigation. The Screen
+# serializers remain as inert compatibility types for old saved stacks, but all
+# routes resolve to Unavailable and no gallery module is on the classpath.
+$navChild = Join-Path $Dest "feature\root\src\main\java\com\RAZStudio\StudioRoom\feature\root\presentation\components\navigation\NavigationChild.kt"
+if (Test-Path $navChild) {
+    $n = Get-Content $navChild -Raw
+    $n = $n -replace '(?m)^import .*feature\.gallery_workspace.*\r?\n', ''
+    $n = $n -replace '(?s)\r?\n\s*class GalleryWorkspace\(.*?\r?\n\s*class CanonRemoteShoot', "`r`n`r`n    class CanonRemoteShoot"
+    Set-Content -Path $navChild -Value $n -NoNewline
+}
+
+$childProvider = Join-Path $Dest "feature\root\src\main\java\com\RAZStudio\StudioRoom\feature\root\presentation\components\navigation\ChildProvider.kt"
+if (Test-Path $childProvider) {
+    $c = Get-Content $childProvider -Raw
+    $c = $c -replace '(?m)^import .*feature\.gallery_workspace.*\r?\n', ''
+    $c = $c -replace '(?m)^import .*NavigationChild\.(GalleryWorkspace|AddToProject|GalleryProject)\r?\n', ''
+    $c = $c -replace '(?m)^\s*private val (galleryWorkspace|addToProject|galleryProject)ComponentFactory:.*\r?\n', ''
+    $c = $c -replace '(?s)\s*Screen\.GalleryWorkspace -> GalleryWorkspace\(.*?\r?\n\s*Screen\.CanonRemoteShoot ->', "`r`n        Screen.GalleryWorkspace, is Screen.AddToProject, is Screen.GalleryProject -> NavigationChild.Unavailable`r`n`r`n        Screen.CanonRemoteShoot ->"
+    Set-Content -Path $childProvider -Value $c -NoNewline
+}
+
+# Sony Remote still saves captures to the selected output folder, but Open does
+# not create Gallery Workspace projects or insert project/photo database rows.
+$sony = Join-Path $Dest "feature\sony-sync\src\main\java\com\RAZStudio\StudioRoom\feature\sony_sync\presentation\screenLogic\SonySyncComponent.kt"
+if (Test-Path $sony) {
+    $s = Get-Content $sony -Raw
+    $s = $s -replace '(?m)^import com\.RAZStudio\.StudioRoom\.core\.database\.(dao|entity)\..*\r?\n', ''
+    $s = $s -replace '(?m)^import kotlinx\.coroutines\.sync\..*\r?\n', ''
+    $s = $s -replace '(?m)^\s*private val (projectDao|photoDao): .*,\r?\n', ''
+    $s = $s -replace 'saveCapturedToGallery', 'saveCapturedToOutput'
+    $replacement = @'
+    // Open saves Sony Remote captures to the selected output folder only.
+    private suspend fun saveCapturedToOutput(name: String, jpeg: ByteArray) {
+        runCatching {
+            val folderName = "Sony " + modelDateFromExif(jpeg)
+            val root = resolveOutputDir()
+            if (root == null) {
+                log("Capture save skipped - set a Custom Output folder in Settings first.")
+                return
+            }
+            val sub = root.findFile(folderName)?.takeIf { it.isDirectory }
+                ?: root.createDirectory(folderName)
+            if (sub == null) { log("Capture save failed - could not create output folder."); return }
+            val jpgName = ensureJpgName(name)
+            val file = sub.createFile("image/jpeg", jpgName)
+            if (file == null) { log("Capture save failed - could not create file."); return }
+            val wrote = context.contentResolver.openOutputStream(file.uri)
+                ?.use { it.write(jpeg); true } ?: false
+            if (!wrote) { log("Capture save failed - no output stream."); return }
+            log("Saved $jpgName")
+        }.onFailure { log("Capture save error: ${it.message}") }
+    }
+
+'@
+    $s = $s -replace '(?s)\s*private val captureProjectIds.*?(?=\s*/\*\* "<Model>)', "`r`n$replacement"
+    Set-Content -Path $sony -Value $s -NoNewline
+}
+
+# The RAW editor keeps an interface-shaped constructor dependency for serialized
+# premium project contexts. Bind an inert Open implementation so Hilt has no
+# dependency on feature/gallery-workspace.
+$openGalleryPort = Join-Path $Dest "feature\photo-editor\src\main\java\com\RAZStudio\StudioRoom\feature\photo_editor\raw\project\OpenGalleryProjectEditorPort.kt"
+@'
+package com.RAZStudio.StudioRoom.feature.photo_editor.raw.project
+
+import android.graphics.Bitmap
+import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.WorkspaceConfig
+import com.RAZStudio.StudioRoom.feature.photo_editor.raw.sidecar.SidecarResolver
+import dagger.Binds
+import dagger.Module
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+internal class OpenGalleryProjectEditorPort @Inject constructor() : GalleryProjectEditorPort {
+    override fun resolverFor(projectId: Long, photoId: Long, displayName: String): SidecarResolver =
+        error("Gallery Workspace is unavailable in Open")
+    override suspend fun hasEditRecord(projectId: Long, photoId: Long) = false
+    override suspend fun createInitialSidecar(
+        projectId: Long, photoId: Long, displayName: String, config: WorkspaceConfig,
+    ) = Unit
+    override suspend fun applyLensProfileToMatching(
+        projectId: Long, sourcePhotoId: Long, config: WorkspaceConfig,
+    ) = GalleryProjectEditorPort.MatchResult(0, 0)
+    override suspend fun updateThumbnail(projectId: Long, photoId: Long, edited: Bitmap) = Unit
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
+internal abstract class OpenGalleryProjectEditorModule {
+    @Binds
+    abstract fun bindOpenGalleryProjectEditorPort(
+        impl: OpenGalleryProjectEditorPort,
+    ): GalleryProjectEditorPort
+}
+'@ | Set-Content -Path $openGalleryPort -NoNewline
 
 # No bundled LUTs exist in Open, so remove the private cube-to-smcube task too.
 $photoGradle = Join-Path $Dest "feature\photo-editor\build.gradle.kts"
@@ -265,8 +372,10 @@ if (Test-Path $readmeSrc) {
     $r = $r -replace "1\.0\.0-alpha", "1.0.1-alpha"
     $r = $r -replace "All application source code \(every module\)\.", "All Open-edition application source code. Private LUT implementation and Short Video are excluded."
     $r = $r -replace '(?m)^- \*\*RAW LUT and LUT Adj implementation\*\*.*\r?\n', ''
+    $r = $r -replace '(?m)^- \*\*Gallery Workspace.*\r?\n', ''
     $lutNotice = "**RAW LUT and LUT Adj implementation** - tabs remain visible but disabled; dedicated browsing, parsing, chaining, baking, and native-loader code is private.`r`n- "
     $r = $r -replace '(\*\*The short video editor\*\*.+?edition\.)', ($lutNotice + '$1')
+    $r = $r -replace '(\*\*The short video editor\*\*.+?edition\.)', "**Gallery Workspace and project pipeline** - premium-only and removed from Open, including Add to Project and sync shortcuts.`r`n- `$1"
     Set-Content -Path $readmeDst -Value $r -NoNewline
 }
 
@@ -278,9 +387,14 @@ Get-ChildItem $Dest -Recurse -Include *.kt, *.kts -File -ErrorAction SilentlyCon
     if ($null -eq $text) { return }
     if ($text -match "LutCreatorComponent" -or $text -match "feature\.video_editor" -or
         $text -match "class VideoEditorComponent" -or $text -match "parseSmcube" -or
-        $text -match "fun withPickDefaults") {
+        $text -match "fun withPickDefaults" -or $text -match "feature\.gallery_workspace" -or
+        $text -match "private val projectDao: ProjectDao" -or
+        $text -match "private val photoDao: PhotoDao") {
         $denyHits += $p
     }
+}
+if (Test-Path (Join-Path $Dest "feature\gallery-workspace")) {
+    $denyHits += (Join-Path $Dest "feature\gallery-workspace")
 }
 if ($denyHits.Count -gt 0) {
     Write-Host "Deny-list grep failed:"

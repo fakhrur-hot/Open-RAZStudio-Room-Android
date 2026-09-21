@@ -90,6 +90,7 @@ related feature simply stays off until you add the asset yourself.
 - **The Lensfun lens-correction database** (the `data/db/*.xml` files). Lens
   correction is off until you add them.
 - **RAW LUT and LUT Adj implementation** - tabs remain visible but disabled; dedicated browsing, parsing, chaining, baking, and native-loader code is private.
+- **Gallery Workspace and project pipeline** - premium-only and removed from Open, including Add to Project and sync shortcuts.
 - **The short video editor** — removed entirely from this edition.
 - **Signing keys** (`*.jks`, `keystore.properties`) — never committed. The debug
   build signs with the standard Android debug key automatically.

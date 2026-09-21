@@ -23,10 +23,6 @@ import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import androidx.exifinterface.media.ExifInterface
 import com.arkivanov.decompose.ComponentContext
-import com.RAZStudio.StudioRoom.core.database.dao.PhotoDao
-import com.RAZStudio.StudioRoom.core.database.dao.ProjectDao
-import com.RAZStudio.StudioRoom.core.database.entity.PhotoEntity
-import com.RAZStudio.StudioRoom.core.database.entity.ProjectEntity
 import com.RAZStudio.StudioRoom.core.domain.coroutines.DispatchersHolder
 import com.RAZStudio.StudioRoom.core.settings.domain.SettingsManager
 import com.RAZStudio.StudioRoom.core.ui.utils.BaseComponent
@@ -47,8 +43,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 /**
  * Screen logic for **Sony Sync** (Decompose child, assisted-injected by
@@ -72,8 +66,6 @@ class SonySyncComponent @AssistedInject internal constructor(
     @Assisted val onNavigate: (Screen) -> Unit,
     @ApplicationContext private val context: Context,
     private val settingsManager: SettingsManager,
-    private val projectDao: ProjectDao,
-    private val photoDao: PhotoDao,
     dispatchersHolder: DispatchersHolder,
 ) : BaseComponent(dispatchersHolder, componentContext) {
 
@@ -134,7 +126,7 @@ class SonySyncComponent @AssistedInject internal constructor(
             // there unless a live upload is running). Setting it here (not only in
             // the cloud lazy) means plain Camera-Remote shooting also saves.
             r.onCaptured = { name, bytes ->
-                componentScope.launch(ioDispatcher) { saveCapturedToGallery(name, bytes) }
+                componentScope.launch(ioDispatcher) { saveCapturedToOutput(name, bytes) }
                 if (cloudCreated) cloud.uploadCaptured(name, bytes)
             }
         }
@@ -480,53 +472,28 @@ class SonySyncComponent @AssistedInject internal constructor(
     //   <Custom Output folder>/Sony <Model> <Date>/<name>.jpg
     // and registered into a Gallery Workspace project of the same name (created
     // once per model+date). Model/date come from the JPEG's EXIF.
-    private val captureProjectIds = mutableMapOf<String, Long>()
-    private val captureSaveLock = Mutex()
-
-    private suspend fun saveCapturedToGallery(name: String, jpeg: ByteArray) {
+    // Open saves Sony Remote captures to the selected output folder only.
+    private suspend fun saveCapturedToOutput(name: String, jpeg: ByteArray) {
         runCatching {
-            val projectName = "Sony " + modelDateFromExif(jpeg)
+            val folderName = "Sony " + modelDateFromExif(jpeg)
             val root = resolveOutputDir()
             if (root == null) {
-                log("Capture save skipped — set a Custom Output folder in Settings first.")
+                log("Capture save skipped - set a Custom Output folder in Settings first.")
                 return
             }
-            val sub = root.findFile(projectName)?.takeIf { it.isDirectory }
-                ?: root.createDirectory(projectName)
-            if (sub == null) { log("Capture save failed — couldn't create '$projectName'."); return }
+            val sub = root.findFile(folderName)?.takeIf { it.isDirectory }
+                ?: root.createDirectory(folderName)
+            if (sub == null) { log("Capture save failed - could not create output folder."); return }
             val jpgName = ensureJpgName(name)
             val file = sub.createFile("image/jpeg", jpgName)
-            if (file == null) { log("Capture save failed — couldn't create file."); return }
-            val wrote = context.contentResolver.openOutputStream(file.uri)?.use { it.write(jpeg); true } ?: false
-            if (!wrote) { log("Capture save failed — no output stream."); return }
-
-            val now = System.currentTimeMillis()
-            captureSaveLock.withLock {
-                val pid = captureProjectIds[projectName] ?: run {
-                    val id = projectDao.insert(
-                        ProjectEntity(
-                            name = projectName, createdAt = now, updatedAt = now,
-                            coverPhotoId = null, sortOrder = 0, gridSortMode = 0,
-                            gridFilterMask = 0, gridColumns = 3,
-                        )
-                    )
-                    runCatching { java.io.File(context.filesDir, "gallery/projects/$id").mkdirs() }
-                    captureProjectIds[projectName] = id
-                    id
-                }
-                photoDao.insert(
-                    PhotoEntity(
-                        projectId = pid, sourceUri = file.uri.toString(), displayName = jpgName,
-                        mimeType = "image/jpeg", sourceFormat = 0, sizeBytes = jpeg.size.toLong(),
-                        widthPx = 0, heightPx = 0, capturedAt = now, addedAt = now,
-                        uriPermissionOk = true, sourceIsCopy = false, contentFingerprint = null,
-                        rating = 0, flagState = 0, colorLabel = 0,
-                    )
-                )
-            }
-            log("Saved $jpgName → project '$projectName'")
+            if (file == null) { log("Capture save failed - could not create file."); return }
+            val wrote = context.contentResolver.openOutputStream(file.uri)
+                ?.use { it.write(jpeg); true } ?: false
+            if (!wrote) { log("Capture save failed - no output stream."); return }
+            log("Saved $jpgName")
         }.onFailure { log("Capture save error: ${it.message}") }
     }
+
 
     /** "<Model> <yyyy-MM-dd>" from EXIF (falls back to "Camera" / today). */
     private fun modelDateFromExif(jpeg: ByteArray): String {
