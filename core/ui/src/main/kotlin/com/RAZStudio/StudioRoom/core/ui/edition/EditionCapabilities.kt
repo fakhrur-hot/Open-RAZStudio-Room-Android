@@ -24,26 +24,18 @@ object EditionCapabilities {
         return true
     }
 
-    /** Open: only these home entries stay clickable. Others are grey chrome. */
+    /** Open keeps normal tools wired; private unstable tools are omitted above. */
     fun isHomeWired(screen: Screen): Boolean {
         if (!includeOnHome(screen)) return false
-        if (!openAllowlistOnly) return true
-        return when (screen) {
-            is Screen.GalleryWorkspace,
-            is Screen.RawEditor,
-            is Screen.CanonSync,
-            is Screen.SonySync -> true
-            else -> false
-        }
+        return true
     }
 
     /**
-     * RAW editor tab ids from RawAdjustmentPanel. Open keeps LUT / LUT Adj /
-     * Curves / FX (halation). Others stay visible but disabled.
+     * Open keeps the normal RAW editor wired but exposes LUT and LUT Adj as
+     * disabled chrome. Their implementations are removed by export-open.ps1.
      */
     fun isRawTabWired(tabId: Int): Boolean {
         if (!openAllowlistOnly) return true
-        // Actions (XMP), Curves, LUT, LUT Adj, FX (halation)
-        return tabId == 6 || tabId == 2 || tabId == 11 || tabId == 13 || tabId == 4
+        return tabId != 11 && tabId != 13
     }
 }

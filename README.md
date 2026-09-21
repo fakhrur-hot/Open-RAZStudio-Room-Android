@@ -77,7 +77,7 @@ included**. The app is designed so it still builds and runs without them — the
 related feature simply stays off until you add the asset yourself.
 
 ### ✅ Shipped in this repo
-- All application source code (every module).
+- All Open-edition application source code. Private LUT implementation and Short Video are excluded.
 - Small, app-internal model/parameter files:
   `ae_tone_model.tflite`, `ae_scaler_mean.npy`, `ae_scaler_scale.npy`,
   `raw_hdr_recovery.bin`, `raw_shadow_recovery.bin`.
@@ -89,6 +89,7 @@ related feature simply stays off until you add the asset yourself.
   each carries its own upstream license, so this repo does not redistribute them.
 - **The Lensfun lens-correction database** (the `data/db/*.xml` files). Lens
   correction is off until you add them.
+- **RAW LUT and LUT Adj implementation** - tabs remain visible but disabled; dedicated browsing, parsing, chaining, baking, and native-loader code is private.
 - **The short video editor** — removed entirely from this edition.
 - **Signing keys** (`*.jks`, `keystore.properties`) — never committed. The debug
   build signs with the standard Android debug key automatically.
