@@ -26,6 +26,29 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LFA_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LFA_TAG, __VA_ARGS__)
 
+// ── Zero-DCE adaptive devignetting ────────────────────────────────────────────
+//
+// The static pass multiplies dark corners by a steep radial gain, amplifying
+// sensor readout noise. The 256×256 Zero-DCE lift map (per-pixel mean |A| of
+// its 24 curve channels, computed from the embedded thumbnail BEFORE Stage A)
+// marks deep-shadow (low-SNR) regions; the radial gain is attenuated there:
+//     M(x,y) = 1 − clamp(aMean/τ, 0, 1)      (τ default 0.7)
+//     G_final = 1 + (G_lens − 1) · M
+
+// Bilinear sample of the square Zero-DCE lift map at normalized coords.
+static inline float lfaSampleLift(const float* map, int side, float u, float v) {
+    if (!map || side < 2) return 0.0f;
+    const float px = fminf(fmaxf(u * (side - 1), 0.0f), (float)(side - 1));
+    const float py = fminf(fmaxf(v * (side - 1), 0.0f), (float)(side - 1));
+    const int x0 = (int)px, y0 = (int)py;
+    const int x1 = x0 + 1 < side ? x0 + 1 : x0;
+    const int y1 = y0 + 1 < side ? y0 + 1 : y0;
+    const float dx = px - x0, dy = py - y0;
+    const float t = map[y0 * side + x0] * (1 - dx) + map[y0 * side + x1] * dx;
+    const float b = map[y1 * side + x0] * (1 - dx) + map[y1 * side + x1] * dx;
+    return t * (1 - dy) + b * dy;
+}
+
 // ── String helpers ────────────────────────────────────────────────────────────
 
 static float atof_safe(const char* s) { return s ? (float)atof(s) : 0.0f; }
@@ -1015,7 +1038,9 @@ int lfa_report_string(char* out, int cap) {
 
 bool lfa_correct_rgba_f16(uint16_t* rgbaF16u, int W, int H,
                           const LfaMatch& match,
-                          float focalMm, float apertureF) {
+                          float focalMm, float apertureF,
+                          const float* liftMap, int liftSide,
+                          float liftTau) {
     g_lfaReport = LfaReport{};
     if (!match.ok() || W < 8 || H < 8) { g_lfaReport.reason = "no match / tiny image"; return false; }
     const LfLensProfile&   lens = *match.lens;
@@ -1121,7 +1146,19 @@ bool lfa_correct_rgba_f16(uint16_t* rgbaF16u, int W, int H,
 
     // ── Pass 1: devignetting, in linear light, in place ──────────────────────
     if (doVig) {
+        double liftSum = 0.0, cornerLiftSum = 0.0;
+        long long liftCnt = 0, cornerLiftCnt = 0;
+        std::mutex liftMu;
+        // Corner-region accumulator: r² beyond 0.8 of the corner radius (0.64
+        // in squared units) — the darkest, most-corrected area. Telemetry for
+        // how aggressively the corners are being protected per frame.
+        const float nxC = (float)(W - 1) * 0.5f * normScale;
+        const float nyC = (float)(H - 1) * 0.5f * normScale;
+        const float r2Corner = nxC * nxC + nyC * nyC;
+
         auto vigRows = [&](int y0, int y1) {
+            double localSum = 0.0, localCornerSum = 0.0;
+            long long localCnt = 0, localCornerCnt = 0;
             for (int y = y0; y < y1; ++y) {
                 const float ny = ((float)y - cy) * normScale;
                 __fp16* row = rgba + (size_t)y * W * 4;
@@ -1143,15 +1180,36 @@ bool lfa_correct_rgba_f16(uint16_t* rgbaF16u, int W, int H,
                     }
                     if (c > 1e-3f && c != 1.f) {
                         const float g = 1.f / c;   // lensfun DeVignetting: ×(1/Cd)
+                        // Zero-DCE guided attenuation: deep-shadow regions get
+                        // a reduced optical gain so corner noise isn't boosted.
+                        float gUse = g;
+                        if (liftMap) {
+                            const float aMean = lfaSampleLift(liftMap, liftSide,
+                                                              (float)x / (float)(W - 1),
+                                                              (float)y / (float)(H - 1));
+                            const float m = 1.f - fminf(fmaxf(aMean / liftTau, 0.f), 1.f);
+                            gUse = 1.f + (g - 1.f) * m;
+                            localSum += aMean;
+                            ++localCnt;
+                            if (r2 > 0.64f * r2Corner) {
+                                localCornerSum += aMean;
+                                ++localCornerCnt;
+                            }
+                        }
                         __fp16* px = row + (size_t)x * 4;
                         for (int ch = 0; ch < 3; ++ch) {
                             float v = (float)px[ch];
-                            v = linToSrgb(srgbToLin(v) * g);   // linear-light gain
+                            v = linToSrgb(srgbToLin(v) * gUse);   // linear-light gain
                             px[ch] = (__fp16)fminf(fmaxf(v, 0.f), 1.f);
                         }
                     }
                 }
             }
+            std::lock_guard<std::mutex> lk(liftMu);
+            liftSum += localSum;
+            liftCnt += localCnt;
+            cornerLiftSum += localCornerSum;
+            cornerLiftCnt += localCornerCnt;
         };
         std::vector<std::thread> ts;
         const int chunk = (H + nThreads - 1) / nThreads;
@@ -1160,6 +1218,15 @@ bool lfa_correct_rgba_f16(uint16_t* rgbaF16u, int W, int H,
             if (y0 < y1) ts.emplace_back(vigRows, y0, y1);
         }
         for (auto& t : ts) t.join();
+
+        // Report adaptive state only when pixels were actually attenuated —
+        // a non-null map whose pass touched nothing must not claim otherwise.
+        if (liftMap && liftCnt > 0) {
+            g_lfaReport.adaptive = true;
+            g_lfaReport.liftMean = (float)(liftSum / (double)liftCnt);
+            if (cornerLiftCnt > 0)
+                g_lfaReport.cornerLiftMean = (float)(cornerLiftSum / (double)cornerLiftCnt);
+        }
     }
 
     // ── Auto-scale: zoom in just enough that no target pixel samples outside
@@ -1254,9 +1321,11 @@ bool lfa_correct_rgba_f16(uint16_t* rgbaF16u, int W, int H,
     }
 
     LOGI("lfa_correct_rgba_f16: %s + %s | f=%.1fmm f/%.1f realF=%.1f "
-         "dist=%d tca=%d vig=%d zoom=%.4f (%dx%d, %d threads)",
+         "dist=%d tca=%d vig=%d zoom=%.4f (%dx%d, %d threads) "
+         "adaptive=%d lift=%.3f corner=%.3f",
          cam.model.c_str(), lens.model.c_str(), focalMm, apertureF, realFocal,
-         chain.hasDist ? 1 : 0, chain.hasTca ? 1 : 0, doVig ? (genericVig ? 2 : 1) : 0, zoom, W, H, nThreads);
+         chain.hasDist ? 1 : 0, chain.hasTca ? 1 : 0, doVig ? (genericVig ? 2 : 1) : 0, zoom, W, H, nThreads,
+         g_lfaReport.adaptive ? 1 : 0, g_lfaReport.liftMean, g_lfaReport.cornerLiftMean);
     g_lfaReport.zoom = zoom; g_lfaReport.applied = true;
     return true;
 }

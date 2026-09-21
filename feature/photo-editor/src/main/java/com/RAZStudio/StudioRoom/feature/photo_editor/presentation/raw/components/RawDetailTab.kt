@@ -52,15 +52,8 @@ internal fun RawDetailTab(
                 label = stringResource(R.string.raw_sharpness),
                 value = macro.sharpness,
                 valueRange = 0f..100f,
-                onValueChange = { onMacroChange(macro.copy(sharpness = it)) },
-            )
-            Spacer(Modifier.height(4.dp))
-            RawSliderRow(
-                label = stringResource(R.string.raw_smart_sharpness),
-                value = macro.smartSharpness,
-                valueRange = 0f..1f,
-                onValueChange = { onMacroChange(macro.copy(smartSharpness = it)) },
-                displayValue = "${(macro.smartSharpness * 100).toInt()}",
+                onValueChange = { onMacroChange(macro.withLinkedSharpness(it)) },
+                displayValue = "${macro.sharpness.toInt()}",
             )
             Spacer(Modifier.height(4.dp))
             RawSliderRow(
@@ -101,7 +94,7 @@ internal fun RawDetailTab(
             // chroma noise; route extra cleanup here without flattening red /
             // yellow detail.
             RawSliderRow(
-                label = "Blue NR",
+                label = "Blue noise",
                 value = macro.blueNR,
                 valueRange = 0f..1f,
                 onValueChange = { onMacroChange(macro.copy(blueNR = it)) },
@@ -112,7 +105,7 @@ internal fun RawDetailTab(
             // red chroma axis. Picks up red shadow speckle that Color NR alone
             // would have to flatten reds across the frame to reach.
             RawSliderRow(
-                label = "Red NR",
+                label = "Red noise",
                 value = macro.redNR,
                 valueRange = 0f..1f,
                 onValueChange = { onMacroChange(macro.copy(redNR = it)) },

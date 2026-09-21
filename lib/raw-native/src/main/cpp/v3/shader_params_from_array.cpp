@@ -244,6 +244,10 @@ ShaderParams ShaderParams::fromFloatArray(const float* arr, int count) {
     p.fxVintageStrength    = getOr(369, 0.f);
     p.fxVintageFade        = getOr(370, 0.f);
     p.fxVintageVig         = getOr(371, 0.f);
+    p.fxVintageMistIntensity = getOr(454, 0.f);
+    p.fxVintageMistScale     = getOr(455, 1.f);
+    p.fxVintageTextureIntensity = getOr(456, 0.f);
+    p.fxVintageTextureScale  = getOr(457, 1.f);
     p.fxGlowStrength       = getOr(372, 0.f);
     p.fxGlowSpread         = getOr(373, 0.f);
     p.fxGlowWarmth         = getOr(374, 0.f);

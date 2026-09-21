@@ -56,6 +56,7 @@ import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.RAZStudio.StudioRoom.core.settings.presentation.provider.LocalSettingsState
+import com.RAZStudio.StudioRoom.core.ui.theme.Elevation
 import com.RAZStudio.StudioRoom.core.ui.utils.animation.FancyTransitionEasing
 import com.RAZStudio.StudioRoom.core.ui.utils.helper.PredictiveBackObserver
 import com.RAZStudio.StudioRoom.core.ui.utils.provider.ProvideContainerDefaults
@@ -203,7 +204,7 @@ private fun EnhancedModalSheetImpl(
     cancelable: Boolean = true,
     skipHalfExpanded: Boolean = true,
     shape: Shape = EnhancedBottomSheetDefaults.shape,
-    elevation: Dp = 0.dp,
+    elevation: Dp = Elevation.sheet,
     containerColor: Color = EnhancedBottomSheetDefaults.containerColor,
     contentColor: Color = contentColorFor(containerColor),
     scrimColor: Color = EnhancedBottomSheetDefaults.scrimColor,
@@ -298,8 +299,8 @@ private fun EnhancedModalSheetImpl(
     val settingsState = LocalSettingsState.current
 
     val autoElevation by animateDpAsState(
-        if (settingsState.drawContainerShadows) 16.dp
-        else 0.dp
+        if (settingsState.drawContainerShadows) Elevation.sheet
+        else Elevation.canvas
     )
 
     ProvideContainerDefaults(

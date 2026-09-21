@@ -9,6 +9,7 @@
  */
 
 #include "shader_sources.h"
+#include <string>
 
 // ── Vertex shaders — gl_VertexID-driven fullscreen quad ─────────────────────
 //
@@ -61,6 +62,16 @@ const char* kFragSrc =
 R"GLSL(#version 300 es
 precision highp float;
 precision highp sampler3D;
+
+// ── Capability knobs (overridden by the renderer with a #define prefix when
+// the device's GL_MAX_TEXTURE_IMAGE_UNITS can't hold every sampler; the
+// defaults keep desktop/parity builds on the full feature set) ──
+#ifndef RAZ_GLES_EXTRA_MASKS
+#define RAZ_GLES_EXTRA_MASKS 3   // extra brush-mask layer samplers beyond layer 0 (0..3)
+#endif
+#ifndef RAZ_GLES_FX_VINTAGE
+#define RAZ_GLES_FX_VINTAGE 1    // vintage-FX mist/film overlay samplers
+#endif
 
 in  vec2 vTexCoord;
 out vec4 fragColor;
@@ -232,8 +243,8 @@ uniform float uBokehFocusDepth;
 // to snap U2Net's soft silhouette to true image gradients (hair / feathers
 // / fur). uEdgeSnapStrength controls how aggressively the mask is pushed
 // toward 0/1 at high-contrast pixels.
-uniform sampler2D uSobelEdgeMask;
 uniform float uEdgeSnapStrength;
+uniform sampler2D uSobelEdgeMask;
 uniform float uEdgeSnapThreshold;
 uniform int  uGradTopApplyTo;
 uniform int  uGradBottomApplyTo;
@@ -249,9 +260,15 @@ uniform int  uGradRightBlendMode;
 // Layer 0 keeps the legacy single-mask uniforms for back-compat; layers 1..3
 // use array uniforms. Each layer is gated by its own painted alpha.
 uniform sampler2D uBrushMask;        // layer 0 (unit 3, legacy)
+#if RAZ_GLES_EXTRA_MASKS >= 1
 uniform sampler2D uBrushMask1;       // unit 5
+#endif
+#if RAZ_GLES_EXTRA_MASKS >= 2
 uniform sampler2D uBrushMask2;       // unit 6
+#endif
+#if RAZ_GLES_EXTRA_MASKS >= 3
 uniform sampler2D uBrushMask3;       // unit 7
+#endif
 uniform int   uBrushMaskEnabled;     // bit flags: bit i = layer i has a mask
 uniform int   uShowMaskOverlay;      // 1 = tint masked region (Mask tab "Show")
 uniform int   uMaskOverlayLayer;     // layer index to tint for the overlay; <0 = none
@@ -317,8 +334,8 @@ uniform float uTonemapShadows;
 //                lifted to fake creamy specular-highlight "balls".
 //   uBokehSpread: [0..1] drives the FBO blur radius on the CPU side; the
 //                shader also uses it to widen the bloom threshold rolloff.
-uniform sampler2D uBlurTex;
 uniform float uBokehBlur;
+    uniform sampler2D uBlurTex;
 uniform float uBokehBalls;
 uniform float uBokehSpread;
 
@@ -439,6 +456,14 @@ uniform float uFxDustSize;
 uniform float uFxVintageStrength;
 uniform float uFxVintageFade;
 uniform float uFxVintageVig;
+uniform float uFxVintageMistIntensity;
+uniform float uFxVintageMistScale;
+uniform float uFxVintageTextureIntensity;
+uniform float uFxVintageTextureScale;
+#if RAZ_GLES_FX_VINTAGE
+uniform sampler2D uFxVintageMistTex;   // unit 16 — optional (18-sampler config)
+uniform sampler2D uFxVintageFilmTex;   // unit 17
+#endif
 uniform float uFxGlowStrength;
 uniform float uFxGlowSpread;
 uniform float uFxGlowWarmth;
@@ -1262,22 +1287,40 @@ vec3 applyMist(vec3 c, float strength, float warmth) {
 }
 
 // Vintage — a clean tonal vintage look: desaturation, a mild warm/cool cast,
-// gentle channel shift, faded (lifted) blacks and a corner vignette. The old
+// gentle channel shift and faded (lifted) blacks. The old
 // AnalogTape line artifacts (scanlines, rolling hum bands, bottom tracking
-// stripe) were REMOVED at the user's request — no "streak lines". Kept in exact
-// GL/CPU parity with applyVintageP (grain is left to the Film Grain FX).
-vec3 applyVintage(vec3 c, vec2 uv, float strength, float fade, float vig) {
-    if (strength == 0.0) return c;
-    float k = strength;
-    float Y = dot(c, vec3(0.299, 0.587, 0.114));
-    c = mix(c, vec3(Y), 0.35 * k);                       // desaturate
-    c += vec3(0.020, -0.012, 0.028) * k;                 // mild warm/cool cast
-    c.r += 0.020 * k;  c.b -= 0.015 * k;                 // gentle channel shift
-    c = mix(c, vec3(0.12), fade * strength * 0.6);       // fade / lift blacks
-    vec2 d = (uv - 0.5) * 2.0;
-    float r = dot(d, d);
-    float vigMask = smoothstep(0.5, 1.8, r) * vig * strength;
-    c *= (1.0 - vigMask * 0.6);
+// stripe) were REMOVED at the user's request — no "streak lines". Tonal path
+// stays in GL/CPU parity with applyVintageP. Mist/film overlays are GL-only
+// until the CPU export kernel grows a texture path (grain stays Film Grain FX).
+// Overlays must still run when strength==0 so Mist/Texture sliders work alone.
+vec3 applyVintage(vec3 c, vec2 uv, float strength, float fade, float vig, float mistInt, float mistScale, float texInt, float texScale, float mistWarmth) {
+    if (strength == 0.0 && mistInt <= 0.0 && texInt <= 0.0) return c;
+    if (strength != 0.0) {
+        float k = strength;
+        float Y = dot(c, vec3(0.299, 0.587, 0.114));
+        c = mix(c, vec3(Y), 0.35 * k);                       // desaturate
+        c += vec3(0.020, -0.012, 0.028) * k;                 // mild warm/cool cast
+        c.r += 0.020 * k;  c.b -= 0.015 * k;                 // gentle channel shift
+        c = mix(c, vec3(0.12), fade * k * 0.6);       // fade / lift blacks
+    }
+
+#if RAZ_GLES_FX_VINTAGE
+    // Mist Overlay (add). Warmth tints the PNG, not the film texture plate.
+    if (mistInt > 0.0) {
+        vec2 mistUV = (uv - 0.5) / max(mistScale, 1.0) + 0.5;
+        vec3 mistSample = texture(uFxVintageMistTex, mistUV).rgb;
+        mistSample *= vec3(1.0 + mistWarmth * 0.55, 1.0, 1.0 - mistWarmth * 0.55);
+        c += mistSample * mistInt;
+    }
+
+    // Texture Overlay (add)
+    if (texInt > 0.0) {
+        vec2 texUV = (uv - 0.5) / max(texScale, 1.0) + 0.5;
+        vec3 filmSample = texture(uFxVintageFilmTex, texUV).rgb;
+        c += filmSample * texInt;
+    }
+#endif
+
     return clamp(c, 0.0, 4.0);
 }
 
@@ -1572,11 +1615,21 @@ float lumMask(float L, float target, float spread, float feather) {
 }
 
 // Sample a mask layer's brush/object bitmap alpha (GLSL can't index samplers).
+// Layers compiled out by RAZ_GLES_EXTRA_MASKS report 0.0 — maskLayerAlpha then
+// contributes nothing for that layer, which is exactly the low-end
+// degradation we want (its luma band, being analytic, still works).
 float sampleBrushLayer(int li) {
     if      (li == 0) return texture(uBrushMask,  vTexCoord).r;
+#if RAZ_GLES_EXTRA_MASKS >= 1
     else if (li == 1) return texture(uBrushMask1, vTexCoord).r;
+#endif
+#if RAZ_GLES_EXTRA_MASKS >= 2
     else if (li == 2) return texture(uBrushMask2, vTexCoord).r;
-    else              return texture(uBrushMask3, vTexCoord).r;
+#endif
+#if RAZ_GLES_EXTRA_MASKS >= 3
+    else if (li == 3) return texture(uBrushMask3, vTexCoord).r;
+#endif
+    else              return 0.0;
 }
 
 // Final selection alpha for a mask layer, combining a LIVE luma band with the
@@ -2396,13 +2449,34 @@ void main() {
     // Skip bokeh entirely when no subject mask is present — never blur the
     // whole frame with no subject to protect.
     if ((uBokehBlur > 0.0 || uBokehBalls > 0.0) && uSubjectMaskEnabled == 1) {
-        float bgGate = subjectGate(2);
-        // Sky / Terrain attenuation: portraits look more natural when the
-        // sky and ground keep some sharpness even with the subject blurred
-        // out. Scale bgGate down to 25% wherever the Cityscapes attenuation
-        // mask says "this is sky or ground" — so subject = 0% blur, mid-
-        // distance background = 100%, sky/ground = 25%. Subject mask still
-        // dominates (0 on the person no matter what).
+        // Phase 4: hard subject lock — blur must NOT spread onto the subject.
+        // subjectGate(2) alone uses (1-p^2) and still blurs mid-mask pixels.
+        // Feather the *mask protect zone* outward; subject core stays CoC=0.
+        vec2 maskUV = mix(uSubjectMaskRect.xy, uSubjectMaskRect.zw, vTexCoord);
+        float pSub = clamp(texture(uSubjectMask, maskUV).r, 0.0, 1.0);
+        if (uEdgeSnapStrength > 0.0) {
+            float edge = texture(uSobelEdgeMask, maskUV).r;
+            if (edge > uEdgeSnapThreshold) {
+                float push = edge * uEdgeSnapStrength;
+                pSub = (pSub > 0.5) ? min(1.0, pSub + push) : max(0.0, pSub - push);
+            }
+        }
+        // Dilate protect ~0.6% of frame so large discs don't crawl onto silhouette.
+        float pDil = pSub;
+        {
+            float d = 0.006;
+            pDil = max(pDil, texture(uSubjectMask, clamp(maskUV + vec2( d, 0.0), 0.0, 1.0)).r);
+            pDil = max(pDil, texture(uSubjectMask, clamp(maskUV + vec2(-d, 0.0), 0.0, 1.0)).r);
+            pDil = max(pDil, texture(uSubjectMask, clamp(maskUV + vec2(0.0,  d), 0.0, 1.0)).r);
+            pDil = max(pDil, texture(uSubjectMask, clamp(maskUV + vec2(0.0, -d), 0.0, 1.0)).r);
+        }
+        // Hard zero on subject (dilated). Soft gate only on clear background.
+        float bgGate = 0.0;
+        if (pDil <= 0.42) {
+            float bg = 1.0 - pSub;
+            bgGate = bg * bg; // fringe only where mask is already bg-ish
+        }
+        // Sky / Terrain attenuation (bg only).
         if (uBokehAttenuationEnabled == 1 && bgGate > 0.0) {
             vec2 attUV = mix(uSubjectMaskRect.xy, uSubjectMaskRect.zw, vTexCoord);
             float att = clamp(texture(uBokehAttenuation, attUV).r, 0.0, 1.0);
@@ -2410,21 +2484,18 @@ void main() {
         }
         // Depth → CoC. LOCKED abs gate for golden 8/8:
         //   cocAbs = abs(depth - focus); bgGate *= smoothstep(0.02, 0.55, cocAbs)
-        // Phase 3: also keep signed CoC for separate near/far disc paths
-        //   cocSigned < 0 → near/foreground; =0 focus; >0 far/background
+        // Phase 3: signed CoC near/far paths
         float nearGate = 0.0;
         float farGate  = 0.0;
         if (uDepthMapEnabled == 1 && bgGate > 0.0) {
             vec2 dUV = mix(uSubjectMaskRect.xy, uSubjectMaskRect.zw, vTexCoord);
             float depth = clamp(texture(uBokehAttenuation, dUV).g, 0.0, 1.0);
-            float cocSigned = depth - uBokehFocusDepth; // Phase 3 signed
+            float cocSigned = depth - uBokehFocusDepth;
             float coc = clamp(abs(cocSigned), 0.0, 1.0); // LOCKED abs
-            // Soft knee so mid-distance still gets readable blur.
             bgGate *= smoothstep(0.02, 0.55, coc);
             if (cocSigned >= 0.0) farGate = bgGate;
             else                  nearGate = bgGate;
         } else {
-            // Depth-off: treat as far-only (legacy full-bg soft).
             farGate = bgGate;
         }
         if (bgGate > 0.0) {
@@ -2444,17 +2515,28 @@ void main() {
                 vec3 soft = texture(uBlurTex, vTexCoord).rgb;
                 acc = mix(acc, soft, 0.50 * smoothstep(0.0, 0.012, rUV));
                 if (rUV > 1e-5) {
-                    const int N = 24;
+                    float radiusPx = rUV * float(max(textureSize(uTex, 0).x, textureSize(uTex, 0).y));
+                    int N = (radiusPx > 10.0) ? 48 : 24;
                     const float GOLDEN = 2.399963229728653;
+                    vec2 pixel = floor(vTexCoord * vec2(textureSize(uTex, 0)));
+                    float seed = fract(sin(dot(pixel, vec2(12.9898, 78.233))) * 43758.5453);
+                    float rotation = seed * 6.28318530718;
+                    float wSum = 1.0; // center already in acc (subject-free: we're on bg)
                     for (int i = 1; i < N; ++i) {
                         float fi = float(i);
                         float rr = rUV * sqrt(fi / float(N - 1));
-                        float ang = fi * GOLDEN;
+                        float ang = fi * GOLDEN + rotation;
                         vec2 off = vec2(cos(ang), sin(ang)) * rr;
                         vec2 uv = clamp(vTexCoord + off, 0.0, 1.0);
-                        acc += mix(texture(uTex, uv).rgb, texture(uBlurTex, uv).rgb, 0.45);
+                        vec2 sUV = mix(uSubjectMaskRect.xy, uSubjectMaskRect.zw, uv);
+                        float sp = texture(uSubjectMask, sUV).r;
+                        float sw = 1.0 - smoothstep(0.20, 0.42, sp);
+                        if (sw > 1e-4) {
+                            acc += mix(texture(uTex, uv).rgb, texture(uBlurTex, uv).rgb, 0.45) * sw;
+                            wSum += sw;
+                        }
                     }
-                    acc /= float(N);
+                    acc /= max(wSum, 1e-4);
                 }
                 blurC = clamp(acc * gradeRatio, 0.0, 1.0);
                 float mixW = smoothstep(0.0, 0.008, rUV);
@@ -2875,9 +2957,9 @@ void main() {
         c = mix(c, mix(c, blurSample, blurAmt), 1.0 - blurExclude);
     }
     // Mist
-    c = applyMist(c, uFxMist, uFxMistWarmth);
+    c = applyMist(c, uFxMist, 0.0);
     // Vintage
-    c = applyVintage(c, vTexCoord, uFxVintageStrength, uFxVintageFade, uFxVintageVig);
+    c = applyVintage(c, vTexCoord, uFxVintageStrength, uFxVintageFade, uFxVintageVig, uFxVintageMistIntensity, uFxVintageMistScale, uFxVintageTextureIntensity, uFxVintageTextureScale, uFxMistWarmth);
     // Haxademic radial vignette (Req 5) — creative FX vignette via slot 371.
     if (uFxVintageVig > 0.0) {
         c = applyHaxVignette(c, vTexCoord, 1.0, uFxVintageVig);
@@ -2928,6 +3010,36 @@ void main() {
     fragColor = vec4(c, 1.0);
 }
 )GLSL";  // end §3 — void main() / end of uber-shader
+
+// The live preview uses the Sobel and blur planes. The offscreen export path
+// has no separate edge plane in its JNI contract and must stay within devices'
+// GL_MAX_TEXTURE_IMAGE_UNITS=16 limit. Keep one canonical shader source, but
+// compile a narrowly degraded export variant: edge snapping is neutral and
+// blur-only effects fall back to the source texture instead of failing the
+// whole program link on Mali-class devices.
+const char* kFragSrcOffscreen = []() -> const char* {
+    static std::string source;
+    if (source.empty()) {
+        source = kFragSrc;
+        const std::string sobelDecl = "uniform sampler2D uSobelEdgeMask;";
+        const std::string blurDecl = "uniform sampler2D uBlurTex;";
+        source.replace(source.find(sobelDecl), sobelDecl.size(), "");
+        source.replace(source.find(blurDecl), blurDecl.size(), "");
+        const std::string sobelSample = "texture(uSobelEdgeMask, maskUV).r";
+        size_t pos = 0;
+        while ((pos = source.find(sobelSample, pos)) != std::string::npos) {
+            source.replace(pos, sobelSample.size(), "0.0");
+            pos += 3;
+        }
+        const std::string blurName = "uBlurTex";
+        pos = 0;
+        while ((pos = source.find(blurName, pos)) != std::string::npos) {
+            source.replace(pos, blurName.size(), "uTex");
+            pos += 4;
+        }
+    }
+    return source.c_str();
+}();
 
 // ── Bokeh separable-Gaussian blur (run twice: H then V) ──────────────────
 //   Identity vertex shader (we render into an FBO with top-down rows, like

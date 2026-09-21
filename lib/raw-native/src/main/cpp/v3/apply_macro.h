@@ -36,6 +36,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 namespace raw_v3 {
 
@@ -203,6 +204,10 @@ struct ApplyMacroParams {
     float fxVintageStrength  = 0.f; // [369]
     float fxVintageFade      = 0.f; // [370]
     float fxVintageVig       = 0.f; // [371]
+    float fxVintageMistIntensity = 0.f; // [454]
+    float fxVintageMistScale     = 1.f; // [455]
+    float fxVintageTextureIntensity = 0.f; // [456]
+    float fxVintageTextureScale  = 1.f; // [457]
     float fxGlowStrength     = 0.f; // [372]
     float fxGlowSpread       = 0.f; // [373]
     float fxGlowWarmth       = 0.f; // [374]
@@ -496,5 +501,19 @@ void applyMacroPixel(float* in_out,
                      const ApplyMacroSubjectMask* atten,
                      const float* srcBuf,
                      int srcW, int srcH);
+
+/** Process-wide baked vintage overlays (RGBA8). Filled from Kotlin PNG decode. */
+struct VintageOverlayBake {
+    std::vector<uint8_t> rgba;
+    int w = 0;
+    int h = 0;
+    bool empty() const { return rgba.empty() || w <= 0 || h <= 0; }
+};
+struct VintageFxBake {
+    VintageOverlayBake mist;
+    VintageOverlayBake film;
+};
+VintageFxBake& vintageFxBake();
+void setVintageFxBake(bool film, const uint8_t* bytes, int nbytes, int width, int height);
 
 }  // namespace raw_v3

@@ -10,10 +10,12 @@
 #include "offscreen_save_renderer.h"
 
 #include "shader_sources.h"   // canonical GLSL — do not re-inline shader text
+#include "apply_macro.h"
 #include "bloom_filmic.h"
 #include "grading_uniforms.h"
 #include "soft_diffusion.h"
 #include "stage_blur.h"
+#include "sampler_layout.h"
 #include "tiff_mmap_io.h"
 
 #include <android/log.h>
@@ -22,6 +24,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #define LOG_TAG "OffscreenSave"
@@ -679,8 +682,41 @@ bool OffscreenSaveRenderer::renderGradedToRgba8(
     }
 
     // ── Compile canvas uber-shader (same strings as live preview) ──
+    GLint maxTexUnits = 0;
+    glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &maxTexUnits);
+    const int layoutIndex = firstSamplerLayoutFor(maxTexUnits);
+    if (layoutIndex < 0) {
+        LOGE("renderGradedToRgba8: no sampler layout fits max texture units=%d", maxTexUnits);
+        return false;
+    }
+    const SamplerLayout& samplerLayout = kSamplerLayouts[layoutIndex];
+    const char* sourceNewline = std::strchr(kFragSrcOffscreen, '\n');
+    std::string fragmentSource;
+    if (!sourceNewline) {
+        LOGE("renderGradedToRgba8: offscreen shader has no version line");
+        return false;
+    }
+    fragmentSource.assign(kFragSrcOffscreen, sourceNewline + 1);
+    fragmentSource += "#define RAZ_GLES_EXTRA_MASKS ";
+    fragmentSource += std::to_string(samplerLayout.extraMasks);
+    fragmentSource += "\n#define RAZ_GLES_FX_VINTAGE ";
+    fragmentSource += std::to_string(samplerLayout.fxVintage);
+    fragmentSource += "\n";
+    fragmentSource += sourceNewline + 1;
+    LOGI("renderGradedToRgba8: sampler layout '%s' (units=%d) "
+         "uTex=0 uLutTex=1 uSubjectMask=2 uBrushMask=3 "
+         "uBrushMask1=5 uBrushMask2=%d uBrushMask3=%d "
+         "uVintageMist=%d uVintageFilm=%d uBlurTex=8 "
+         "uToneCurveTex=9 uBokehAttenuation=10 uBloomTex=11 "
+         "uCurveMasterTex=12 uCurveRTex=13 uCurveGTex=14 uCurveBTex=15",
+         samplerLayout.name, maxTexUnits,
+         samplerLayout.extraMasks >= 2 ? 6 : -1,
+         samplerLayout.extraMasks >= 3 ? 7 : -1,
+         samplerLayout.fxVintage ? samplerLayout.vintageUnitBase : -1,
+         samplerLayout.fxVintage ? samplerLayout.vintageUnitBase + 1 : -1);
+
     GLuint vs = compileShader(GL_VERTEX_SHADER, kVertSrcSnapshot);
-    GLuint fs = compileShader(GL_FRAGMENT_SHADER, kFragSrc);
+    GLuint fs = compileShader(GL_FRAGMENT_SHADER, fragmentSource.c_str());
     if (!vs || !fs) {
         if (vs) glDeleteShader(vs);
         if (fs) glDeleteShader(fs);
@@ -708,10 +744,12 @@ bool OffscreenSaveRenderer::renderGradedToRgba8(
     glUseProgram(prog);
     struct { const char* name; int unit; } kUnits[] = {
         {"uTex", 0}, {"uLutTex", 1}, {"uSubjectMask", 2}, {"uBrushMask", 3},
-        {"uSobelEdgeMask", 4}, {"uBrushMask1", 5}, {"uBrushMask2", 6},
-        {"uBrushMask3", 7}, {"uBlurTex", 8}, {"uToneCurveTex", 9},
+        {"uBrushMask1", 5}, {"uBrushMask2", 6},
+        {"uBrushMask3", 7}, {"uToneCurveTex", 9},
         {"uBokehAttenuation", 10}, {"uBloomTex", 11}, {"uCurveMasterTex", 12},
         {"uCurveRTex", 13}, {"uCurveGTex", 14}, {"uCurveBTex", 15},
+        {"uFxVintageMistTex", samplerLayout.fxVintage ? samplerLayout.vintageUnitBase : -1},
+        {"uFxVintageFilmTex", samplerLayout.fxVintage ? samplerLayout.vintageUnitBase + 1 : -1},
     };
     for (const auto& u : kUnits) {
         GLint loc = glGetUniformLocation(prog, u.name);
@@ -741,6 +779,25 @@ bool OffscreenSaveRenderer::renderGradedToRgba8(
     };
     GLuint blackTex = make1x1(0.f, 0.f, 0.f, 1.f);
     GLuint whiteMask = make1x1(1.f, 1.f, 1.f, 1.f);
+
+    auto uploadOverlay = [](const VintageOverlayBake& o) -> GLuint {
+        if (o.empty()) return 0;
+        GLuint t = 0;
+        glGenTextures(1, &t);
+        glBindTexture(GL_TEXTURE_2D, t);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, o.w, o.h, 0,
+                     GL_RGBA, GL_UNSIGNED_BYTE, o.rgba.data());
+        glBindTexture(GL_TEXTURE_2D, 0);
+        return t;
+    };
+    const VintageFxBake& vfx = vintageFxBake();
+    GLuint mistTex = uploadOverlay(vfx.mist);
+    GLuint filmTex = uploadOverlay(vfx.film);
 
     // ── Karis bloom plane (same GPU shaders as canvas) ──
     const bool ortonOn = sp.ortonStrength > 0.f || sp.subjectBloom > 0.f;
@@ -870,9 +927,57 @@ bool OffscreenSaveRenderer::renderGradedToRgba8(
         }
     }
 
-    // Blur tex for Ambiance/Bokeh/Clarity — NOT softDiff (already in bloom).
-    // Prefer a neutral stand-in; full-res Gaussian is too heavy for this path.
-    GLuint blurTex = srcTex;
+    // Blur texture for Ambiance/Bokeh/Clarity — must match the live preview.
+    // The preview GlesRenderer builds a Gaussian reference plane into uBlurTex;
+    // the save path had been substituting the source texture directly, which made
+    // preview and export diverge even when the action macro and ShaderParams were
+    // identical. Build the same blurred reference here so the export kernel sees
+    // the same tonalBlur / local-contrast data as the live shader.
+    std::vector<float> srcRgb(size_t(srcW) * size_t(srcH) * 3);
+    auto h2f = [](uint16_t h) -> float {
+        const uint32_t sign  = uint32_t(h & 0x8000u) << 16;
+        const uint32_t exp16 = (h >> 10) & 0x1Fu;
+        const uint32_t mant  = h & 0x3FFu;
+        uint32_t r32 = 0u;
+        if (exp16 == 0u) {
+            if (mant == 0u) r32 = sign;
+            else r32 = sign | (((1u + 127u - 15u) << 23) | (mant << 13));
+        } else if (exp16 == 31u) {
+            r32 = sign | 0x7F800000u | (mant << 13);
+        } else {
+            r32 = sign | ((exp16 + (127u - 15u)) << 23) | (mant << 13);
+        }
+        float f = 0.0f;
+        std::memcpy(&f, &r32, sizeof(f));
+        return f;
+    };
+    for (int y = 0; y < srcH; ++y) {
+        for (int x = 0; x < srcW; ++x) {
+            const int idx = (y * srcW + x) * 3;
+            const int base = (y * srcW + x) * 4;
+            srcRgb[idx + 0] = h2f(srcFp16[base + 0]);
+            srcRgb[idx + 1] = h2f(srcFp16[base + 1]);
+            srcRgb[idx + 2] = h2f(srcFp16[base + 2]);
+        }
+    }
+    std::vector<float> blurOwned(size_t(srcW) * size_t(srcH) * 3, 0.f);
+    int blurRadiusPx = 2;
+    const float blurInfluence = std::max(0.0f, sp.ambiance) + std::max(0.0f, sp.clarityAmount) +
+                               std::max(0.0f, sp.bokehBlur) + std::max(0.0f, sp.fxGaussBlur);
+    blurRadiusPx += int(std::lround(blurInfluence * 8.0f));
+    blurRadiusPx = std::clamp(blurRadiusPx, 2, 24);
+    gaussianBlurSeparableShared(srcRgb.data(), blurOwned.data(), srcW, srcH, blurRadiusPx);
+
+    GLuint blurOwnedTex = 0;
+    glGenTextures(1, &blurOwnedTex);
+    glBindTexture(GL_TEXTURE_2D, blurOwnedTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, srcW, srcH, 0,
+                 GL_RGB, GL_FLOAT, blurOwned.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    GLuint blurTex = blurOwnedTex;
 
     // ── Optional 3D LUT ──
     GLuint lutTex = 0;
@@ -1076,6 +1181,12 @@ bool OffscreenSaveRenderer::renderGradedToRgba8(
     glActiveTexture(GL_TEXTURE13); glBindTexture(GL_TEXTURE_2D, blackTex);
     glActiveTexture(GL_TEXTURE14); glBindTexture(GL_TEXTURE_2D, blackTex);
     glActiveTexture(GL_TEXTURE15); glBindTexture(GL_TEXTURE_2D, blackTex);
+    if (samplerLayout.fxVintage) {
+        glActiveTexture(GL_TEXTURE0 + samplerLayout.vintageUnitBase);
+        glBindTexture(GL_TEXTURE_2D, mistTex ? mistTex : blackTex);
+        glActiveTexture(GL_TEXTURE0 + samplerLayout.vintageUnitBase + 1);
+        glBindTexture(GL_TEXTURE_2D, filmTex ? filmTex : blackTex);
+    }
 
     pushGradingUniforms(prog, sp, in);
 
@@ -1101,6 +1212,8 @@ bool OffscreenSaveRenderer::renderGradedToRgba8(
     if (auxOwned) glDeleteTextures(1, &auxOwned);
     glDeleteTextures(1, &blackTex);
     glDeleteTextures(1, &whiteMask);
+    if (mistTex) glDeleteTextures(1, &mistTex);
+    if (filmTex) glDeleteTextures(1, &filmTex);
     glDeleteVertexArrays(1, &vao);
     glDeleteProgram(prog);
 

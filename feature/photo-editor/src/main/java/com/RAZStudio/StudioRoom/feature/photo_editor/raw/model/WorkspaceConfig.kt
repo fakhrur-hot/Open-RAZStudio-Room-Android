@@ -194,6 +194,13 @@ data class WorkspaceConfig(
      */
     val lensfunFocalOverrideMm: Float = 0f,
     /**
+     * Zero-DCE adaptive devignetting: shadow threshold τ for the SNR mask
+     * (M = 1 − clamp(aMean/τ, 0, 1)). Higher = corners protected already at
+     * moderate shadow; lower = protection only in the deepest shadows.
+     * ~0.3–1.2, default 0.7. Persisted so re-opens keep the user's tuning.
+     */
+    val liftTau: Float = 0.7f,
+    /**
      * How the [lensfunLensId] above was arrived at, as the native matcher's
      * `LfaConfidence` ordinal (0 none · 1 low · 2 medium · 3 high). Persisted
      * rather than recomputed so the editor can tell an auto-applied HIGH match
@@ -320,12 +327,13 @@ data class WorkspaceConfig(
     /**
      * AI Color Enhance — the replacement for [smartDefaultsEnabled]. Fuses the
      * neural Zero-DCE low-light score with histogram metrics into a global
-     * auto-enhance (saturation/vibrance/WB/CLAHE) at open, via
-     * [UserMacro.createAiColorEnhance]. Default on; toggled per-photo from the
-     * Color tab. Instant global tier — does NOT use the heavy segmentation
-     * models (Stage-2 local blends deferred).
+     * auto-enhance (saturation/vibrance/WB/CLAHE) via
+     * [UserMacro.createAiColorEnhance]. Opt-in per photo from the Color tab —
+     * NOT auto-applied at file open (the card is computed on demand when the
+     * user enables the checkbox). Instant global tier — does NOT use the
+     * heavy segmentation models (Stage-2 local blends deferred).
      */
-    val aiColorEnhanceEnabled: Boolean = true,
+    val aiColorEnhanceEnabled: Boolean = false,
     /**
      * Camera Color Profile mode (route A in the workspace selector). When true,
      * a camera-RAW open keeps the FULL 16-bit RAW decode (RAW detail) but matches
@@ -464,6 +472,7 @@ data class WorkspaceConfig(
         private const val KEY_DEFAULT_EXPORT_FORMAT  = "default_export_format"
         private const val KEY_HIGHLIGHT_PROTECTION   = "highlight_protection"
         private const val KEY_SMART_DEFAULTS         = "smart_defaults_enabled"
+        private const val KEY_AI_COLOR_ENHANCE       = "ai_color_enhance_enabled"
 
         /** Resolve the prefs file consistently across the project. */
         fun prefs(context: Context): SharedPreferences =
@@ -531,6 +540,7 @@ data class WorkspaceConfig(
             val highlightProtection   = prefs.getFloat(KEY_HIGHLIGHT_PROTECTION, Default.highlightProtection)
                 .coerceIn(0f, 1f)
             val smartDefaults         = prefs.getBoolean(KEY_SMART_DEFAULTS, Default.smartDefaultsEnabled)
+            val aiColorEnhance        = prefs.getBoolean(KEY_AI_COLOR_ENHANCE, Default.aiColorEnhanceEnabled)
             return WorkspaceConfig(
                 bitDepth = bitDepth,
                 colorGamut = colorGamut,
@@ -568,6 +578,7 @@ data class WorkspaceConfig(
                 defaultExportFormat  = defaultExportFormat,
                 highlightProtection  = highlightProtection,
                 smartDefaultsEnabled = smartDefaults,
+                aiColorEnhanceEnabled = aiColorEnhance,
             )
         }
 
@@ -612,6 +623,7 @@ data class WorkspaceConfig(
             .putString(KEY_DEFAULT_EXPORT_FORMAT, defaultExportFormat)
             .putFloat(KEY_HIGHLIGHT_PROTECTION, highlightProtection)
             .putBoolean(KEY_SMART_DEFAULTS, smartDefaultsEnabled)
+            .putBoolean(KEY_AI_COLOR_ENHANCE, aiColorEnhanceEnabled)
             .apply()
     }
 

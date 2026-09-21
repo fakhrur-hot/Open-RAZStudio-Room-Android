@@ -92,6 +92,7 @@ import com.RAZStudio.StudioRoom.core.ui.utils.helper.EnPreview
 import com.RAZStudio.StudioRoom.core.ui.utils.provider.LocalScreenSize
 import com.RAZStudio.StudioRoom.core.ui.widget.icon_shape.IconShapeContainer
 import com.RAZStudio.StudioRoom.core.ui.widget.modifier.AutoCornersShape
+import com.RAZStudio.StudioRoom.core.ui.theme.Spacing
 import com.RAZStudio.StudioRoom.core.ui.widget.modifier.autoElevatedBorder
 import com.RAZStudio.StudioRoom.core.utils.extractMessage
 import com.RAZStudio.modalsheet.FullscreenPopup
@@ -255,7 +256,7 @@ fun Toast(
             contentColor = contentColor
         ),
         modifier = modifier
-            .heightIn(min = 48.dp)
+            .heightIn(min = Spacing.major)
             .widthIn(min = 0.dp, max = (sizeMin * 0.7f))
             .autoElevatedBorder(
                 color = MaterialTheme.colorScheme
@@ -271,7 +272,7 @@ fun Toast(
         shape = shape
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(Spacing.section),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
@@ -287,10 +288,10 @@ fun Toast(
                         contentDescription = null
                     )
                 }
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(Spacing.item))
             }
             Text(
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 text = toastData.visuals.message,
                 textAlign = TextAlign.Center
             )
@@ -454,7 +455,7 @@ object ToastDefaults {
         @Composable
         get() = MaterialTheme.colorScheme.inverseSurface.harmonizeWithPrimary()
 
-    val shape: Shape @Composable get() = AutoCornersShape(32.dp)
+    val shape: Shape @Composable get() = AutoCornersShape(28.dp)
 }
 
 private fun ToastDuration.toMillis(

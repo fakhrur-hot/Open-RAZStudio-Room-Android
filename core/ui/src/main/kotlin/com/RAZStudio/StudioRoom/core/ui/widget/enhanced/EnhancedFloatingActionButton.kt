@@ -65,7 +65,7 @@ fun EnhancedFloatingActionButton(
     type: EnhancedFloatingActionButtonType = LocalFABType.current,
     containerColor: Color = MaterialTheme.colorScheme.primaryContainer,
     contentColor: Color = contentColor(containerColor),
-    autoElevation: Dp = 1.5.dp,
+    autoElevation: Dp = com.RAZStudio.StudioRoom.core.ui.theme.Elevation.dialog,
     interactionSource: MutableInteractionSource? = remember { MutableInteractionSource() },
     content: @Composable RowScope.() -> Unit
 ) {

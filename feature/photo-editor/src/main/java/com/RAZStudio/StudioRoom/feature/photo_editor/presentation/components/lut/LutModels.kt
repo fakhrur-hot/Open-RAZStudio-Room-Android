@@ -44,6 +44,7 @@ data class LutCategory(
 internal const val FAVORITE_CATEGORY = "Favorite"
 internal const val USER_CUSTOM_CATEGORY = "User's Lut"
 internal const val CORRECTION_CATEGORY = "Correction"
+internal const val RAZ_LOOKS_CATEGORY = "RAZ Looks"
 internal const val ASSETS_LUT_ROOT = "luts"
 internal const val MAX_FAVORITES = 10
 

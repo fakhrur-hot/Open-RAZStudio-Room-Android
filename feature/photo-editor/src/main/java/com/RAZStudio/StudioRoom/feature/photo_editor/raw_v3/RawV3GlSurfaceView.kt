@@ -44,6 +44,9 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
     private val renderThread = HandlerThread("RawV3Gl").apply { start() }
     private val renderHandler = Handler(renderThread.looper)
 
+    private val ahbMaskLoader = AhbMaskLoader()
+    private var eglDisplay: Long = 0L
+
     // ── ADPF performance hint session (API 31+) ──────────────────────────────
     // Registers the render thread with the OS scheduler and reports each
     // frame's actual duration against the display's frame budget, so Android
@@ -120,6 +123,12 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
      *  placeholder only when the GL surface is provably showing content, so the
      *  canvas is never blank in between (never-blank preview). */
     @Volatile var onFirstFrameRendered: (() -> Unit)? = null
+    /** Fired on the main thread after EGL boot/replay (screen-on). Compose must
+     *  re-upload masks: the SurfaceView instance is reused so LaunchedEffects
+     *  keyed only on the view would skip. */
+    @Volatile var onEglBooted: (() -> Unit)? = null
+    /** Graded snapshot taken on the GL thread immediately before EGL release. */
+    @Volatile var onPreEglReleaseSnapshot: ((android.graphics.Bitmap) -> Unit)? = null
     @Volatile private var firstFrameSignalled: Boolean = false
 
     // pendingAhb is a sticky ref that can outlive the buffer: the composable's
@@ -136,7 +145,7 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
             val h = rendererHandle
             Log.d(TAG, "setSource: h=$h bootPending=$bootPending holder=${pendingSurfaceHolder != null}")
             if (h != 0L && !bootPending) {
-                nativeUpdateAhb(h, ahb)
+                nativeUpdateAhb(h, ahb, -1)
                 render(h, "setSource")
             } else if (pendingSurfaceHolder != null) {
                 scheduleReboot()
@@ -180,7 +189,7 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
                     System.arraycopy(scratchFloatArray, 0, renderFloatArray, 0, renderFloatArray.size)
                 }
                 nativeUpdateUniforms(h, renderFloatArray)
-                nativeUpdateAhb(h, ahb)
+                nativeUpdateAhb(h, ahb, -1)
                 render(h, "setSourceWithUniforms")
             } else if (pendingSurfaceHolder != null) {
                 scheduleReboot()
@@ -268,22 +277,34 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
     private var pendingLutPath: String? = null
     private var pendingClearLut: Boolean = false
     private var pendingSubjectMaskBytes: ByteArray? = null
+    private var pendingSubjectMaskAhb: HardwareBuffer? = null
     private var pendingSubjectMaskW: Int = 0
     private var pendingSubjectMaskH: Int = 0
     private var pendingSubjectRect: FloatArray? = null
     // 4 brush-mask layers (M12.2c.2b). Each layer keeps its own sticky state
     // so a surface re-create (rotation) replays every layer independently.
     private val pendingBrushMaskBytes = arrayOfNulls<ByteArray>(MASK_LAYERS)
+    private val pendingBrushMaskAhb = arrayOfNulls<HardwareBuffer>(MASK_LAYERS)
     private val pendingBrushMaskW = IntArray(MASK_LAYERS)
     private val pendingBrushMaskH = IntArray(MASK_LAYERS)
     private val pendingClearBrushMask = BooleanArray(MASK_LAYERS)
     private var pendingSobelEdgeBytes: ByteArray? = null
+    private var pendingSobelEdgeAhb: HardwareBuffer? = null
     private var pendingSobelEdgeW: Int = 0
     private var pendingSobelEdgeH: Int = 0
     private var pendingEdgeSnap: FloatArray? = null
+    private var pendingBokehAttenAhb: HardwareBuffer? = null
+    private var pendingDepthMapAhb: HardwareBuffer? = null
+    private var pendingDepthMapFocus: Float = 0.5f
     private var pendingToneCurve: ByteArray? = null
     private var pendingClearToneCurve: Boolean = false
     private var pendingCurveLuts: Array<FloatArray>? = null  // [master, r, g, b]
+    private var pendingVintageMist: ByteArray? = null
+    private var pendingVintageMistW: Int = 0
+    private var pendingVintageMistH: Int = 0
+    private var pendingVintageFilm: ByteArray? = null
+    private var pendingVintageFilmW: Int = 0
+    private var pendingVintageFilmH: Int = 0
     // Preview pan/zoom (replayed on surface reboot). Identity until a gesture.
     private var pendingViewScale: Float = 1f
     private var pendingViewOffsetX: Float = 0f
@@ -403,6 +424,43 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
     }
 
     /**
+     * Upload vintage mist overlay. [bytes] is gray (`w*h`), RGB (`w*h*3`)
+     * or RGBA (`w*h*4`), row-major. Posts to the GL thread.
+     */
+    fun uploadVintageMist(bytes: ByteArray, width: Int, height: Int) {
+        synchronized(pendingLock) {
+            pendingVintageMist = bytes
+            pendingVintageMistW = width
+            pendingVintageMistH = height
+        }
+        renderHandler.post {
+            val h = rendererHandle
+            if (h != 0L) {
+                val ok = nativeUploadVintageMist(h, bytes, width, height)
+                if (ok) render(h, "uploadVintageMist")
+            }
+        }
+    }
+
+    /**
+     * Upload vintage film/texture overlay. Same packing as [uploadVintageMist].
+     */
+    fun uploadVintageFilm(bytes: ByteArray, width: Int, height: Int) {
+        synchronized(pendingLock) {
+            pendingVintageFilm = bytes
+            pendingVintageFilmW = width
+            pendingVintageFilmH = height
+        }
+        renderHandler.post {
+            val h = rendererHandle
+            if (h != 0L) {
+                val ok = nativeUploadVintageFilm(h, bytes, width, height)
+                if (ok) render(h, "uploadVintageFilm")
+            }
+        }
+    }
+
+    /**
      * Upload the U2Net subject mask. [grayBytes] is a row-major
      * `width * height` byte array where each byte encodes the subject
      * probability (`255` = certain subject, `0` = certain background).
@@ -412,6 +470,7 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
     fun uploadSubjectMask(grayBytes: ByteArray, width: Int, height: Int) {
         synchronized(pendingLock) {
             pendingSubjectMaskBytes = grayBytes
+            pendingSubjectMaskAhb = null
             pendingSubjectMaskW = width
             pendingSubjectMaskH = height
         }
@@ -420,6 +479,31 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
             if (h != 0L) {
                 val ok = nativeUploadSubjectMask(h, grayBytes, width, height)
                 if (ok) render(h, "uploadSubjectMask")
+            } else {
+                Log.d(TAG, "uploadSubjectMask: renderer not ready; sticky replay retained")
+            }
+        }
+    }
+
+    /** Zero-copy AHB overload for subject mask. */
+    fun uploadSubjectMask(ahb: HardwareBuffer) {
+        synchronized(pendingLock) {
+            pendingSubjectMaskAhb = ahb
+            pendingSubjectMaskBytes = null
+        }
+        renderHandler.post {
+            val h = rendererHandle
+            if (h != 0L && eglDisplay != 0L) {
+                // Use the zero-copy cache-aware loader
+                val texId = ahbMaskLoader.importAhbMask(ahb, eglDisplay, 0)
+                if (texId != 0) {
+                    nativeBindTextureToMask(h, -1, texId)
+                    render(h, "uploadSubjectMaskAhb(cached)")
+                } else {
+                    // Fallback to the original legacy path if cache import fails
+                    nativeUploadSubjectMaskAhb(h, ahb, -1)
+                    render(h, "uploadSubjectMaskAhb(fallback)")
+                }
             }
         }
     }
@@ -435,11 +519,34 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
      * masks are no longer relevant.
      */
     fun uploadBokehAttenuation(grayBytes: ByteArray, width: Int, height: Int) {
+        synchronized(pendingLock) {
+            pendingBokehAttenAhb = null
+        }
         renderHandler.post {
             val h = rendererHandle
             if (h != 0L) {
                 val ok = nativeUploadBokehAttenuation(h, grayBytes, width, height)
                 if (ok) render(h, "uploadBokehAttenuation")
+            }
+        }
+    }
+
+    /** Zero-copy AHB overload for bokeh attenuation. */
+    fun uploadBokehAttenuation(ahb: HardwareBuffer) {
+        synchronized(pendingLock) {
+            pendingBokehAttenAhb = ahb
+        }
+        renderHandler.post {
+            val h = rendererHandle
+            if (h != 0L && eglDisplay != 0L) {
+                val texId = ahbMaskLoader.importAhbMask(ahb, eglDisplay, 0)
+                if (texId != 0) {
+                    nativeBindTextureToMask(h, -2, texId)
+                    render(h, "uploadBokehAttenuationAhb(cached)")
+                } else {
+                    nativeUploadBokehAttenuationAhb(h, ahb, -1)
+                    render(h, "uploadBokehAttenuationAhb(fallback)")
+                }
             }
         }
     }
@@ -450,11 +557,36 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
      * subject-median depth (focus plane); subject pixels stay sharp via mask.
      */
     fun uploadDepthMap(grayBytes: ByteArray, width: Int, height: Int, focusDepth01: Float) {
+        synchronized(pendingLock) {
+            pendingDepthMapAhb = null
+        }
         renderHandler.post {
             val h = rendererHandle
             if (h != 0L) {
                 val ok = nativeUploadDepthMap(h, grayBytes, width, height, focusDepth01)
                 if (ok) render(h, "uploadDepthMap")
+            }
+        }
+    }
+
+    /** Zero-copy AHB overload for depth map. */
+    fun uploadDepthMap(ahb: HardwareBuffer, focusDepth01: Float) {
+        synchronized(pendingLock) {
+            pendingDepthMapAhb = ahb
+        }
+        renderHandler.post {
+            val h = rendererHandle
+            if (h != 0L && eglDisplay != 0L) {
+                val texId = ahbMaskLoader.importAhbMask(ahb, eglDisplay, 0)
+                if (texId != 0) {
+                    // Note: Depth map is special as it's packed with attenuation in unit 10.
+                    // For now, use the legacy path until we grow bindTextureToMask support for it.
+                    nativeUploadDepthMapAhb(h, ahb, focusDepth01, -1)
+                    render(h, "uploadDepthMapAhb")
+                } else {
+                    nativeUploadDepthMapAhb(h, ahb, focusDepth01, -1)
+                    render(h, "uploadDepthMapAhb")
+                }
             }
         }
     }
@@ -495,6 +627,7 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
         if (layer < 0 || layer >= MASK_LAYERS) return
         synchronized(pendingLock) {
             pendingBrushMaskBytes[layer] = grayBytes
+            pendingBrushMaskAhb[layer] = null
             pendingBrushMaskW[layer] = width
             pendingBrushMaskH[layer] = height
             pendingClearBrushMask[layer] = false
@@ -508,6 +641,29 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
         }
     }
 
+    /** Zero-copy AHB overload for brush mask. */
+    fun uploadBrushMask(layer: Int, ahb: HardwareBuffer) {
+        if (layer < 0 || layer >= MASK_LAYERS) return
+        synchronized(pendingLock) {
+            pendingBrushMaskAhb[layer] = ahb
+            pendingBrushMaskBytes[layer] = null
+            pendingClearBrushMask[layer] = false
+        }
+        renderHandler.post {
+            val h = rendererHandle
+            if (h != 0L && eglDisplay != 0L) {
+                val texId = ahbMaskLoader.importAhbMask(ahb, eglDisplay, 0)
+                if (texId != 0) {
+                    nativeBindTextureToMask(h, layer, texId)
+                    render(h, "uploadBrushMaskAhb(cached)")
+                } else {
+                    nativeUploadBrushMaskAhb(h, layer, ahb, -1)
+                    render(h, "uploadBrushMaskAhb(fallback)")
+                }
+            }
+        }
+    }
+
     /**
      * Upload the Sobel edge mask (same 320×320 grid as the subject mask).
      * Used by the shader to snap soft U2Net silhouettes to true image
@@ -516,6 +672,7 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
     fun uploadSobelEdgeMask(grayBytes: ByteArray, width: Int, height: Int) {
         synchronized(pendingLock) {
             pendingSobelEdgeBytes = grayBytes
+            pendingSobelEdgeAhb = null
             pendingSobelEdgeW = width
             pendingSobelEdgeH = height
         }
@@ -524,6 +681,27 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
             if (h != 0L) {
                 val ok = nativeUploadSobelEdgeMask(h, grayBytes, width, height)
                 if (ok) render(h, "uploadSobelEdgeMask")
+            }
+        }
+    }
+
+    /** Zero-copy AHB overload for Sobel edge mask. */
+    fun uploadSobelEdgeMask(ahb: HardwareBuffer) {
+        synchronized(pendingLock) {
+            pendingSobelEdgeAhb = ahb
+            pendingSobelEdgeBytes = null
+        }
+        renderHandler.post {
+            val h = rendererHandle
+            if (h != 0L && eglDisplay != 0L) {
+                val texId = ahbMaskLoader.importAhbMask(ahb, eglDisplay, 0)
+                if (texId != 0) {
+                    nativeBindTextureToMask(h, -3, texId)
+                    render(h, "uploadSobelEdgeMaskAhb(cached)")
+                } else {
+                    nativeUploadSobelEdgeMaskAhb(h, ahb, -1)
+                    render(h, "uploadSobelEdgeMaskAhb(fallback)")
+                }
             }
         }
     }
@@ -686,6 +864,7 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
             return
         }
         rendererHandle = h
+        eglDisplay = nativeGetEglDisplay(h)
         // Replay any sticky state that was set BEFORE bootRenderer ran
         // (typical after rotation: Compose calls updateUniforms /
         // uploadLut3d / etc. against a still-booting renderer — without
@@ -703,27 +882,38 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
         // upload and the mask would vanish after rotation). The lock is held
         // across the native uploads; that's fine — this is the rare reboot path
         // and the only contenders are per-setter writes on the main thread.
+        var maskReplayed = false
         synchronized(pendingLock) {
-            pendingSubjectMaskBytes?.let {
-                nativeUploadSubjectMask(h, it, pendingSubjectMaskW, pendingSubjectMaskH)
+            val smBytes = pendingSubjectMaskBytes
+            val smAhb = pendingSubjectMaskAhb
+            when {
+                smAhb != null -> nativeUploadSubjectMaskAhb(h, smAhb, -1)
+                smBytes != null -> nativeUploadSubjectMask(h, smBytes, pendingSubjectMaskW, pendingSubjectMaskH)
             }
             pendingSubjectRect?.let {
                 nativeSetSubjectMaskInnerRect(h, it[0], it[1], it[2], it[3])
             }
-            pendingSobelEdgeBytes?.let {
-                nativeUploadSobelEdgeMask(h, it, pendingSobelEdgeW, pendingSobelEdgeH)
+            val seBytes = pendingSobelEdgeBytes
+            val seAhb = pendingSobelEdgeAhb
+            when {
+                seAhb != null -> nativeUploadSobelEdgeMaskAhb(h, seAhb, -1)
+                seBytes != null -> nativeUploadSobelEdgeMask(h, seBytes, pendingSobelEdgeW, pendingSobelEdgeH)
             }
             pendingEdgeSnap?.let { nativeSetEdgeSnap(h, it[0], it[1]) }
             // Replay each mask layer's last-known state independently.
             for (layer in 0 until MASK_LAYERS) {
                 val bytes = pendingBrushMaskBytes[layer]
+                val ahb = pendingBrushMaskAhb[layer]
                 when {
                     pendingClearBrushMask[layer] -> nativeClearBrushMask(h, layer)
+                    ahb != null -> nativeUploadBrushMaskAhb(h, layer, ahb, -1)
                     bytes != null ->
                         nativeUploadBrushMask(h, layer, bytes,
                                               pendingBrushMaskW[layer], pendingBrushMaskH[layer])
                 }
             }
+            pendingBokehAttenAhb?.let { nativeUploadBokehAttenuationAhb(h, it, -1) }
+            pendingDepthMapAhb?.let { nativeUploadDepthMapAhb(h, it, pendingDepthMapFocus, -1) }
             when {
                 pendingClearLut -> nativeClearLut3d(h)
                 pendingLutPath != null -> nativeUploadLut3d(h, pendingLutPath!!)
@@ -735,15 +925,23 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
             pendingCurveLuts?.let { luts ->
                 nativeUploadCurveLuts(h, luts[0], luts[1], luts[2], luts[3])
             }
+            pendingVintageMist?.let {
+                nativeUploadVintageMist(h, it, pendingVintageMistW, pendingVintageMistH)
+            }
+            pendingVintageFilm?.let {
+                nativeUploadVintageFilm(h, it, pendingVintageFilmW, pendingVintageFilmH)
+            }
             // Replay preview pan/zoom (skip when identity to save a call).
             if (pendingViewScale != 1f || pendingViewOffsetX != 0f || pendingViewOffsetY != 0f) {
                 nativeSetViewTransform(h, pendingViewScale, pendingViewOffsetX, pendingViewOffsetY)
             }
             if (pendingShowMaskOverlay) nativeSetShowMaskOverlay(h, true)
             if (pendingMaskOverlayLayer >= 0) nativeSetMaskOverlayLayer(h, pendingMaskOverlayLayer)
+            maskReplayed = smBytes != null || smAhb != null
         }
         render(h, "bootRenderer")
-        Log.i(TAG, "bootRenderer: ok handle=$h")
+        Log.i(TAG, "bootRenderer: ok handle=$h maskReplayed=$maskReplayed lut=${pendingLutPath != null}")
+        post { onEglBooted?.invoke() }
         // Present-retry: rendering is on-demand, and the very first frame after a
         // boot can be swapped before the SurfaceView's buffer is actually being
         // composited — the swap is silently dropped and, with nothing else
@@ -827,8 +1025,33 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
         renderHandler.post {
             val h = rendererHandle
             if (h != 0L) {
+                // ON_PAUSE often runs AFTER this OEM tears down the surface, so
+                // Compose's pause snapshot misses. Read back while EGL is current.
+                val ahb = pendingAhb
+                if (ahb != null && ahb.isUsable()) {
+                    val sw = ahb.width
+                    val sh = ahb.height
+                    if (sw > 0 && sh > 0) {
+                        val scale = minOf(1280f / sw, 1280f / sh, 1f)
+                        val bw = (sw * scale).toInt().coerceAtLeast(1)
+                        val bh = (sh * scale).toInt().coerceAtLeast(1)
+                        val bmp = android.graphics.Bitmap.createBitmap(
+                            bw, bh, android.graphics.Bitmap.Config.ARGB_8888,
+                        )
+                        val ok = nativeSnapshotGradedToBitmap(h, bmp)
+                        if (ok) {
+                            Log.i(TAG, "surfaceDestroyed snapshot ${bw}×${bh} before EGL release")
+                            post { onPreEglReleaseSnapshot?.invoke(bmp) }
+                        } else {
+                            bmp.recycle()
+                        }
+                    }
+                }
                 nativeReleaseRenderer(h)
                 rendererHandle = 0L
+            }
+            if (pendingAhb != null) {
+                Log.d(TAG, "surfaceDestroyed: retaining sticky state for reboot replay")
             }
         }
         pendingSurfaceHolder = null
@@ -845,36 +1068,46 @@ class RawV3GlSurfaceView @JvmOverloads constructor(
                 runCatching { hintSession?.close() }
                 hintSession = null
             }
+            ahbMaskLoader.close()
             renderThread.quitSafely()
         }
     }
 
     private external fun nativeInitRenderer(surface: Any, ahb: HardwareBuffer): Long
-    private external fun nativeUpdateAhb(handle: Long, ahb: HardwareBuffer)
+    private external fun nativeUpdateAhb(handle: Long, ahb: HardwareBuffer, fenceFd: Int)
     private external fun nativeUpdateUniforms(handle: Long, params: FloatArray)
     private external fun nativeUploadLut3d(handle: Long, cubePath: String): Boolean
     private external fun nativeClearLut3d(handle: Long)
     private external fun nativeUploadSubjectMask(handle: Long, gray: ByteArray, width: Int, height: Int): Boolean
+    private external fun nativeUploadSubjectMaskAhb(handle: Long, ahb: HardwareBuffer, fenceFd: Int): Boolean
     private external fun nativeUploadBokehAttenuation(handle: Long, gray: ByteArray, width: Int, height: Int): Boolean
+    private external fun nativeUploadBokehAttenuationAhb(handle: Long, ahb: HardwareBuffer, fenceFd: Int): Boolean
     private external fun nativeUploadDepthMap(handle: Long, gray: ByteArray, width: Int, height: Int, focusDepth01: Float): Boolean
+    private external fun nativeUploadDepthMapAhb(handle: Long, ahb: HardwareBuffer, focusDepth01: Float, fenceFd: Int): Boolean
     private external fun nativeClearDepthMap(handle: Long)
     private external fun nativeClearSubjectMask(handle: Long)
     private external fun nativeSetSubjectMaskInnerRect(handle: Long, u0: Float, v0: Float, u1: Float, v1: Float)
     private external fun nativeSetViewTransform(handle: Long, scale: Float, offsetX: Float, offsetY: Float)
     private external fun nativeUploadBrushMask(handle: Long, layer: Int, gray: ByteArray, width: Int, height: Int): Boolean
+    private external fun nativeUploadBrushMaskAhb(handle: Long, layer: Int, ahb: HardwareBuffer, fenceFd: Int): Boolean
     private external fun nativeClearBrushMask(handle: Long, layer: Int)
     private external fun nativeUploadSobelEdgeMask(handle: Long, gray: ByteArray, width: Int, height: Int): Boolean
+    private external fun nativeUploadSobelEdgeMaskAhb(handle: Long, ahb: HardwareBuffer, fenceFd: Int): Boolean
     private external fun nativeSetEdgeSnap(handle: Long, strength: Float, threshold: Float)
     private external fun nativeUploadToneCurve(handle: Long, lut: ByteArray): Boolean
     private external fun nativeClearToneCurve(handle: Long)
-    private external fun nativeSetShowMaskOverlay(handle: Long, show: Boolean)
-    private external fun nativeSetMaskOverlayLayer(handle: Long, layer: Int)
     private external fun nativeUploadCurveLuts(handle: Long, master: FloatArray, r: FloatArray, g: FloatArray, b: FloatArray)
+    private external fun nativeUploadVintageMist(handle: Long, bytes: ByteArray, width: Int, height: Int): Boolean
+    private external fun nativeUploadVintageFilm(handle: Long, bytes: ByteArray, width: Int, height: Int): Boolean
     private external fun nativeSnapshotGraded(handle: Long, dst: HardwareBuffer): Boolean
     private external fun nativeHistogramGraded(handle: Long, side: Int): IntArray?
     private external fun nativeSnapshotGradedToBitmap(handle: Long, bitmap: android.graphics.Bitmap): Boolean
+    private external fun nativeSetShowMaskOverlay(handle: Long, show: Boolean)
+    private external fun nativeSetMaskOverlayLayer(handle: Long, layer: Int)
     private external fun nativeRenderFrame(handle: Long): Boolean
     private external fun nativeReleaseRenderer(handle: Long)
+    private external fun nativeGetEglDisplay(handle: Long): Long
+    private external fun nativeBindTextureToMask(handle: Long, layer: Int, textureId: Int): Boolean
 
     companion object {
         private const val TAG = "RawV3.GlSurface"

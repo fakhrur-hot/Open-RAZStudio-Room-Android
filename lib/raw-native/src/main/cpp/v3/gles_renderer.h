@@ -145,6 +145,10 @@ struct ShaderParams {
     float fxGlowStrength       = 0.f; // [372]
     float fxGlowSpread         = 0.f; // [373]
     float fxGlowWarmth         = 0.f; // [374]
+    float fxVintageMistIntensity = 0.f; // [454]
+    float fxVintageMistScale     = 1.f; // [455]
+    float fxVintageTextureIntensity = 0.f; // [456]
+    float fxVintageTextureScale  = 1.f; // [457]
 
     // OpenShot lens flare (procedural additive).
     float lensFlareX           = -0.5f; // [400]
@@ -325,7 +329,7 @@ struct ShaderParams {
     // Kept in lockstep with ShaderParams.kt FLOAT_COUNT. This had drifted
     // to 410 while Kotlin was already sending 435, which is exactly the
     // kind of gap that makes a slot look free when it is not.
-    static constexpr int FLOAT_COUNT = 453;  // highest used slot [452] oklabHlChroma
+    static constexpr int FLOAT_COUNT = 458;  // highest used slot [457] vintage.textureScale
     static ShaderParams fromFloatArray(const float* arr, int count);
 };
 
@@ -342,7 +346,10 @@ public:
     bool init(ANativeWindow* window, AHardwareBuffer* ahb);
 
     /** Rebind the source texture without tearing down the EGL context. */
-    bool updateAhb(AHardwareBuffer* ahb);
+    bool updateAhb(AHardwareBuffer* ahb, int fenceFd = -1);
+
+    /** Manually bind an externally-managed GL texture to a mask slot. */
+    bool bindTextureToMask(int layer, GLuint textureId);
 
     /** Push slider values into the shader; safe to call from the render thread. */
     void setParams(const ShaderParams& p);
@@ -374,6 +381,10 @@ public:
      * tear down (called by clearSubjectMask).
      */
     bool uploadSubjectMask(const uint8_t* gray8, int width, int height);
+    /** Zero-copy AHB overload for subject mask. [fenceFd] is an optional
+     *  producer sync-file fd (NPU/GPU writer); -1 = already synchronized. */
+    bool uploadSubjectMask(AHardwareBuffer* ahb, int fenceFd = -1);
+
     /**
      * Upload the bokeh attenuation mask (max(sky, terrain) from Cityscapes
      * segmentation). Same 320×320 grid as the subject mask, GL_R8 immutable
@@ -382,12 +393,18 @@ public:
      * the user's bokeh strength instead of the full pull.
      */
     bool uploadBokehAttenuation(const uint8_t* gray8, int width, int height);
+    /** Zero-copy AHB overload for bokeh attenuation. */
+    bool uploadBokehAttenuation(AHardwareBuffer* ahb, int fenceFd = -1);
+
     /**
      * Upload relative depth (0..255 → [0,1] in .g of the unit-10 RG8 tex).
      * Packs beside attenuation (.r) so we stay within 16 texture units.
      * [focusDepth01] is the subject-median depth used as the CoC focus plane.
      */
     bool uploadDepthMap(const uint8_t* gray8, int width, int height, float focusDepth01);
+    /** Zero-copy AHB overload for depth map. */
+    bool uploadDepthMap(AHardwareBuffer* ahb, float focusDepth01, int fenceFd = -1);
+
     void clearDepthMap();
     /**
      * Upload the Sobel edge mask (same 320×320 grid as the subject
@@ -395,6 +412,8 @@ public:
      * U2Net's soft silhouette to true image gradients.
      */
     bool uploadSobelEdgeMask(const uint8_t* gray8, int width, int height);
+    /** Zero-copy AHB overload for Sobel edge mask. */
+    bool uploadSobelEdgeMask(AHardwareBuffer* ahb, int fenceFd = -1);
     void clearSobelEdgeMask();
     /**
      * Tune the edge-snap behaviour. `strength` 0 disables the snap;
@@ -458,6 +477,9 @@ public:
      * Mask tab adjustments only apply where this mask is non-zero.
      */
     bool uploadBrushMask(int layer, const uint8_t* gray8, int width, int height);
+    /** Zero-copy AHB overload for brush mask. */
+    bool uploadBrushMask(int layer, AHardwareBuffer* ahb, int fenceFd = -1);
+
     void clearBrushMask(int layer);
     /** Clear every mask layer (used when the action stack drops all masks). */
     void clearAllBrushMasks();
@@ -487,6 +509,16 @@ public:
      */
     bool uploadToneCurve(const uint8_t* rgb256);
     void clearToneCurve();
+
+    /**
+     * Upload vintage-FX overlay textures (mist / film). [bytes] is row-major
+     * gray (`width*height`), RGB (`width*height*3`) or RGBA (`width*height*4`);
+     * gray/RGB are expanded to RGBA internally. Bound as GL_RGBA8 on units
+     * 16 (mist) and 17 (film) when RAZ_GLES_FX_VINTAGE linked (18-sampler
+     * config). Kotlin decodes PNG → RGBA and posts these on the GL thread.
+     */
+    bool uploadVintageMist(const uint8_t* bytes, int nbytes, int width, int height);
+    bool uploadVintageFilm(const uint8_t* bytes, int nbytes, int width, int height);
 
     /**
      * Render the current shader output (with the current uniforms + LUT)
@@ -523,10 +555,43 @@ public:
     /** Tear down EGL resources. Safe to call multiple times. */
     void release();
 
+    /** Get the current EGL display handle. */
+    EGLDisplay getEglDisplay() const { return display_; }
+
 private:
     bool initEgl(ANativeWindow* window);
     bool createProgram();
     bool importAhbAsTexture(AHardwareBuffer* ahb);
+    bool importAhbAsTexture(AHardwareBuffer* ahb, int fenceFd);
+
+    /**
+     * Helper: import AHB → EGLImage → GL texture with lifecycle tracking.
+     *
+     * - Validates `AHardwareBuffer_Desc.format` against [fmt0]/[fmt1] BEFORE
+     *   import (fmt1 == 0 disables the second allowed format).
+     * - Waits on [fenceFd] when ≥ 0 (producer sync-file from an NPU/GPU
+     *   writer; EGL_ANDROID_native_fence_sync, GPU-side wait — no CPU stall).
+     * - Takes a native reference on [ahb] for as long as the EGLImage lives
+     *   and stores it in [owner]; replacing the image releases the previous
+     *   owner. Without this, Java's HardwareBuffer.close() can free the
+     *   buffer while the driver still samples the image (UAF).
+     * - Must run on the GL thread (see assertGlThread).
+     */
+    bool importAhbToTexture(AHardwareBuffer* ahb, GLuint& tex, int& tw, int& th,
+                            EGLImageKHR& img, AHardwareBuffer*& owner,
+                            uint32_t fmt0, uint32_t fmt1 = 0,
+                            int fenceFd = -1, GLenum target = GL_TEXTURE_2D);
+
+    /** GPU-side wait on a producer sync-file fd (no-op when unsupported). */
+    void waitOnProducerFence(int fenceFd);
+
+    /**
+     * Debug guard: upload/import methods must run on the GL thread (the
+     * "RawV3Gl" HandlerThread), otherwise eglMakeCurrent steals the context
+     * mid-frame from the render loop. Logs an error on violation; does not
+     * abort (release-build safe).
+     */
+    void assertGlThread(const char* what);
 
     void cacheUniformLocations();
     void pushUniforms();
@@ -539,13 +604,29 @@ private:
     EGLContext  context_   = EGL_NO_CONTEXT;
     EGLSurface  surface_   = EGL_NO_SURFACE;
     EGLImageKHR ahbImage_  = EGL_NO_IMAGE_KHR;
+    EGLImageKHR subjectMaskImage_ = EGL_NO_IMAGE_KHR;
+    EGLImageKHR bokehAttenImage_  = EGL_NO_IMAGE_KHR;
+    EGLImageKHR sobelEdgeImage_   = EGL_NO_IMAGE_KHR;
+    EGLImageKHR brushMaskImage_[ShaderParams::kMaskLayers] = {
+        EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR
+    };
     // Native refcount on the source buffer backing ahbImage_. Kotlin's
     // HardwareBuffer.close() only drops the Java ref; without this acquire the
     // buffer could be freed while the render thread still samples the EGLImage
     // over it (UAF — the RawV3PreviewComposable `previous?.close()` /
-    // onDispose-closer race). Acquired in importAhbAsTexture, released when the
-    // image over it is destroyed (swap or teardown).
+    // onDispose-closer race). Acquired in importAhbToTexture, released when the
+    // image over it is destroyed (swap or teardown). Same pattern applies to
+    // every mask-image owner below.
     AHardwareBuffer* sourceAhb_ = nullptr;
+    AHardwareBuffer* subjectMaskAhb_ = nullptr;
+    AHardwareBuffer* bokehAttenAhb_  = nullptr;
+    AHardwareBuffer* sobelEdgeAhb_   = nullptr;
+    AHardwareBuffer* brushMaskAhb_[ShaderParams::kMaskLayers] = {
+        nullptr, nullptr, nullptr, nullptr
+    };
+    // Tid of the thread that created the EGL context (initEgl). Used by
+    // assertGlThread to catch off-thread upload calls.
+    pid_t       glThreadTid_ = -1;
     GLuint      texture_   = 0;
     GLuint      program_   = 0;          // display program (V-flipped vert shader)
     GLuint      programSnap_ = 0;        // snapshot program (identity vert shader);
@@ -826,12 +907,11 @@ private:
     // M12.2c.2 — brush-painted Mask tab masks (GL_R8). Up to 4 layers.
     //   Layer 0 → texture unit 3 (uBrushMask, legacy name).
     //   Layers 1..3 → units 5,6,7 (uBrushMask1..3).
-    static constexpr int kMaskLayers = 4;
-    GLuint brushMaskTex_[kMaskLayers]   = {0, 0, 0, 0};
-    int    brushMaskW_[kMaskLayers]     = {0, 0, 0, 0};
-    int    brushMaskH_[kMaskLayers]     = {0, 0, 0, 0};
-    bool   brushMaskReady_[kMaskLayers] = {false, false, false, false};
-    GLint  uBrushMaskLoc_[kMaskLayers]  = {-1, -1, -1, -1}; // sampler locs
+    GLuint brushMaskTex_[ShaderParams::kMaskLayers]   = {0, 0, 0, 0};
+    int    brushMaskW_[ShaderParams::kMaskLayers]     = {0, 0, 0, 0};
+    int    brushMaskH_[ShaderParams::kMaskLayers]     = {0, 0, 0, 0};
+    bool   brushMaskReady_[ShaderParams::kMaskLayers] = {false, false, false, false};
+    GLint  uBrushMaskLoc_[ShaderParams::kMaskLayers]  = {-1, -1, -1, -1}; // sampler locs
     GLint  uBrushMaskEnabledLoc_ = -1;                      // bitfield
     bool   showMaskOverlay_      = false;                   // Mask tab "Show" preview
     GLint  uShowMaskOverlayLoc_  = -1;
@@ -896,6 +976,22 @@ private:
     GLint  uToneCurveEnabledLoc_ = -1;
     GLint  uToneCurveLumaModeLoc_ = -1;
 
+    // ── Vintage FX overlays (units selected by shader capability config) ─
+    GLuint fxVintageMistTex_   = 0;
+    int    fxVintageMistW_     = 0;
+    int    fxVintageMistH_     = 0;
+    GLuint fxVintageFilmTex_   = 0;
+    int    fxVintageFilmW_     = 0;
+    int    fxVintageFilmH_     = 0;
+    GLuint fxVintageBlackTex_  = 0;   // 1×1 black filler so unused samplers stay valid
+    int    fxVintageTextureUnitBase_ = 16;
+    GLint  uFxVintageMistTexLoc_ = -1;
+    GLint  uFxVintageFilmTexLoc_ = -1;
+    bool uploadVintageOverlay(GLuint& tex, int& tw, int& th,
+                              const uint8_t* bytes, int nbytes, int width, int height);
+    void ensureVintageBlackTex();
+    void bindVintageFxTextures(GLuint prog);
+
     // ── Film grain (cinematic 3D noise — procedural, no texture) ────────
     GLint  uFilmGrainLoc_       = -1;
     GLint  uFilmGrainSizeLoc_   = -1;
@@ -953,6 +1049,10 @@ private:
     GLint  uFxVintageStrengthLoc_   = -1;
     GLint  uFxVintageFadeLoc_       = -1;
     GLint  uFxVintageVigLoc_        = -1;
+    GLint  uFxVintageMistIntensityLoc_ = -1;
+    GLint  uFxVintageMistScaleLoc_     = -1;
+    GLint  uFxVintageTextureIntensityLoc_ = -1;
+    GLint  uFxVintageTextureScaleLoc_     = -1;
     GLint  uFxGlowStrengthLoc_      = -1;
     GLint  uFxGlowSpreadLoc_        = -1;
     GLint  uFxGlowWarmthLoc_        = -1;

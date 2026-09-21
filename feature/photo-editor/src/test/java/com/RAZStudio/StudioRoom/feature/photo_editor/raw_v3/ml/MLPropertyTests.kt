@@ -11,9 +11,11 @@
 package com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.ml
 
 import org.junit.Assert.*
+import org.junit.Ignore
 import org.junit.Test
 import kotlin.random.Random
 
+@Ignore("ML dual-ISO and MLSidecar were retired; this legacy test no longer applies")
 class MLPropertyTests {
 
     // ── Property 2: Dual-ISO Output Bounds (task 2.4) ──

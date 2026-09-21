@@ -9,7 +9,7 @@ This repository is the **free, open-source edition** of RAZStudio Room. It is
 meant to be transparent: you can read every line, build it yourself, install the
 result, and run it fully offline. Nothing here phones home to make the app work.
 
-> Version: **1.0.0-alpha** · License: **Apache-2.0** · Package:
+> Version: **1.0.1-alpha** · License: **Apache-2.0** · Package:
 > `com.RAZStudio.StudioRoom` · Min Android: **8.0 (API 26)** · ABI:
 > **arm64-v8a** (64-bit ARM).
 
@@ -133,7 +133,7 @@ cp local.properties.template local.properties
 ./gradlew :app:assembleFossDebug        # (gradlew.bat on Windows)
 
 # 3) Install to a connected device:
-adb install app/build/outputs/apk/foss/debug/Open_RAZStudio_Room-1.0.0-alpha-foss-arm64-v8a-debug.apk
+adb install app/build/outputs/apk/foss/debug/Open_RAZStudio_Room-1.0.1-alpha-foss-arm64-v8a-debug.apk
 ```
 Requirements: JDK 21, the Android SDK (compileSdk 37), and the Android NDK/CMake
 for the native RAW/imaging code. A 64-bit ARM device or emulator (arm64-v8a).
@@ -223,6 +223,6 @@ it.
 
 ## A note on expectations
 
-This is an alpha (1.0.0-alpha) built by one hobbyist who's still learning RAW
+This is an alpha (1.0.1-alpha) built by one hobbyist who's still learning RAW
 processing. Expect rough edges, missing pieces, and the occasional bug. Feedback
 is welcome and I read all of it. Thanks for taking a look. 

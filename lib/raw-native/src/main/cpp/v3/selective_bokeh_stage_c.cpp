@@ -61,14 +61,28 @@ void discPass(T* pix, int w, int h, int nCh, float scale, const SelectiveBokehIn
         r = src[i]; g = src[i + 1]; b = src[i + 2];
     };
 
-    constexpr int N = 16;
+    constexpr float PI2 = 6.28318530717958647692f;
     constexpr float GOLDEN = 2.399963229728653f;
 
     for (int y = 0; y < h; ++y) {
         const float v = (float(y) + 0.5f) / float(h);
         for (int x = 0; x < w; ++x) {
             const float u = (float(x) + 0.5f) / float(w);
-            float bgGate = subjectGate(sampleMask(in.subject, u, v), 2.f);
+            // Phase 4: hard subject lock + dilated protect (match kFragSrc).
+            float pSub = sampleMask(in.subject, u, v);
+            float pDil = pSub;
+            {
+                const float d = 0.006f;
+                pDil = std::max(pDil, sampleMask(in.subject, cl01(u + d), v));
+                pDil = std::max(pDil, sampleMask(in.subject, cl01(u - d), v));
+                pDil = std::max(pDil, sampleMask(in.subject, u, cl01(v + d)));
+                pDil = std::max(pDil, sampleMask(in.subject, u, cl01(v - d)));
+            }
+            float bgGate = 0.f;
+            if (pDil <= 0.42f) {
+                float bg = 1.f - pSub;
+                bgGate = bg * bg;
+            }
             if (in.atten && in.atten->data && bgGate > 0.f) {
                 const float att = sampleMask(in.atten, u, v);
                 bgGate *= (1.f - 0.75f * att);
@@ -95,15 +109,27 @@ void discPass(T* pix, int w, int h, int nCh, float scale, const SelectiveBokehIn
                 const float rUV = (rFar > rNear) ? rFar : rNear;
                 float accR = cR, accG = cG, accB = cB;
                 if (rUV > 1e-5f) {
+                    const float radiusPx = rUV * float(std::max(w, h));
+                    const int N = radiusPx > 10.f ? 48 : 24;
+                    const float seed = std::fmod(std::sin(float(x) * 12.9898f + float(y) * 78.233f) * 43758.5453f, 1.0f);
+                    const float rotation = (seed < 0.f ? seed + 1.f : seed) * PI2;
+                    float wSum = 1.f;
                     for (int i = 1; i < N; ++i) {
                         const float fi = float(i);
                         const float rr = rUV * std::sqrt(fi / float(N - 1));
-                        const float ang = fi * GOLDEN;
-                        float sR, sG, sB;
-                        sampleSrc(cl01(u + std::cos(ang) * rr), cl01(v + std::sin(ang) * rr), sR, sG, sB);
-                        accR += sR; accG += sG; accB += sB;
+                        const float ang = fi * GOLDEN + rotation;
+                        const float su = cl01(u + std::cos(ang) * rr);
+                        const float sv = cl01(v + std::sin(ang) * rr);
+                        const float sp = sampleMask(in.subject, su, sv);
+                        float sw = 1.f - smoothstep(0.20f, 0.42f, sp);
+                        if (sw > 1e-4f) {
+                            float sR, sG, sB;
+                            sampleSrc(su, sv, sR, sG, sB);
+                            accR += sR * sw; accG += sG * sw; accB += sB * sw;
+                            wSum += sw;
+                        }
                     }
-                    accR /= float(N); accG /= float(N); accB /= float(N);
+                    accR /= wSum; accG /= wSum; accB /= wSum;
                 }
                 cR = accR; cG = accG; cB = accB;
             } else {
@@ -111,15 +137,27 @@ void discPass(T* pix, int w, int h, int nCh, float scale, const SelectiveBokehIn
                 const float rUV = (0.006f + 0.040f * spread) * bgGate * blurAmt;
                 float accR = cR, accG = cG, accB = cB;
                 if (rUV > 1e-5f) {
+                    const float radiusPx = rUV * float(std::max(w, h));
+                    const int N = radiusPx > 10.f ? 48 : 24;
+                    const float seed = std::fmod(std::sin(float(x) * 12.9898f + float(y) * 78.233f) * 43758.5453f, 1.0f);
+                    const float rotation = (seed < 0.f ? seed + 1.f : seed) * PI2;
+                    float wSum = 1.f;
                     for (int i = 1; i < N; ++i) {
                         const float fi = float(i);
                         const float rr = rUV * std::sqrt(fi / float(N - 1));
-                        const float ang = fi * GOLDEN;
-                        float sR, sG, sB;
-                        sampleSrc(cl01(u + std::cos(ang) * rr), cl01(v + std::sin(ang) * rr), sR, sG, sB);
-                        accR += sR; accG += sG; accB += sB;
+                        const float ang = fi * GOLDEN + rotation;
+                        const float su = cl01(u + std::cos(ang) * rr);
+                        const float sv = cl01(v + std::sin(ang) * rr);
+                        const float sp = sampleMask(in.subject, su, sv);
+                        float sw = 1.f - smoothstep(0.20f, 0.42f, sp);
+                        if (sw > 1e-4f) {
+                            float sR, sG, sB;
+                            sampleSrc(su, sv, sR, sG, sB);
+                            accR += sR * sw; accG += sG * sw; accB += sB * sw;
+                            wSum += sw;
+                        }
                     }
-                    accR /= float(N); accG /= float(N); accB /= float(N);
+                    accR /= wSum; accG /= wSum; accB /= wSum;
                 }
                 const float m = cl01(blurAmt * bgGate);
                 cR = cR + (accR - cR) * m;

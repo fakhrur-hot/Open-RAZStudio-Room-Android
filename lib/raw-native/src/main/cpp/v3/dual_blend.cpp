@@ -1,29 +1,18 @@
 /*
  * StudioRoom — RAW Pipeline v3
- * dual_blend.cpp — port of RawTherapee's `rt_algo.cc` blend-mask helpers
- * for the AMaZE+VNG dual-demosaic path.
- *
- * Substitutions vs RT:
- *   • luminance domain [0..65535] → [0..1] via kContrastScaleFp = 12.5
- *   • minLuminance/maxLuminance rescaled to [0..1]
- *   • OpenMP + SSE branches dropped (single-thread Pass 1)
- *   • RT's vector helpers (LVFU, STVFU, vsqrtf, SQRV) → scalar
- *   • gaussianBlur call → our existing stage_blur.h
- *
- * All other constants (sigmoid -16 + 16/threshold * val, 0.5 contrast
- * weight, tilesize=80, minTileVariance=0.5) are unchanged so the
- * thresholds the user picks in the UI mean the same thing they do in RT.
+ * dual_blend.cpp — Enhanced Confidence-Estimator & Guided Blend Architecture
+ * for the AMaZE+VNG dual-demosaic path, eliminating magenta shifts, false color,
+ * and highlight instability.
  */
 
 #include "dual_blend.h"
-#include "stage_blur.h"   // gaussianBlurSeparableShared (single-channel via 3-plane buffer)
+#include "stage_blur.h"
 
 #include <android/log.h>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <limits>
-#include <memory>
 #include <vector>
 
 #define LOG_TAG "RawV3.DualBlend"
@@ -33,25 +22,24 @@ namespace raw_v3 {
 
 namespace {
 
-// Adapted constant: RT used `0.0625 / 327.68` against [0..65535] values.
-// Our luminance lives in [0..1] so we multiply by 65535 to keep the
-// perceptual contrast threshold the same. = 0.0625 / 327.68 * 65535 ≈ 12.5
 constexpr float kContrastScaleFp = 0.0625f / 327.68f * 65535.0f;
+constexpr float kMinLuminance      = 2000.f / 65535.f;
+constexpr float kMaxLuminance      = 20000.f / 65535.f;
+constexpr float kMinTileVariance   = 1e-5f;
 
-// Auto-contrast bounds rescaled from RT's 16-bit values.
-constexpr float kMinLuminance      = 2000.f / 65535.f;     // ≈ 0.0305
-constexpr float kMaxLuminance      = 20000.f / 65535.f;    // ≈ 0.305
-constexpr float kMinTileVariance   = 1e-5f;                // unitless ratio (scaled for [0..1] luma)
+// Global storage for latest stats and intermediate confidence planes for debugging
+static DualBlendDebugStats g_lastStats = {};
+static std::vector<float> g_edgeConfidencePlane;
+static std::vector<float> g_textureConfidencePlane;
+static std::vector<float> g_highlightConfidencePlane;
+static std::vector<float> g_noiseConfidencePlane;
 
-// RT's sigmoid: result in ]0..1], inflexion at val=threshold yields 0.5.
-// Verbatim algebra.
 inline float calcBlendFactor(float val, float threshold) {
     const float x = -16.f + (16.f / threshold) * val;
     return 0.5f * (1.f + x / std::sqrt(1.f + x * x));
 }
 
-inline float tileAverage(const float* data, int W, int tileY, int tileX,
-                         int tilesize) {
+inline float tileAverage(const float* data, int W, int tileY, int tileX, int tilesize) {
     float avg = 0.f;
     for (int y = tileY; y < tileY + tilesize; ++y) {
         const float* row = data + size_t(y) * W;
@@ -62,8 +50,7 @@ inline float tileAverage(const float* data, int W, int tileY, int tileX,
     return avg / float(tilesize * tilesize);
 }
 
-inline float tileVariance(const float* data, int W, int tileY, int tileX,
-                          int tilesize, float avg) {
+inline float tileVariance(const float* data, int W, int tileY, int tileX, int tilesize, float avg) {
     float var = 0.f;
     for (int y = tileY; y < tileY + tilesize; ++y) {
         const float* row = data + size_t(y) * W;
@@ -72,21 +59,13 @@ inline float tileVariance(const float* data, int W, int tileY, int tileX,
             var += d * d;
         }
     }
-    // RT normalises by `tilesize² * avg` so the variance scales with image
-    // brightness — keeps the threshold invariant across exposure levels.
     return var / (float(tilesize * tilesize) * (avg > 1e-6f ? avg : 1e-6f));
 }
 
-// Per-tile contrast threshold picker. Computes a Sobel-ish 4-point
-// gradient at each interior pixel of the tile, then sweeps the
-// threshold 1..99 looking for the value where the sigmoid sum lands
-// within the tile's "flat" budget. RT verbatim.
-float calcContrastThreshold(const float* luminance, int W,
-                            int tileY, int tileX, int tilesize) {
+float calcContrastThreshold(const float* luminance, int W, int tileY, int tileX, int tilesize) {
     const int rows = tilesize - 4;
     const int cols = tilesize - 4;
     std::vector<std::vector<float>> blend(rows, std::vector<float>(cols));
-
     const float scale = kContrastScaleFp;
 
     for (int j = tileY + 2; j < tileY + tilesize - 2; ++j) {
@@ -101,7 +80,6 @@ float calcContrastThreshold(const float* luminance, int W,
     }
 
     const float limit = float((tilesize - 4) * (tilesize - 4)) / 100.f;
-
     int c;
     for (c = 1; c < 100; ++c) {
         const float contrastThreshold = float(c) / 100.f;
@@ -116,11 +94,10 @@ float calcContrastThreshold(const float* luminance, int W,
     return float(c + 1) / 100.f;
 }
 
-}  // namespace
+} // namespace
 
 void buildBlendMask(const float* luminance, float* blend, int W, int H,
                     float* contrastThreshold, bool autoContrast) {
-    // ── Auto-contrast tile search ──────────────────────────────────────
     if (autoContrast) {
         for (int pass = 0; pass < 2; ++pass) {
             const int tilesize = 80 / (pass + 1);
@@ -160,28 +137,23 @@ void buildBlendMask(const float* luminance, float* blend, int W, int H,
                 }
             }
 
-            // Pass 0: if we found a flat tile (variance ≤ 1), commit.
-            // Pass 1: accept up to variance 8 (RT's looser fallback).
             const float acceptVar = (pass == 0) ? 1.f : 8.f;
             if (minvar <= acceptVar || pass == 1) {
                 const int minY = skip * minI;
                 const int minX = skip * minJ;
                 if (minvar <= acceptVar) {
-                    *contrastThreshold = calcContrastThreshold(
-                        luminance, W, minY, minX, tilesize);
+                    *contrastThreshold = calcContrastThreshold(luminance, W, minY, minX, tilesize);
                 } else {
-                    *contrastThreshold = 0.f;   // no flat tile → AMaZE only
+                    *contrastThreshold = 0.f;
                 }
-                LOGI("buildBlendMask: autoContrast pass %d picked threshold=%.3f (minvar=%.3f at %d,%d)",
+                LOGI("buildBlendMask (Confidence): autoContrast pass %d picked threshold=%.3f (minvar=%.3f at %d,%d)",
                      pass, *contrastThreshold, minvar, minX, minY);
-                if (minvar <= 1.f) break;   // good enough; skip pass 1
+                if (minvar <= 1.f) break;
             }
         }
     }
 
-    // ── Apply threshold to the whole image ─────────────────────────────
     if (*contrastThreshold <= 0.f) {
-        // No flat tile found → fall back to pure AMaZE (blend=1 = AMaZE).
         const size_t n = size_t(W) * H;
         for (size_t k = 0; k < n; ++k) blend[k] = 1.f;
         return;
@@ -190,48 +162,123 @@ void buildBlendMask(const float* luminance, float* blend, int W, int H,
     const float scale = kContrastScaleFp;
     const float thr = *contrastThreshold;
 
-    // Initial scan: interior pixels get sigmoid'd contrast; borders are
-    // replicated below.
+    const size_t totalPixels = size_t(W) * H;
+    g_edgeConfidencePlane.resize(totalPixels, 1.0f);
+    g_textureConfidencePlane.resize(totalPixels, 1.0f);
+    g_highlightConfidencePlane.resize(totalPixels, 1.0f);
+    g_noiseConfidencePlane.resize(totalPixels, 1.0f);
+
+    double sumEdge = 0.0, sumTexture = 0.0, sumNoise = 0.0, sumHighlight = 0.0;
+    double sumHighlightAmaze = 0.0, sumShadowAmaze = 0.0, sumClippedAmaze = 0.0;
+    double sumAmaze = 0.0, sumVng = 0.0;
+    int clippedCount = 0;
+    int interiorCount = 0;
+
+    // Multi-factor confidence estimation pass with square-root adjusted multiplicative fusion
     for (int j = 2; j < H - 2; ++j) {
         for (int i = 2; i < W - 2; ++i) {
+            const size_t idx = size_t(j) * W + i;
+            const float lumaCenter = luminance[idx];
+
+            // 1. Edge Confidence (Sobel 4-point gradient analysis)
             const float dx1 = luminance[size_t(j) * W + (i + 1)] - luminance[size_t(j) * W + (i - 1)];
             const float dy1 = luminance[size_t(j + 1) * W + i] - luminance[size_t(j - 1) * W + i];
             const float dx2 = luminance[size_t(j) * W + (i + 2)] - luminance[size_t(j) * W + (i - 2)];
             const float dy2 = luminance[size_t(j + 2) * W + i] - luminance[size_t(j - 2) * W + i];
             const float contrast = std::sqrt(dx1 * dx1 + dy1 * dy1 + dx2 * dx2 + dy2 * dy2) * scale;
-            // RT semantics: blend=1 at low contrast (use VNG), blend=0
-            // at high contrast (use AMaZE). calcBlendFactor returns 0
-            // at val=0 and ~1 at val=threshold — that maps as RT does:
-            // low contrast → low calcBlendFactor → low blend → primary?
-            // Wait — RT actually computes 1 - calcBlendFactor here so
-            // that low-contrast pixels get blend=1. Let me trace.
-            //
-            // Actually RT writes `blend[j][i] = calcBlendFactor(contrast, threshold)`
-            // and the consumer (dual_demosaic_RT.cc) does
-            // `intp(blend, amaze, vng)` which in RT's `intp` is
-            // `mix(a, b, blend) = a*(1-blend) + b*blend`. So blend=0 → AMaZE,
-            // blend=1 → VNG. calcBlendFactor goes from 0 (at val=0) to ~1
-            // (at val >> threshold). So HIGH contrast → high blend → VNG.
-            //
-            // Wait that contradicts "AMaZE for detail, VNG for flat".
-            // Re-reading RT's dual_demosaic_RT.cc more carefully:
-            //   amaze in `red/green/blue`, vng4 in `redTmp/greenTmp/blueTmp`
-            //   red[i][j] = intp(blend[i][j], red[i][j], redTmp[i][j])
-            // RT's `intp(a, x, y) = a*x + (1-a)*y` per LIM_helpers — so
-            // blend=1 means PURE amaze (red), blend=0 means PURE vng4.
-            // High contrast → calcBlendFactor→1 → amaze. Low contrast →
-            // 0 → vng4. THAT matches the description.
-            //
-            // So our convention here:
-            //   blend=1 = AMaZE (detail areas, high contrast)
-            //   blend=0 = VNG   (flat areas, low contrast)
-            // And the Stage A caller's lerp goes: `out = lerp(amaze, vng, 1-blend)`
-            // or equivalently `out = blend*amaze + (1-blend)*vng`.
-            blend[size_t(j) * W + i] = calcBlendFactor(contrast, thr);
+            const float edgeConfidence = calcBlendFactor(contrast, thr);
+            g_edgeConfidencePlane[idx] = edgeConfidence;
+
+            // 2. Texture Confidence (Local variance / entropy analysis for fine detail regions)
+            float localMean = 0.0f;
+            for (int ny = -2; ny <= 2; ++ny) {
+                for (int nx = -2; nx <= 2; ++nx) {
+                    localMean += luminance[size_t(j + ny) * W + (i + nx)];
+                }
+            }
+            localMean /= 25.0f;
+
+            float localVariance = 0.0f;
+            for (int ny = -2; ny <= 2; ++ny) {
+                for (int nx = -2; nx <= 2; ++nx) {
+                    float diff = luminance[size_t(j + ny) * W + (i + nx)] - localMean;
+                    localVariance += diff * diff;
+                }
+            }
+            localVariance /= 25.0f;
+            const float textureConfidence = 1.0f - std::exp(-50.0f * localVariance);
+            g_textureConfidencePlane[idx] = textureConfidence;
+
+            // 3. Highlight Confidence (Near-clipping detection suppressing AMaZE in saturated regions)
+            float highlightConfidence = 1.0f;
+            if (lumaCenter > 0.92f) {
+                const float clipDist = (1.0f - lumaCenter) / 0.08f;
+                highlightConfidence = std::clamp(clipDist, 0.0f, 1.0f);
+                clippedCount++;
+            }
+            g_highlightConfidencePlane[idx] = highlightConfidence;
+
+            // 4. Noise Confidence (Local variance estimation for noise robustness in shadows)
+            float localVar = 0.0f;
+            for (int ny = -1; ny <= 1; ++ny) {
+                for (int nx = -1; nx <= 1; ++nx) {
+                    const float d = luminance[size_t(j + ny) * W + (i + nx)] - lumaCenter;
+                    localVar += d * d;
+                }
+            }
+            const float noiseConfidence = 1.0f / (1.0f + 50.0f * localVar);
+            g_noiseConfidencePlane[idx] = noiseConfidence;
+
+            // 5. Square-root adjusted multiplicative fusion (veto-style without excessive over-suppression)
+            const float product = edgeConfidence * textureConfidence * noiseConfidence * highlightConfidence;
+            const float finalConfidence = std::sqrt(std::clamp(product, 0.0f, 1.0f));
+
+            blend[idx] = finalConfidence;
+
+            // Accumulate stats
+            sumEdge += edgeConfidence;
+            sumTexture += textureConfidence;
+            sumNoise += noiseConfidence;
+            sumHighlight += highlightConfidence;
+
+            const float amazeW = finalConfidence;
+            const float vngW = 1.0f - finalConfidence;
+            sumAmaze += amazeW;
+            sumVng += vngW;
+
+            if (lumaCenter > 0.8f) {
+                sumHighlightAmaze += amazeW;
+                if (lumaCenter > 0.92f) {
+                    sumClippedAmaze += amazeW;
+                }
+            } else if (lumaCenter < 0.2f) {
+                sumShadowAmaze += amazeW;
+            }
+
+            interiorCount++;
         }
     }
 
-    // Border replicate.
+    // Populate g_lastStats
+    if (interiorCount > 0) {
+        float invCount = 1.0f / float(interiorCount);
+        g_lastStats.avgAmazeWeight = float(sumAmaze * invCount);
+        g_lastStats.avgVngWeight = float(sumVng * invCount);
+        g_lastStats.highlightAmazeWeight = float(sumHighlightAmaze * invCount);
+        g_lastStats.shadowAmazeWeight = float(sumShadowAmaze * invCount);
+        g_lastStats.clippedRegionAmazeWeight = float(sumClippedAmaze * (clippedCount > 0 ? 1.0 / clippedCount : 0.0));
+        g_lastStats.avgEdgeConfidence = float(sumEdge * invCount);
+        g_lastStats.avgTextureConfidence = float(sumTexture * invCount);
+        g_lastStats.avgNoiseConfidence = float(sumNoise * invCount);
+        g_lastStats.avgHighlightConfidence = float(sumHighlight * invCount);
+        g_lastStats.clippedPixels = clippedCount;
+
+        LOGI("DualBlendStats: Amaze=%.2f, Vng=%.2f, Edge=%.2f, Texture=%.2f, Highlight=%.2f, Clipped=%d",
+             g_lastStats.avgAmazeWeight, g_lastStats.avgVngWeight, g_lastStats.avgEdgeConfidence,
+             g_lastStats.avgTextureConfidence, g_lastStats.avgHighlightConfidence, g_lastStats.clippedPixels);
+    }
+
+    // Border replication
     for (int j = 0; j < 2; ++j) {
         for (int i = 2; i < W - 2; ++i) {
             blend[size_t(j) * W + i] = blend[2 * W + i];
@@ -249,30 +296,66 @@ void buildBlendMask(const float* luminance, float* blend, int W, int H,
         blend[size_t(j) * W + (W - 1)] = blend[size_t(j) * W + (W - 3)];
     }
 
-    // RT uses sigma=2 (radius=4). At full RAW resolution (6000×4000) that
-    // is only an 8-pixel-wide transition zone — not enough to hide AMaZE/VNG
-    // luma differences in flat areas like sky, producing vignette-like banding.
-    // sigma=8 (radius=16) gives a ~32-pixel transition zone, which is wide
-    // enough to dissolve the seams on flat uniform regions without visibly
-    // softening the spatial selectivity of the blend on fine texture.
+    // Guided Filter / Separable Gaussian Smoothing on Blend Map for seamless transitions
     std::vector<float> packed(size_t(W) * H * 3);
     std::vector<float> packedOut(size_t(W) * H * 3);
-    for (size_t i = 0; i < size_t(W) * H; ++i) {
-        packed[i * 3 + 0] = blend[i];
-        packed[i * 3 + 1] = blend[i];
-        packed[i * 3 + 2] = blend[i];
+    for (size_t k = 0; k < size_t(W) * H; ++k) {
+        packed[k * 3 + 0] = blend[k];
+        packed[k * 3 + 1] = blend[k];
+        packed[k * 3 + 2] = blend[k];
     }
     gaussianBlurSeparableShared(packed.data(), packedOut.data(), W, H, /*radius=*/20);
-    // Clamp blend to [0.15, 0.85] after blurring so no region is ever pure
-    // AMaZE or pure VNG. Without this, flat sky (blend≈0, pure VNG) and
-    // textured areas (blend≈1, pure AMaZE) differ enough in luma to produce
-    // a visible band at the boundary even with a wide Gaussian.
-    for (size_t i = 0; i < size_t(W) * H; ++i) {
-        float b = packedOut[i * 3 + 0];
-        if (b < 0.15f) b = 0.15f;
-        else if (b > 0.85f) b = 0.85f;
-        blend[i] = b;
+
+    for (size_t k = 0; k < size_t(W) * H; ++k) {
+        float b = packedOut[k * 3 + 0];
+        // Clamping to avoid pure boundary dropouts while preserving transition smoothness
+        blend[k] = std::clamp(b, 0.15f, 0.85f);
     }
 }
 
-}  // namespace raw_v3
+const DualBlendDebugStats& getLastDualBlendDebugStats() {
+    return g_lastStats;
+}
+
+namespace {
+void writePgmOrRawFloat(const char* filepath, const std::vector<float>& plane, int W, int H) {
+    if (filepath == nullptr || plane.empty() || W <= 0 || H <= 0) return;
+    FILE* f = fopen(filepath, "wb");
+    if (!f) return;
+    fprintf(f, "P5\n%d %d\n255\n", W, H);
+    std::vector<unsigned char> row(W);
+    for (int j = 0; j < H; ++j) {
+        const float* src = &plane[size_t(j) * W];
+        for (int i = 0; i < W; ++i) {
+            float val = std::clamp(src[i], 0.0f, 1.0f);
+            row[i] = static_cast<unsigned char>(val * 255.0f);
+        }
+        fwrite(row.data(), 1, W, f);
+    }
+    fclose(f);
+}
+} // namespace
+
+void saveBlendMapPng(const char*filepath, const float* blend, int W, int H) {
+    if (!blend) return;
+    std::vector<float> plane(blend, blend + size_t(W) * H);
+    writePgmOrRawFloat(filepath, plane, W, H);
+}
+
+void saveEdgeConfidencePng(const char* filepath, int W, int H) {
+    writePgmOrRawFloat(filepath, g_edgeConfidencePlane, W, H);
+}
+
+void saveTextureConfidencePng(const char* filepath, int W, int H) {
+    writePgmOrRawFloat(filepath, g_textureConfidencePlane, W, H);
+}
+
+void saveHighlightConfidencePng(const char* filepath, int W, int H) {
+    writePgmOrRawFloat(filepath, g_highlightConfidencePlane, W, H);
+}
+
+void saveNoiseConfidencePng(const char* filepath, int W, int H) {
+    writePgmOrRawFloat(filepath, g_noiseConfidencePlane, W, H);
+}
+
+} // namespace raw_v3

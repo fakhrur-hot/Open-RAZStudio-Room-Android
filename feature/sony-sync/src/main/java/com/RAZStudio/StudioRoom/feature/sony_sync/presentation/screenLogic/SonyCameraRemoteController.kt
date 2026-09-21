@@ -67,6 +67,12 @@ class SonyCameraRemoteController(
     private val _state = MutableStateFlow(SonyCameraState())
     val state: StateFlow<SonyCameraState> = _state.asStateFlow()
 
+    // Firmware string from GetDeviceInfo, read once per session. Held separately
+    // from _state because SonyCameraState.from(props) rebuilds from the poll map
+    // (which has no firmware field); the poll loop folds it back in on each tick.
+    private val _firmwareVersion = MutableStateFlow<String?>(null)
+    val firmwareVersion: StateFlow<String?> = _firmwareVersion.asStateFlow()
+
     private val _recording = MutableStateFlow(false)
     val recording: StateFlow<Boolean> = _recording.asStateFlow()
 
@@ -109,13 +115,23 @@ class SonyCameraRemoteController(
         val friendly = device.productName?.let { SonyModelNames.pretty(it) } ?: "camera"
         log("Found $friendly (${hex(device.vendorId)}:${hex(device.productId)}).")
         if (!ensurePermission(device)) { _status.value = "USB permission denied."; return false }
-        return ptp.open(usbManager, device) && ptp.connectSession()
+        val opened = ptp.open(usbManager, device) && ptp.connectSession()
+        if (opened) {
+            // One-shot, read-only PTP GetDeviceInfo (0x1001) for the firmware
+            // string. Best-effort — never fails the connection if unsupported.
+            runCatching { ptp.readDeviceInfo() }.getOrNull()?.let { info ->
+                _firmwareVersion.value = info.deviceVersion
+                info.deviceVersion?.let { log("Camera firmware: $it") }
+            }
+        }
+        return opened
     }
 
     fun disconnect() {
         pollJob?.cancel(); pollJob = null
         _connected.value = false
         _liveView.value = null
+        _firmwareVersion.value = null
         _status.value = "Disconnected"
         // Tracked so the next connect() can join it before re-opening (no clobber).
         closeJob = scope.launch(io) { ptpLock.withLock { runCatching { ptp.close() } } }
@@ -144,7 +160,10 @@ class SonyCameraRemoteController(
                     if (doState) {
                         runCatching {
                             ptp.getAllDeviceProps()?.let {
+                                // from(props) has no firmware field — fold in the
+                                // once-read GetDeviceInfo value so the UI keeps it.
                                 val st = SonyCameraState.from(it)
+                                    .copy(firmwareVersion = _firmwareVersion.value)
                                 _state.value = st
                                 // Drive REC from the camera's real recording status
                                 // when known; null (code unverified) → stays false so

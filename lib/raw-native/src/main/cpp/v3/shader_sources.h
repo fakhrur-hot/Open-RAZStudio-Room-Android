@@ -35,6 +35,9 @@ extern const char* kVertSrc;            // back-compat alias for kVertSrcDisplay
 // The uber-shader: every per-pixel adjustment, one pass. Assembled from three
 // adjacent raw-string sections that the compiler concatenates.
 extern const char* kFragSrc;
+// Offscreen export variant: same shader with optional edge/blur samplers
+// removed to fit GLES devices limited to 16 fragment texture units.
+extern const char* kFragSrcOffscreen;
 
 // Bokeh separable Gaussian (run H then V).
 extern const char* kBokehBlurVert;

@@ -102,6 +102,8 @@ import com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen.SonySync
 import com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen.GalleryWorkspace
 import com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen.AddToProject
 import com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen.GalleryProject
+import com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen.LutCreator
+import com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen.VideoEditor
 import com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen.ChecksumTools
 import com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen.Cipher
 import com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen.CollageMaker
@@ -248,6 +250,8 @@ internal fun Screen.simpleName(): String = when (this) {
     is GalleryWorkspace -> "Gallery_Workspace"
     is AddToProject -> "Add_To_Project"
     is GalleryProject -> "Gallery_Project"
+    is LutCreator -> "LUT_Creator"
+    is VideoEditor -> "Video_Editor"
 }
 
 internal fun Screen.icon(): ImageVector? = when (this) {
@@ -271,6 +275,8 @@ internal fun Screen.icon(): ImageVector? = when (this) {
     is GalleryWorkspace -> Icons.Outlined.ImageEdit
     is AddToProject -> Icons.Outlined.ImageEdit
     is GalleryProject -> Icons.Outlined.ImageEdit
+    is LutCreator -> Icons.Outlined.Gradient
+    is VideoEditor -> Icons.Outlined.ArtTrack
     is ApngTools -> Icons.Outlined.ApngBox
     is Cipher -> Icons.Outlined.Encrypted
     is Compare -> Icons.Outlined.Compare
@@ -361,6 +367,8 @@ internal fun Screen.twoToneIcon(): ImageVector? = when (this) {
     is GalleryWorkspace -> Icons.TwoTone.ImageEdit
     is AddToProject -> Icons.TwoTone.ImageEdit
     is GalleryProject -> Icons.TwoTone.ImageEdit
+    is LutCreator -> Icons.Outlined.Gradient
+    is VideoEditor -> Icons.Outlined.ArtTrack
     is ApngTools -> Icons.TwoTone.ApngBox
     is Cipher -> Icons.TwoTone.Encrypted
     is Compare -> Icons.TwoTone.Compare
@@ -483,6 +491,7 @@ private object ScreenConstantsImpl : ScreenConstants {
             ScreenGroup(
                 entries = listOf(
                     Filter(),
+                    LutCreator,
                     Draw(),
                     MarkupLayers(),
                     AiTools(),
@@ -493,6 +502,7 @@ private object ScreenConstantsImpl : ScreenConstants {
                     Watermarking(),
                     GradientMaker(),
                     NoiseGeneration,
+                    VideoEditor,
                 ),
                 title = R.string.create,
                 selectedIcon = Icons.Rounded.WandShine,
@@ -548,5 +558,7 @@ private object ScreenConstantsImpl : ScreenConstants {
         68, // RawEditor
         70, // CanonSync
         76, // SonySync
+        75, // LutCreator
+        80, // VideoEditor
     )
 }

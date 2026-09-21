@@ -64,7 +64,7 @@ internal fun Preferences.toSettingsState(
     showFavoriteToolsInGroupedMode = this[SHOW_FAVORITE_TOOLS_IN_GROUPED_MODE]
         ?: default.showFavoriteToolsInGroupedMode,
     addSequenceNumber = this[ADD_SEQ_NUM_TO_FILENAME] ?: default.addSequenceNumber,
-    saveFolderUri = this[SAVE_FOLDER_URI],
+    saveFolderUri = this[SAVE_FOLDER_URI]?.takeIf { it.isNotBlank() },
     presets = Preset.createListFromInts(this[PRESETS]) ?: default.presets,
     colorTupleList = this[COLOR_TUPLES],
     allowChangeColorByImage = this[ALLOW_IMAGE_MONET] ?: default.allowChangeColorByImage,

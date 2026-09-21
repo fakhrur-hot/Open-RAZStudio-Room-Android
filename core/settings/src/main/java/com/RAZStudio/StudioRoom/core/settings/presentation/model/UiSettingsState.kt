@@ -410,7 +410,7 @@ fun SettingsState.toUiState(
                 systemBarsVisibility = systemBarsVisibility,
                 isSystemBarsVisibleBySwipe = isSystemBarsVisibleBySwipe,
                 isCompactSelectorsLayout = true,
-                mainScreenTitle = this.mainScreenTitle.ifEmpty { "Open RAZStudio Room" },
+                mainScreenTitle = this.mainScreenTitle.ifEmpty { "RAZStudio Room" },
                 sliderType = sliderType,
                 isCenterAlignDialogButtons = false,
                 fastSettingsSide = fastSettingsSide,
@@ -490,8 +490,8 @@ private fun NightMode.isNightMode(): Boolean = when (this) {
 }
 
 val defaultColorTuple = ColorTuple(
-    primary = Color(0xFF4791BF),
-    secondary = Color(0xFFB85DFF),
-    tertiary = null,
-    surface = Color(0xFF1E1F22)
+    primary = Color(0xFF8A9AAB),
+    secondary = Color(0xFFC4B7A6),
+    tertiary = Color(0xFF6E7C88),
+    surface = Color(0xFF161618)
 )

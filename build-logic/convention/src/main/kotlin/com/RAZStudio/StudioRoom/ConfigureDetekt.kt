@@ -25,13 +25,14 @@ import org.gradle.kotlin.dsl.dependencies
 import org.gradle.kotlin.dsl.named
 
 internal fun Project.configureDetekt(extension: DetektExtension) = extension.apply {
+    reportsDir = layout.buildDirectory.dir("reports/detekt").get().asFile
     tasks.named<Detekt>("detekt") {
         reports {
-            xml.required.set(true)
-            html.required.set(true)
-            txt.required.set(true)
-            sarif.required.set(true)
-            md.required.set(true)
+            xml.outputLocation.set(layout.buildDirectory.file("reports/detekt/detekt.xml"))
+            html.outputLocation.set(layout.buildDirectory.file("reports/detekt/detekt.html"))
+            txt.outputLocation.set(layout.buildDirectory.file("reports/detekt/detekt.txt"))
+            sarif.outputLocation.set(layout.buildDirectory.file("reports/detekt/detekt.sarif"))
+            md.outputLocation.set(layout.buildDirectory.file("reports/detekt/detekt.md"))
         }
     }
     dependencies {

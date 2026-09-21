@@ -18,6 +18,22 @@ import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.RawAction
 import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.WorkspaceBitDepth
 import java.io.File
 
+private val RETIRED_BUNDLED_PRESET_NAMES = setOf(
+    "razdream",
+    "precisa mod",
+    "provia outdoor",
+    "moody",
+    "fuji classic",
+    "auto expose & sharp",
+    "creamy & soft",
+    "film fade warm",
+    "film fade cool",
+    "soft portrait",
+)
+
+internal fun isRetiredBundledPresetName(name: String): Boolean =
+    name.trim().lowercase() in RETIRED_BUNDLED_PRESET_NAMES
+
 /**
  * Persists up to [MAX_PRESETS] named action-list presets to app-private storage.
  *
@@ -63,69 +79,11 @@ object RawPresetsStorage {
     private fun indexFile(context: Context): File =
         File(presetsDir(context), "index.txt")
 
-    /** Historical single marker from the razdream-only era — its presence means
-     *  "razdream.xml has been seeded" and must keep suppressing that one. */
-    private fun legacySeedMarkerFile(context: Context): File =
-        File(presetsDir(context), ".defaults_seeded")
-
-    /** Per-asset marker: written once `assets/presets/<assetFile>` has been
-     *  seeded. Its presence — NOT the presence of the preset itself — gates
-     *  re-seeding, so a user who deletes a factory preset never has it
-     *  reappear, while a NEW bundled preset in an app update still seeds once. */
-    private fun seedMarkerFile(context: Context, assetFile: String): File =
-        File(presetsDir(context), ".seeded_$assetFile")
-
-    // ── Bundled factory presets ───────────────────────────────────────────────
-
-    /** True while [seedDefaultsIfNeeded] is running, so the [loadIndex] calls
-     *  that [savePreset] makes internally don't re-enter the seeding loop —
-     *  a stale-snapshot re-entry would clobber presets seeded moments earlier. */
-    @Volatile private var seedingInProgress = false
-
-    /**
-     * Seed every bundled factory preset (see [BundledPresets]) exactly once
-     * each — on a fresh install, and once per NEW bundled preset after an APK
-     * upgrade. Per-asset markers gate re-seeding; each marker is written
-     * BEFORE its [savePreset] so a crash mid-seed can only skip, never loop.
-     *
-     * Duplicate protection for the authoring device (whose user presets ARE
-     * the bundled ones): a preset whose serialized content already exists in
-     * the index — under any name — is marked seeded without saving a copy.
-     */
-    @Synchronized
-    fun seedDefaultsIfNeeded(context: Context) {
-        if (seedingInProgress) return
-        seedingInProgress = true
-        try {
-            val entries = BundledPresets.list(context)
-            for (e in entries) {
-                val marker = seedMarkerFile(context, e.assetFile)
-                if (marker.exists()) continue
-                if (e.assetFile == BundledPresets.LEGACY_SEEDED_ASSET &&
-                    legacySeedMarkerFile(context).exists()
-                ) {
-                    runCatching { marker.writeText("1") }
-                    continue
-                }
-                runCatching { marker.writeText("1") }
-                runCatching {
-                    val actions = BundledPresets.load(context, e.assetFile) ?: return@runCatching
-                    if (actions.isEmpty()) return@runCatching
-                    val duplicate = matchingPresetIndex(context, actions) != null ||
-                        loadIndex(context).any { it.name.equals(e.name, ignoreCase = true) }
-                    if (!duplicate) savePreset(context, e.name, actions, e.bitDepth)
-                }
-            }
-        } finally {
-            seedingInProgress = false
-        }
-    }
-
     // ── Index read/write ──────────────────────────────────────────────────────
 
     fun loadIndex(context: Context): List<Preset> {
-        seedDefaultsIfNeeded(context)
         retireFsPresetsIfNeeded(context)
+        retireBundledPresetsIfNeeded(context)
         return readIndexOrRecover(context)
     }
 
@@ -150,6 +108,34 @@ object RawPresetsStorage {
                     File(dir, p.fileName).delete()
                 }
                 saveIndex(context, kept)
+            }
+        }
+        runCatching { done.writeText("1") }
+    }
+
+    /** Remove the ten bundled presets retired from the Actions tab in v1.06.
+     * Exact-name matching leaves unrelated user-created presets untouched. */
+    @Synchronized
+    private fun retireBundledPresetsIfNeeded(context: Context) {
+        val dir = presetsDir(context)
+        val done = File(dir, ".retired_bundled_presets_v1")
+        if (done.exists()) return
+        runCatching {
+            dir.listFiles { file ->
+                file.isFile && (
+                    file.name.startsWith(".seeded_") ||
+                        file.name == ".defaults_seeded"
+                    )
+            }?.forEach { it.delete() }
+
+            val current = readIndexOrRecover(context)
+            val retired = current.filter { isRetiredBundledPresetName(it.name) }
+            if (retired.isNotEmpty()) {
+                retired.forEach { preset -> File(dir, preset.fileName).delete() }
+                saveIndex(
+                    context = context,
+                    presets = current.filterNot { isRetiredBundledPresetName(it.name) },
+                )
             }
         }
         runCatching { done.writeText("1") }
@@ -216,8 +202,15 @@ object RawPresetsStorage {
         val sanitizedName = name.trim().take(40).ifEmpty { "Preset ${current.size + 1}" }
         val fileName = "preset_${System.currentTimeMillis()}.xml"
         val xmlFile = File(presetsDir(context), fileName)
+        // stripMaskFields=false: preserve all SegmentTarget fields (vignetteSegmentation,
+        // gradientTop/Bottom/Left/RightApplyTo), maskTone, contrastBoost, and other
+        // photo-agnostic macro values that must round-trip through a preset.
+        // Brush-mask PNG paths (maskPath) are never present on preset actions — they
+        // come in as null from buildPresetFromActions / the action stack (brush masks
+        // are dropped there, not here). Using `true` was stripping the user's "apply
+        // to Subject only" / "apply to Background" intent on every save.
         xmlFile.writeText(
-            RawActionSerializer.serialize(actions, stripMaskFields = true)
+            RawActionSerializer.serialize(actions, stripMaskFields = false)
         )
         current.add(Preset(sanitizedName, fileName, bitDepth))
         saveIndex(context, current)

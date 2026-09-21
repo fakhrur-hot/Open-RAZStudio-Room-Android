@@ -43,6 +43,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import com.RAZStudio.StudioRoom.core.ui.theme.Elevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -69,6 +70,8 @@ import androidx.compose.ui.window.DialogProperties
 import com.RAZStudio.StudioRoom.core.settings.presentation.provider.LocalSettingsState
 import com.RAZStudio.StudioRoom.core.ui.utils.helper.PredictiveBackObserver
 import com.RAZStudio.StudioRoom.core.ui.widget.icon_shape.IconShapeContainer
+import com.RAZStudio.StudioRoom.core.ui.theme.Spacing
+import com.RAZStudio.StudioRoom.core.ui.widget.modifier.ShapeDefaults
 import com.RAZStudio.StudioRoom.core.ui.widget.modifier.alertDialogBorder
 import com.RAZStudio.StudioRoom.core.ui.widget.modifier.tappable
 import com.RAZStudio.modalsheet.FullscreenPopup
@@ -85,12 +88,12 @@ fun EnhancedAlertDialog(
     title: @Composable (() -> Unit)? = null,
     text: @Composable (() -> Unit)? = null,
     placeAboveAll: Boolean = false,
-    shape: Shape = AlertDialogDefaults.shape,
+    shape: Shape = ShapeDefaults.extraLarge,
     containerColor: Color = AlertDialogDefaults.containerColor,
     iconContentColor: Color = AlertDialogDefaults.iconContentColor,
     titleContentColor: Color = AlertDialogDefaults.titleContentColor,
     textContentColor: Color = AlertDialogDefaults.textContentColor,
-    tonalElevation: Dp = AlertDialogDefaults.TonalElevation
+    tonalElevation: Dp = Elevation.dialog
 ) {
     BasicEnhancedAlertDialog(
         visible = visible,
@@ -264,6 +267,7 @@ private fun EnhancedAlertDialogContent(
         shape = shape,
         color = containerColor,
         tonalElevation = tonalElevation,
+        shadowElevation = Elevation.dialog,
     ) {
         Column(modifier = Modifier.padding(DialogPadding)) {
             icon?.let {
@@ -349,14 +353,13 @@ fun ProvideContentColorTextStyle(
 private val DialogMinWidth = 280.dp
 private val DialogMaxWidth = 480.dp
 
-private val ButtonsHorizontalSpacing = 8.dp
+private val ButtonsHorizontalSpacing = Spacing.item
 private val ButtonsVerticalSpacing = 12.dp
 
-// Paddings for each of the dialog's parts.
-private val DialogPadding = PaddingValues(all = 24.dp)
-private val IconPadding = PaddingValues(bottom = 16.dp)
-private val TitlePadding = PaddingValues(bottom = 16.dp)
-private val TextPadding = PaddingValues(bottom = 24.dp)
+private val DialogPadding = PaddingValues(all = Spacing.card)
+private val IconPadding = PaddingValues(bottom = Spacing.section)
+private val TitlePadding = PaddingValues(bottom = Spacing.section)
+private val TextPadding = PaddingValues(bottom = Spacing.card)
 
 
 @Composable

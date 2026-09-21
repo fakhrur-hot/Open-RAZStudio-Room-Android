@@ -18,7 +18,8 @@
  *      )
  *
  *  Internally:
- *    1. Copy rawUri → app scratch file (one-shot, then deleted on success).
+ *    1. Copy rawUri → app scratch file (skipped when this coordinator
+ *       already has the same URI open and A.tif is still valid).
  *    2. SHA-256 + EXIF probe — Adobe-Enhanced / LinearRaw triggers the
  *       LibRaw `dcraw_process` bypass instead of RCD.
  *    3. Stage A (LibRaw / RCD) → cacheDir/raw_v3/<sha>/A.tif.
@@ -27,7 +28,8 @@
  *    6. AndroidImageCompressor: scale + encode to the picked format.
  *    7. FileController.save(...) — honours the user's Settings save folder
  *       and filename pattern (or oneTimeSaveLocationUri if provided).
- *    8. Per-file cleanup: scratch + Stage A cache + intermediate TIFF.
+ *    8. Per-file cleanup: scratch + Stage C intermediate TIFF. Keep A.tif so
+ *       a second save of the same photo does not re-run LibRaw.
  *
  *  We use [RawV3HiltAccess] to pull FileController + ImageCompressor from
  *  the application Hilt graph without requiring the caller to be Hilt-
@@ -344,6 +346,11 @@ class RawV3Coordinator(private val context: Context) {
      *  cache lookups and the M10 session-survival action state. */
     private var openSha: String? = null
 
+    /** SAF URI passed to [openRawFile]; export skips copy+SHA when it matches. */
+    private var openUri: android.net.Uri? = null
+
+    private var openNonRaw: Boolean = false
+
     /**
      * Open a RAW source for live editing.
      *
@@ -506,6 +513,28 @@ class RawV3Coordinator(private val context: Context) {
                     null
                 }
             } else null
+            // Zero-DCE guided adaptive devignetting: probe the embedded JPEG
+            // thumbnail BEFORE Stage A bakes the Lensfun pass — the lift map
+            // attenuates the radial gain in deep-shadow (low-SNR) regions so
+            // corner noise is not amplified. Reuses thumbnailBitmap (already
+            // EXIF-rotated — orientation parity with the Stage A buffer) and
+            // skips entirely when Lensfun is off (map would be unused) or the
+            // probe can't run (null map = classic static correction).
+            val adaptiveLiftMap = if (effectiveWorkspace.lensfunDbDir.isNotEmpty()) {
+                thumbnailBitmap?.let { thumb ->
+                    runCatching {
+                        val probe = RawV3ZeroDceLightProbe(context)
+                        try {
+                            val map = probe.probeLiftMap(thumb)
+                            map?.let { _zeroDceLightScore.value = it.average().toFloat() }
+                            map
+                        } finally {
+                            probe.release()
+                        }
+                    }.getOrNull()
+                }
+            } else null
+
             val tA0 = System.currentTimeMillis()
             val s = RawV3Engine.stageADecode(
                 rawFilePath     = scratch.absolutePath,
@@ -514,6 +543,8 @@ class RawV3Coordinator(private val context: Context) {
                 hdrModelData    = hdrBytes,
                 shadowModelData = shadowBytes,
                 isLinearRaw     = probe.alreadyDemosaiced,
+                liftMap         = adaptiveLiftMap,
+                liftTau         = effectiveWorkspace.liftTau,
             )
             Log.i(TAG, "$sourceName: Stage A decode in ${System.currentTimeMillis() - tA0} ms " +
                 "(ok=${s.success} ${s.width}×${s.height} linearRaw=${probe.alreadyDemosaiced})")
@@ -654,6 +685,8 @@ class RawV3Coordinator(private val context: Context) {
 
         openStageAPath = activeStageATifPath
         openSha = sha
+        openUri = rawUri
+        openNonRaw = isNonRaw
         _stageAResult.value = stageA
         _state.value = RawV3State.StageBReady(
             sha = sha,
@@ -1122,14 +1155,22 @@ class RawV3Coordinator(private val context: Context) {
                     )
                     if (zdBmp != null) {
                         val tZ = System.currentTimeMillis()
-                        val score = runCatching { zd.probeAverageLift(zdBmp) }
+                        val liftMap = runCatching { zd.probeLiftMap(zdBmp) }
                             .onFailure { Log.w(TAG, "$sourceName: zero-dce probe threw", it) }
                             .getOrNull()
+                        // The gain field is low-frequency (analytic radial ×
+                        // 256² lift), so it is baked at a capped resolution —
+                        // consumers sample it normalized.
                         zdBmp.recycle()
-                        if (score != null) {
+                        if (liftMap != null) {
+                            val score = liftMap.average().toFloat()
                             _zeroDceLightScore.value = score
                             Log.i(TAG, "$sourceName: zero-dce probe score=%.3f in %d ms"
                                 .format(score, System.currentTimeMillis() - tZ))
+                            // NOTE: the adaptive devignette is applied NATIVELY
+                            // inside Stage A's Lensfun pass (the pre-decode
+                            // lift map is passed via StageAOptions.liftMap).
+                            // There is deliberately no GL-side gain field here.
                         }
                     }
                 } else {
@@ -1160,6 +1201,8 @@ class RawV3Coordinator(private val context: Context) {
     fun closeSession() {
         openStageAPath = null
         openSha = null
+        openUri = null
+        openNonRaw = false
         // Cancel any in-flight segmentation. OrtSession.close is deferred by
         // [OrtSessionGate] until native run() returns — cancel alone does not
         // interrupt OrtSession.run (CityscapesSeg / raw-seg-u2net crash class).
@@ -1587,6 +1630,45 @@ class RawV3Coordinator(private val context: Context) {
             p.blacksBackground != 0f || p.shadowsBackground != 0f ||
             p.ambianceBackground != 0f
 
+    private data class SessionStageAReuse(
+        val sha: String,
+        val nonRaw: Boolean,
+        val stageATif: File,
+        val stageA: RawV3Engine.StageAResult,
+    )
+
+    /**
+     * Editor save of the already-open URI: skip SAF copy + SHA-256 when A.tif
+     * is still valid for this workspace. Batch / a different URI returns null.
+     */
+    private fun tryReuseOpenSessionStageA(
+        rawUri: Uri,
+        options: ExportOptions,
+    ): SessionStageAReuse? {
+        val sha = openSha ?: return null
+        val path = openStageAPath ?: return null
+        if (openUri?.toString() != rawUri.toString()) return null
+        val cache = RawV3Cache(context)
+        val tif = cache.stageATif(sha)
+        if (tif.absolutePath != path) return null
+        if (!tif.exists() || tif.length() == 0L) return null
+        if (!options.useCameraColorProfile &&
+            File("${tif.absolutePath}.camprofile").exists()
+        ) return null
+        val ws = options.workspace
+        val fp = ws.toString() + "|lfa=3"
+        val fpAhd = ws.copy(demosaicAlgorithm = 3).toString() + "|lfa=3"
+        val meta = readStageAMeta(cache.stageAMeta(sha)) ?: return null
+        if (meta.optionsFingerprint != fp && meta.optionsFingerprint != fpAhd) return null
+        if (runCatching { RawV3BigTiffReader.readDims(tif) }.getOrNull() == null) return null
+        return SessionStageAReuse(
+            sha = sha,
+            nonRaw = openNonRaw,
+            stageATif = tif,
+            stageA = meta.toStageAResult(),
+        )
+    }
+
     /**
      * Run the full per-file pipeline. Suspending; honours coroutine
      * cancellation between stages. Always runs on [Dispatchers.IO]
@@ -1609,26 +1691,35 @@ class RawV3Coordinator(private val context: Context) {
         // restored from cache immediately after SHA is computed below.
         _segmentationMasks.value = null
 
-        // 1) SAF → scratch file (LibRaw needs a real path)
-        onStage?.invoke(Stage.Copying)
-        val scratch = File(context.cacheDir, "raw_v3_in_${System.nanoTime()}.bin")
-        runCatching {
-            context.contentResolver.openInputStream(rawUri)?.use { ins ->
-                FileOutputStream(scratch).use { out -> ins.copyTo(out) }
-            } ?: return@withContext fail(sourceName, "openInputStream null", scratch)
-        }.onFailure {
-            return@withContext fail(sourceName, "copy failed: ${it.message}", scratch)
+        val sessionReuse = tryReuseOpenSessionStageA(rawUri, options)
+
+        // 1) SAF → scratch (skipped when this editor session already decoded it)
+        onStage?.invoke(if (sessionReuse != null) Stage.StageA else Stage.Copying)
+        val scratch = if (sessionReuse != null) null else
+            File(context.cacheDir, "raw_v3_in_${System.nanoTime()}.bin")
+        if (sessionReuse == null) {
+            runCatching {
+                context.contentResolver.openInputStream(rawUri)?.use { ins ->
+                    FileOutputStream(scratch!!).use { out -> ins.copyTo(out) }
+                } ?: return@withContext fail(sourceName, "openInputStream null", scratch)
+            }.onFailure {
+                return@withContext fail(sourceName, "copy failed: ${it.message}", scratch)
+            }
+            if (scratch!!.length() == 0L)
+                return@withContext fail(sourceName, "empty source after copy", scratch)
         }
-        if (scratch.length() == 0L)
-            return@withContext fail(sourceName, "empty source after copy", scratch)
         coroutineContext.ensureActive()
 
         // 2) Probe + SHA
-        onStage?.invoke(Stage.Probing)
-        val nonRaw = isNonRawSource(scratch, sourceName)
-        val probe = if (nonRaw) null else RawV3SourceProbe.probe(scratch)
-        val sha = sha256(scratch)
-        Log.i(TAG, "$sourceName: sha=${sha.take(8)}… nonRaw=$nonRaw skipRcd=${probe?.skipRcd}")
+        if (sessionReuse == null) onStage?.invoke(Stage.Probing)
+        val nonRaw = sessionReuse?.nonRaw ?: isNonRawSource(scratch!!, sourceName)
+        val probe = if (sessionReuse != null || nonRaw) null else RawV3SourceProbe.probe(scratch!!)
+        val sha = sessionReuse?.sha ?: sha256(scratch!!)
+        if (sessionReuse != null) {
+            Log.i(TAG, "$sourceName: sha=${sha.take(8)}… skip copy+SHA (open session A.tif)")
+        } else {
+            Log.i(TAG, "$sourceName: sha=${sha.take(8)}… nonRaw=$nonRaw skipRcd=${probe?.skipRcd}")
+        }
         // Restore the segmentation masks for THIS file if they were previously
         // computed (editor session or earlier batch pass). Keeps subject/background
         // vignette, per-segment tone moves, and smart-sharpness feathering intact
@@ -1654,11 +1745,18 @@ class RawV3Coordinator(private val context: Context) {
         // shows (dull/desaturated/linear-looking output). Held here, fed to the
         // match right before Stage C.
         val camProfileJpegBytes: ByteArray? =
-            if (options.useCameraColorProfile && !nonRaw)
-                RawV3Engine.extractEmbeddedThumbnail(scratch.absolutePath)
+            if (sessionReuse != null) null
+            else if (options.useCameraColorProfile && !nonRaw)
+                RawV3Engine.extractEmbeddedThumbnail(scratch!!.absolutePath)
             else null
         val cache = RawV3Cache(context)
         val stageATif = cache.stageATif(sha)
+        // Stage A pixels include the selected camera/lens profile and every
+        // other decode-time workspace option. A SHA-only hit can therefore
+        // export pixels made with a previous lens choice. Reuse only a cache
+        // record carrying the same decode fingerprint as this request.
+        val stageAFingerprint = effectiveWorkspace.toString() + "|lfa=3"
+        val cachedStageAMeta = readStageAMeta(cache.stageAMeta(sha))
         // Always delete just the Stage C intermediate so a fresh export is
         // written — never touch A.tif if it's already there.
         File(stageATif.parentFile, "stage_c.intermediate.tif").delete()
@@ -1675,28 +1773,33 @@ class RawV3Coordinator(private val context: Context) {
             File("${stageATif.absolutePath}.camprofile").exists()
         if (routePoisoned) Log.i(TAG, "$sourceName: cached A.tif is Route-A baked " +
             "but this export is Route B — re-decoding Stage A")
-        val dims = if (!routePoisoned && stageATif.exists() && stageATif.length() > 0)
+        val cacheFingerprintMatches = cachedStageAMeta?.optionsFingerprint == stageAFingerprint
+        if (!routePoisoned && stageATif.exists() && stageATif.length() > 0 &&
+            cachedStageAMeta != null && !cacheFingerprintMatches) {
+            Log.i(TAG, "$sourceName: Stage A cache fingerprint changed — re-decoding " +
+                "(profile/decode options changed)")
+        }
+        val dims = if (!routePoisoned && cacheFingerprintMatches &&
+            stageATif.exists() && stageATif.length() > 0)
             runCatching { RawV3BigTiffReader.readDims(stageATif) }.getOrNull() else null
-        val stageA = if (dims != null) {
+        val stageA = if (sessionReuse != null) {
+            Log.i(TAG, "$sourceName: Stage A cache hit (${sessionReuse.stageA.width}×${sessionReuse.stageA.height}) → reusing A.tif")
+            sessionReuse.stageA
+        } else if (dims != null) {
             Log.i(TAG, "$sourceName: Stage A cache hit (${dims.first}×${dims.second}) → reusing A.tif")
-            scratch.delete()
-            RawV3Engine.StageAResult(
-                success = true, width = dims.first, height = dims.second,
-                orientation = 0, cameraMake = "", cameraModel = "",
-                lensMake = "", lensModel = "", lensId = 0, colorTemperature = 0,
-                iso = 0, shutterSpeed = 0f,
-                aperture = 0f, focalLength = 0f, dateTimeOriginal = "", error = null)
+            scratch?.delete()
+            cachedStageAMeta!!.toStageAResult()
         } else {
             cache.purge(sha)
             val freshTif = cache.stageATif(sha)
-            if (nonRaw) synthStageAWithLensPipeline(scratch, freshTif, effectiveWorkspace, sourceName)
+            if (nonRaw) synthStageAWithLensPipeline(scratch!!, freshTif, effectiveWorkspace, sourceName)
             else stageADecodeMutex.withLock {
                 // Model assets come from the batch-invariant cache (loaded once
                 // per coordinator lifetime, not per file). The mutex prevents a
                 // concurrent batch prefetch (prewarmStageA) from running a second
                 // LibRaw demosaic at the same time — see stageADecodeMutex doc.
                 RawV3Engine.stageADecode(
-                    rawFilePath     = scratch.absolutePath,
+                    rawFilePath     = scratch!!.absolutePath,
                     outTifPath      = freshTif.absolutePath,
                     options         = effectiveWorkspace,
                     hdrModelData    = if (effectiveWorkspace.hdrRecovery) loadHdrModel() else null,
@@ -1704,6 +1807,14 @@ class RawV3Coordinator(private val context: Context) {
                     isLinearRaw     = probe?.alreadyDemosaiced == true,
                 )
             }
+        }
+        if (stageA.success) {
+            runCatching {
+                writeStageAMeta(
+                    cache.stageAMeta(sha),
+                    CachedStageAMeta.from(stageA, stageAFingerprint),
+                )
+            }.onFailure { Log.w(TAG, "$sourceName: Stage A meta write failed: ${it.message}") }
         }
         if (!stageA.success) {
             cleanup(scratch, stageATif.parentFile)
@@ -1883,6 +1994,7 @@ class RawV3Coordinator(private val context: Context) {
             base
         }
         val paramsArr = params.toFloatArray()
+        VintageFxAssets.bakeNative(context)
         Log.i(TAG, "$sourceName: export gradient blob → angle=${paramsArr.getOrNull(68)} " +
             "top[i1=${paramsArr.getOrNull(69)} tl=${paramsArr.getOrNull(75)}] " +
             "bottom[i1=${paramsArr.getOrNull(84)}] left[i1=${paramsArr.getOrNull(99)}] " +
@@ -1891,7 +2003,8 @@ class RawV3Coordinator(private val context: Context) {
         // Fade = fxVintageFade [370]; Strength [369] must be >0 for applyVintage.
         Log.i(TAG, "$sourceName: export FX blob → vintageStr=${paramsArr.getOrNull(369)} " +
             "fade=${paramsArr.getOrNull(370)} vig=${paramsArr.getOrNull(371)} " +
-            "mist=${paramsArr.getOrNull(365)} glow=${paramsArr.getOrNull(372)} " +
+            "mistWash=${paramsArr.getOrNull(365)} mistInt=${paramsArr.getOrNull(454)} " +
+            "texInt=${paramsArr.getOrNull(456)} glow=${paramsArr.getOrNull(372)} " +
             "orton=${paramsArr.getOrNull(209)} filmRolloff=${paramsArr.getOrNull(207)}")
 
         // Subject mask for RENDERING. The AE branch above runs segmentation
@@ -2211,6 +2324,36 @@ class RawV3Coordinator(private val context: Context) {
                 attenMask         = exportAtten?.second,
                 attenMaskSize     = exportAtten?.first ?: 0,
                 attenMaskH        = exportAtten?.first ?: 0,
+                depthMap          = _depthMap.value?.takeIf { !it.isEmpty }?.depth,
+                depthMapW         = _depthMap.value?.takeIf { !it.isEmpty }?.width ?: 0,
+                depthMapH         = _depthMap.value?.takeIf { !it.isEmpty }?.height ?: 0,
+                focusDepth        = run {
+                    val dm = _depthMap.value?.takeIf { !it.isEmpty } ?: return@run 0.5f
+                    val samples = ArrayList<Float>(4096)
+                    val subj = exportBest?.first
+                    val sw = exportBest?.second ?: 0
+                    val sh = exportBest?.third ?: sw
+                    if (subj != null && sw > 0 && sh > 0) {
+                        if (sw == dm.width && sh == dm.height) {
+                            for (i in dm.depth.indices) if (subj[i] > 0.5f) samples.add(dm.depth[i])
+                        } else {
+                            for (y in 0 until dm.height) {
+                                val my = ((y + 0.5f) * sh / dm.height).toInt().coerceIn(0, sh - 1)
+                                for (x in 0 until dm.width) {
+                                    val mx = ((x + 0.5f) * sw / dm.width).toInt().coerceIn(0, sw - 1)
+                                    if (subj[my * sw + mx] > 0.5f) samples.add(dm.depth[y * dm.width + x])
+                                }
+                            }
+                        }
+                    }
+                    if (samples.isNotEmpty()) {
+                        samples.sort()
+                        samples[samples.size / 2]
+                    } else {
+                        val sorted = dm.depth.copyOf().also { it.sort() }
+                        sorted[sorted.size / 2]
+                    }
+                },
                 maskLayers      = maskBundle?.data,
                 maskLayerW      = maskBundle?.w ?: 0,
                 maskLayerH      = maskBundle?.h ?: 0,
@@ -2220,7 +2363,7 @@ class RawV3Coordinator(private val context: Context) {
             )
             workTif?.delete()
             if (!stageC.success) {
-                cleanup(scratch, stageATif.parentFile, intermediate)
+                cleanup(scratch, intermediate)
                 return@withContext fail(sourceName, "Stage C: ${stageC.error}")
             }
             if (stageC.karisBloomFallback) {
@@ -2234,7 +2377,7 @@ class RawV3Coordinator(private val context: Context) {
             val tDec0 = System.currentTimeMillis()
             val decoded = RawV3BigTiffReader.decodeToArgb8888(intermediate)
                 ?: run {
-                    cleanup(scratch, stageATif.parentFile, intermediate)
+                    cleanup(scratch, intermediate)
                     return@withContext fail(sourceName, "BigTIFF decode returned null")
                 }
             Log.i(TAG, "$sourceName: decodeToArgb8888 ${decoded.width}x${decoded.height} " +
@@ -2608,7 +2751,7 @@ class RawV3Coordinator(private val context: Context) {
                 )
                 if (!r16.success) {
                     f16Bitmap.recycle()
-                    cleanup(scratch, stageATif.parentFile, intermediate)
+                    cleanup(scratch, intermediate)
                     return@withContext fail(sourceName, "encode16BitToBitmap failed: ${r16.error}")
                 }
                 val f16Final = if (hasBorder) {
@@ -2637,7 +2780,7 @@ class RawV3Coordinator(private val context: Context) {
                     }
                 }.getOrElse { e ->
                     f16Final.recycle()
-                    cleanup(scratch, stageATif.parentFile, intermediate)
+                    cleanup(scratch, intermediate)
                     return@withContext fail(sourceName, "16-bit encode failed: ${e.message}")
                 }
                 f16Final.recycle()
@@ -2657,11 +2800,11 @@ class RawV3Coordinator(private val context: Context) {
                     iccProfile = if (options.embedIcc) RawV3IccEmbed.buildSrgbV2IccProfile() else null,
                 )
                 if (!r16.success) {
-                    cleanup(scratch, stageATif.parentFile, intermediate)
+                    cleanup(scratch, intermediate)
                     return@withContext fail(sourceName, "encode16Bit failed: ${r16.error}")
                 }
                 val bytes = runCatching { outFile.readBytes() }.getOrElse { e ->
-                    cleanup(scratch, stageATif.parentFile, intermediate)
+                    cleanup(scratch, intermediate)
                     return@withContext fail(sourceName, "16-bit read-back failed: ${e.message}")
                 }
                 outFile.delete()
@@ -2708,7 +2851,7 @@ class RawV3Coordinator(private val context: Context) {
                     }
                 }
             }.getOrElse { e ->
-                cleanup(scratch, stageATif.parentFile, intermediate)
+                cleanup(scratch, intermediate)
                 return@withContext fail(sourceName, "encode failed: ${e.message}")
             }
         }
@@ -2777,11 +2920,11 @@ class RawV3Coordinator(private val context: Context) {
             // Direct-file path: write bytes to disk, skip gallery/MediaStore.
             val tPub0 = System.currentTimeMillis()
             runCatching { directFile.writeBytes(bytesToSave) }.onFailure { e ->
-                cleanup(scratch, stageATif.parentFile, intermediate)
+                cleanup(scratch, intermediate)
                 return@withContext fail(sourceName, "direct write failed: ${e.message}")
             }
             Log.i(TAG, "$sourceName: direct write ${bytesToSave.size} bytes in ${System.currentTimeMillis() - tPub0} ms")
-            cleanup(scratch, stageATif.parentFile, intermediate)
+            cleanup(scratch, intermediate)
             return@withContext ExportResult.Success(
                 sourceName = sourceName,
                 savedAt    = directFile.absolutePath,
@@ -2834,13 +2977,13 @@ class RawV3Coordinator(private val context: Context) {
                 oneTimeSaveLocationUri = options.oneTimeSaveLocationUri,
             )
         }.getOrElse { e ->
-            cleanup(scratch, stageATif.parentFile, intermediate)
+            cleanup(scratch, intermediate)
             return@withContext fail(sourceName, "publish failed: ${e.message}")
         }
         Log.i(TAG, "$sourceName: fileController.save (keepMeta=$keepMeta) in ${System.currentTimeMillis() - tPub0} ms")
 
         // 8) Cleanup + return
-        cleanup(scratch, stageATif.parentFile, intermediate)
+        cleanup(scratch, intermediate)
         val totalMs = System.currentTimeMillis() - t0
         return@withContext publishToResult(
             publish, sourceName, info.width, info.height, bytesToSave.size.toLong(), totalMs,
@@ -3053,24 +3196,32 @@ class RawV3Coordinator(private val context: Context) {
         // override still wins when present (adapted lenses report no focal).
         var exifFocalMm = 0f
         var exifApertureF = 0f
+        var exifCameraMake = ""
+        var exifCameraModel = ""
+        var exifLensMake = ""
+        var exifLensModel = ""
         runCatching {
             val ex = android.media.ExifInterface(scratch.absolutePath)
+            exifCameraMake = ex.getAttribute(android.media.ExifInterface.TAG_MAKE).orEmpty()
+            exifCameraModel = ex.getAttribute(android.media.ExifInterface.TAG_MODEL).orEmpty()
+            exifLensMake = ex.getAttribute("LensMake").orEmpty()
+            exifLensModel = ex.getAttribute("LensModel").orEmpty()
             exifFocalMm = ex.getAttributeDouble(
                 android.media.ExifInterface.TAG_FOCAL_LENGTH, 0.0).toFloat()
             exifApertureF = ex.getAttributeDouble(
                 android.media.ExifInterface.TAG_F_NUMBER, 0.0).toFloat()
         }
         scratch.delete()
-        // JPEG/PNG Lensfun: the synthetic Stage A writes the decoded bitmap
-        // with NO lens correction (there's no LibRaw/demosaic step). If the
-        // user picked a lens in the Lens Correction UI (now enabled for
-        // non-RAW), apply the SAME geometric/vignette/TCA fix in place to the
-        // A.tif so JPEGs match RAW. Matched from the UI-selected DB names.
-        // No-op unless a lens is selected AND the DB confidently matches.
-        var lensReport = if (workspace.lensfunLensId.isBlank()) "lens=NONE (no lens selected)"
+        // JPEG/PNG Lensfun: the synthetic Stage A starts with no correction.
+        // Prefer the user's exact camera/lens selection when present; otherwise
+        // pass the source EXIF identity to the same strict native matcher used
+        // for RAW. This keeps detection primary and manual selection secondary,
+        // without treating an EXIF lens-type string as a profile by itself.
+        val effectiveCameraModel = workspace.lensfunCameraId.ifBlank { exifCameraModel }
+        val effectiveLensModel = workspace.lensfunLensId.ifBlank { exifLensModel }
+        var lensReport = if (effectiveLensModel.isBlank()) "lens=NONE (no lens detected)"
                          else "lens=NONE (lens DB missing)"
         if (syn.success &&
-            workspace.lensfunLensId.isNotBlank() &&
             workspace.lensfunDbDir.isNotBlank()
         ) {
             val tLf = System.currentTimeMillis()
@@ -3079,17 +3230,17 @@ class RawV3Coordinator(private val context: Context) {
             val applied = runCatching {
                 RawV3Engine.applyLensfunToStageA(
                     tifPath      = linearTif.absolutePath,
-                    camMaker     = "",
-                    camModel     = workspace.lensfunCameraId,
-                    lensMaker    = "",
-                    lensModel    = workspace.lensfunLensId,
+                    camMaker     = exifCameraMake,
+                    camModel     = effectiveCameraModel,
+                    lensMaker    = exifLensMake,
+                    lensModel    = effectiveLensModel,
                     focalMm      = effFocal,
                     aperture     = exifApertureF,
                     lensfunDbDir = workspace.lensfunDbDir,
                 )
             }.getOrDefault(false)
             Log.i(TAG, "$sourceName: JPEG Lensfun ${if (applied) "APPLIED" else "skip/no-op"} " +
-                "('${workspace.lensfunLensId}' focal=${effFocal}mm f/${exifApertureF}) " +
+                "('$effectiveLensModel' focal=${effFocal}mm f/${exifApertureF}) " +
                 "in ${System.currentTimeMillis() - tLf} ms")
             lensReport = RawV3Engine.lensfunLastReport()
         }

@@ -88,9 +88,23 @@ internal class RawV3ZeroDceLightProbe(private val context: Context) {
      *   • < 0.15 — bright (sunny outdoor, well-lit)
      *
      * Returns null when the model is missing, releases is set, or
-     * inference fails.
+     * inference fails. Derived from [probeLiftMap] — one inference path.
      */
     suspend fun probeAverageLift(bitmap: Bitmap): Float? {
+        val map = probeLiftMap(bitmap) ?: return null
+        return map.average().toFloat().also {
+            Log.i(TAG, "probe: average lift = %.3f".format(it))
+        }
+    }
+
+    /**
+     * Spatial variant of [probeAverageLift]: the per-pixel mean |A| across
+     * the 24 curve-coefficient channels, as a 256×256 row-major float map.
+     * High values mark pixels Zero-DCE would lift hard (deep shadow → low
+     * SNR). Consumed by the adaptive devignette inside the native Stage A
+     * Lensfun pass (StageAOptions.liftMap → lfa_correct_rgba_f16).
+     */
+    suspend fun probeLiftMap(bitmap: Bitmap): FloatArray? {
         if (gate.isReleased || !hasModel) return null
         return withContext(dispatcher) {
             gate.run {
@@ -98,9 +112,7 @@ internal class RawV3ZeroDceLightProbe(private val context: Context) {
                 // A-map is low-frequency so the resample doesn't lose signal.
                 val scaled = Bitmap.createScaledBitmap(bitmap, INPUT_SIZE, INPUT_SIZE, true)
                 try {
-                    val avg = runProbe(scaled)
-                    Log.i(TAG, "probe: average lift = %.3f".format(avg))
-                    avg
+                    runProbeMap(scaled)
                 } finally {
                     scaled.recycle()
                 }
@@ -121,33 +133,33 @@ internal class RawV3ZeroDceLightProbe(private val context: Context) {
         }
     }
 
-    private fun runProbe(scaled: Bitmap): Float {
+    private fun runProbeMap(scaled: Bitmap): FloatArray {
         val s = session ?: error("OrtSession unavailable")
         val env = OrtEnvironment.getEnvironment()
         val input = bitmapToNchwFp32(scaled, env)
         val output = s.run(mapOf(s.inputNames.first() to input))
         input.close()
 
-        // Output shape: [1, 24, 256, 256]. We average the absolute value of
-        // every coefficient across the whole grid — the model emits both
-        // positive (lift) and negative (compress) curves; |a| gives total
-        // "how much would Zero-DCE change this image" magnitude.
+        // Output shape: [1, 24, 256, 256]. The model emits both positive
+        // (lift) and negative (compress) curves; |a| per pixel gives total
+        // "how much would Zero-DCE change this pixel" — the spatial lift map.
         @Suppress("UNCHECKED_CAST")
         val raw = output[0].value as Array<Array<Array<FloatArray>>>  // [1][24][H][W]
         val channels = raw[0].size
         val h = raw[0][0].size
         val w = raw[0][0][0].size
-        var sum = 0.0
-        for (c in 0 until channels) {
-            for (y in 0 until h) {
-                val row = raw[0][c][y]
-                for (x in 0 until w) {
-                    sum += kotlin.math.abs(row[x])
+        val map = FloatArray(h * w)
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                var sum = 0.0
+                for (c in 0 until channels) {
+                    sum += kotlin.math.abs(raw[0][c][y][x])
                 }
+                map[y * w + x] = (sum / channels).toFloat()
             }
         }
         output.close()
-        return (sum / (channels.toDouble() * h * w)).toFloat()
+        return map
     }
 
     private fun bitmapToNchwFp32(bitmap: Bitmap, env: OrtEnvironment): OnnxTensor {

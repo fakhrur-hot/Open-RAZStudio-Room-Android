@@ -183,7 +183,7 @@ data class SettingsState(
                 aspectRatios = DomainAspectRatio.defaultList,
                 lockDrawOrientation = false,
                 themeContrastLevel = 0.0,
-                themeStyle = 0,
+                themeStyle = 1,
                 isInvertThemeColors = false,
                 screensSearchEnabled = false,
                 hapticsStrength = 0,

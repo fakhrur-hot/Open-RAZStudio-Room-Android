@@ -24,6 +24,11 @@ data class SonyCameraState(
     val wbGM: Long? = null,           // WB fine tune green/magenta (signed)
     val imageSize: Long? = null,
     val focusMode: Long? = null,      // standard PTP FocusMode (0x500A)
+    // Camera firmware/version string from PTP GetDeviceInfo (DeviceVersion field).
+    // Best-effort: read once at connect via a STANDARD read-only PTP op, null when
+    // the body doesn't report it. Not part of the per-poll prop map, so it is
+    // preserved across state updates by the controller (copy(firmwareVersion=…)).
+    val firmwareVersion: String? = null,
     // Live movie-recording status. Populated ONLY once the real prop code is
     // confirmed from a capture (SonyPtpUsb.DPC_MOVIE_STATUS is null until then),
     // so it stays null and the UI never shows a fake REC badge. See [isRecording].

@@ -331,6 +331,7 @@ struct GlHarness {
             {"uBrushMask3", 7}, {"uBlurTex", 8}, {"uToneCurveTex", 9},
             {"uBokehAttenuation", 10}, {"uBloomTex", 11}, {"uCurveMasterTex", 12},
             {"uCurveRTex", 13}, {"uCurveGTex", 14}, {"uCurveBTex", 15},
+            {"uFxVintageMistTex", 16}, {"uFxVintageFilmTex", 17},
         };
         for (const auto& u : kUnits) {
             GLint loc = glGetUniformLocation(prog, u.name);

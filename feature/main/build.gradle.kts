@@ -22,7 +22,14 @@ plugins {
     alias(libs.plugins.image.toolbox.compose)
 }
 
-android.namespace = "com.RAZStudio.StudioRoom.feature.main"
+android {
+    namespace = "com.RAZStudio.StudioRoom.feature.main"
+    buildFeatures.buildConfig = true
+    defaultConfig {
+        // Per-APK trial: this assemble's clock. TrialExpiry adds 3 months.
+        buildConfigField("long", "TRIAL_BUILD_EPOCH_MS", "${System.currentTimeMillis()}L")
+    }
+}
 
 dependencies {
     implementation(projects.feature.settings)

@@ -95,7 +95,7 @@ internal fun RawToneCurvesTab(
             modifier = Modifier.padding(top = 4.dp),
         )
         Text(
-            text = "Quick filmic contrast under the freehand points. Fine-tune with the graph above.",
+            text = "Contrast under the curve.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -140,7 +140,7 @@ internal fun RawToneCurvesTab(
             },
         )
         RawSliderRow(
-            label = "HL Roll-off",
+            label = "Highlights",
             value = fc.highlightKnee,
             valueRange = 0f..100f,
             step = 1f,
@@ -150,7 +150,7 @@ internal fun RawToneCurvesTab(
             },
         )
         RawSliderRow(
-            label = "Shadow Toe",
+            label = "Shadows",
             value = fc.shadowToe,
             valueRange = 0f..100f,
             step = 1f,

@@ -79,6 +79,7 @@ interface Filter<Value : Any> : VisibilityOwner {
     interface Halftone : FloatFilter
     interface Haze : PairFloatFilter
     interface HighlightsAndShadows : FloatFilter
+    interface HighPass : PairFloatFilter
     interface Hue : FloatFilter
     interface Kuwahara : FloatFilter
     interface Laplacian : SimpleFilter

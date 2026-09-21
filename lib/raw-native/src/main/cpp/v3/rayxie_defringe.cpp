@@ -65,6 +65,11 @@ inline float medianOf(float* v, int n) {
 // Separable median: median along x, then along y. Not a true 2-D median, but
 // O(r) instead of O(r^2) and it preserves straight edges just as well —
 // verified at 0 px colour-edge disturbance, identical to the exact median.
+//
+// Optimized Vertical Pass: Column-major access into large planes (W > 5000)
+// is the #1 cause of watchdog timeouts. We now process in column-blocks (64 px)
+// and transpose into a contiguous scratch buffer to ensure the median sort
+// hits L1/L2 cache instead of constantly missing to DRAM.
 void separableMedian(const float* src, float* dst, float* mid,
                      int w, int h, int r, int y0, int y1) {
     float buf[kMaxWindow];
@@ -80,14 +85,33 @@ void separableMedian(const float* src, float* dst, float* mid,
             d[x] = medianOf(buf, n);
         }
     }
-    // Vertical.
-    for (int y = y0; y <= y1; ++y) {
-        float* d = dst + size_t(y) * w;
-        const int lo = std::max(0, y - r), hi = std::min(h - 1, y + r);
-        const int n = hi - lo + 1;
-        for (int x = 0; x < w; ++x) {
-            for (int i = 0; i < n; ++i) buf[i] = mid[size_t(lo + i) * w + x];
-            d[x] = medianOf(buf, n);
+
+    // Vertical. Process in column-blocks to preserve cache locality.
+    constexpr int kXBlock = 64;
+    std::vector<float> tile(size_t(kXBlock) * (hy1 - hy0 + 1));
+
+    for (int x0 = 0; x0 < w; x0 += kXBlock) {
+        const int xw = std::min(kXBlock, w - x0);
+        // Transpose strip from `mid` into `tile` contiguous storage.
+        for (int y = hy0; y <= hy1; ++y) {
+            const float* s = mid + size_t(y) * w + x0;
+            float* t = tile.data() + size_t(y - hy0) * kXBlock;
+            for (int x = 0; x < xw; ++x) t[x] = s[x];
+        }
+
+        // Run median sort on the contiguous tile.
+        for (int y = y0; y <= y1; ++y) {
+            float* d = dst + size_t(y) * w + x0;
+            const int lo = (y - r) - hy0, hi = (y + r) - hy0;
+            const int bh = hy1 - hy0 + 1;
+            for (int x = 0; x < xw; ++x) {
+                const int nlo = std::max(0, lo), nhi = std::min(bh - 1, hi);
+                const int n = nhi - nlo + 1;
+                for (int i = 0; i < n; ++i) {
+                    buf[i] = tile[size_t(nlo + i) * kXBlock + x];
+                }
+                d[x] = medianOf(buf, n);
+            }
         }
     }
 }

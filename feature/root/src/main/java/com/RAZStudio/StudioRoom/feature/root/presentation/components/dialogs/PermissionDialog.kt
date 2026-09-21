@@ -34,6 +34,8 @@ import androidx.core.app.ActivityCompat
 import com.RAZStudio.StudioRoom.core.resources.R
 import com.RAZStudio.StudioRoom.core.resources.icons.Storage
 import com.RAZStudio.StudioRoom.core.settings.presentation.provider.LocalSettingsState
+import com.RAZStudio.StudioRoom.core.settings.presentation.provider.LocalSimpleSettingsInteractor
+import com.RAZStudio.StudioRoom.core.ui.utils.content_pickers.rememberFolderPicker
 import com.RAZStudio.StudioRoom.core.ui.utils.helper.ContextUtils.needToShowStoragePermissionRequest
 import com.RAZStudio.StudioRoom.core.ui.utils.helper.ContextUtils.requestStoragePermission
 import com.RAZStudio.StudioRoom.core.ui.utils.permission.PermissionUtils.hasPermissionAllowed
@@ -49,9 +51,11 @@ import kotlinx.coroutines.launch
 internal fun PermissionDialog() {
     val context = LocalComponentActivity.current
     val settingsState = LocalSettingsState.current
+    val settingsInteractor = LocalSimpleSettingsInteractor.current
     val scope = rememberCoroutineScope()
 
     var showDialog by remember { mutableStateOf(false) }
+    var showOutputFolderDialog by rememberSaveable { mutableStateOf(false) }
 
     val currentLifecycleEvent = rememberCurrentLifecycleEvent()
     LaunchedEffect(
@@ -65,7 +69,20 @@ internal fun PermissionDialog() {
             showDialog = context.needToShowStoragePermissionRequest()
             delay(100)
         }
+
+        if (!showDialog && settingsState.saveFolderUri == null) {
+            showOutputFolderDialog = true
+        }
     }
+
+    val outputFolderPicker = rememberFolderPicker(
+        onSuccess = { uri ->
+            scope.launch {
+                settingsInteractor.setSaveFolderUri(uri.toString())
+            }
+            showOutputFolderDialog = false
+        }
+    )
 
     var requestedOnce by rememberSaveable {
         mutableStateOf(false)
@@ -115,6 +132,30 @@ internal fun PermissionDialog() {
                 }
             ) {
                 Text(stringResource(id = R.string.grant))
+            }
+        }
+    )
+
+    EnhancedAlertDialog(
+        visible = showOutputFolderDialog,
+        onDismissRequest = { showOutputFolderDialog = false },
+        icon = {
+            Icon(
+                imageVector = Icons.Rounded.Storage,
+                contentDescription = null
+            )
+        },
+        title = { Text(stringResource(R.string.default_output_folder)) },
+        text = {
+            Text("Choose a default output folder so imported Sony camera photos can be saved immediately.")
+        },
+        confirmButton = {
+            EnhancedButton(
+                onClick = {
+                    outputFolderPicker.pickFolder()
+                }
+            ) {
+                Text(stringResource(id = R.string.gallery_action_select))
             }
         }
     )

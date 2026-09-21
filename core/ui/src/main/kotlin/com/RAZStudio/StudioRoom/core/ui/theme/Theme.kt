@@ -20,6 +20,7 @@ package com.RAZStudio.StudioRoom.core.ui.theme
 import android.annotation.SuppressLint
 import android.os.Build
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,6 +29,7 @@ import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Surface
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
@@ -99,11 +101,19 @@ fun StudioRoomThemeSurface(
     content: @Composable BoxScope.() -> Unit
 ) {
     StudioRoomTheme {
+        val night = LocalSettingsState.current.isNightMode
+        val amoled = LocalSettingsState.current.isAmoledMode
         Surface(
             modifier = Modifier.fillMaxSize(),
+            color = Color.Transparent,
             content = {
                 Box(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (night) Modifier.background(PhotoLabColors.auroraBrush(amoled))
+                            else Modifier.background(MaterialTheme.colorScheme.background)
+                        ),
                     content = content
                 )
             }
@@ -183,10 +193,12 @@ internal fun modifiedShapes(): Shapes {
 @Composable
 internal fun modifiedColorScheme(): ColorScheme {
     val scheme = MaterialTheme.colorScheme
+    val night = LocalSettingsState.current.isNightMode
+    val amoled = LocalSettingsState.current.isAmoledMode
 
-    return remember(scheme) {
+    return remember(scheme, night, amoled) {
         derivedStateOf {
-            scheme.copy(
+            scheme.photoEditSafe(night, amoled).copy(
                 errorContainer = scheme.errorContainer.blend(
                     color = scheme.primary,
                     fraction = 0.15f

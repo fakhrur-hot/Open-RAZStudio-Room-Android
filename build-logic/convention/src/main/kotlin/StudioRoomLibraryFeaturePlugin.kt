@@ -25,6 +25,7 @@ import com.RAZStudio.StudioRoom.implementation
 import com.RAZStudio.StudioRoom.projects
 import com.RAZStudio.StudioRoom.resources
 import com.RAZStudio.StudioRoom.settings
+import com.RAZStudio.StudioRoom.shouldApplyDetekt
 import com.RAZStudio.StudioRoom.ui
 import io.gitlab.arturbosch.detekt.extensions.DetektExtension
 import org.gradle.api.Plugin
@@ -36,7 +37,9 @@ import org.gradle.kotlin.dsl.getByType
 class StudioRoomLibraryFeaturePlugin : Plugin<Project> {
     override fun apply(target: Project) {
         with(target) {
-            configureDetekt(extensions.getByType<DetektExtension>())
+            if (shouldApplyDetekt()) {
+                configureDetekt(extensions.getByType<DetektExtension>())
+            }
             dependencies {
                 implementation(projects.core.data)
                 implementation(projects.core.ui)

@@ -609,6 +609,12 @@ object RawV3ActionReplay {
             fxVintageStrength    = (m.fxVintageStrength / 100f).coerceIn(0f, 1f),
             fxVintageFade        = (m.fxVintageFade     / 100f).coerceIn(0f, 1f),
             fxVintageVig         = (m.fxVintageVig      / 100f).coerceIn(0f, 1f),
+            vintage = VintageFx(
+                mistIntensity = (m.fxVintageMistIntensity / 100f).coerceIn(0f, 1f),
+                mistScale = m.fxVintageMistScale.coerceAtLeast(1f),
+                textureIntensity = (m.fxVintageTextureIntensity / 100f).coerceIn(0f, 1f),
+                textureScale = m.fxVintageTextureScale.coerceAtLeast(1f),
+            ),
             fxGlowStrength       = (m.fxGlowStrength / 100f).coerceIn(0f, 1f),
             fxGlowSpread         = (m.fxGlowSpread   / 100f).coerceIn(0f, 1f),
             fxGlowWarmth         = (m.fxGlowWarmth   / 100f).coerceIn(-0.5f, 0.5f),

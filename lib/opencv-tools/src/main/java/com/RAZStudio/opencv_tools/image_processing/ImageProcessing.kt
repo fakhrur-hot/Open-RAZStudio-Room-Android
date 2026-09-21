@@ -43,4 +43,30 @@ object ImageProcessing : OpenCV() {
         return matCanny.toBitmap()
     }
 
+    fun highPass(
+        bitmap: Bitmap,
+        radius: Float,
+        strength: Float
+    ): Bitmap {
+        val src = bitmap.toMat()
+        val blurred = Mat()
+        val kSize = (radius.toInt() * 2 + 1).toDouble().coerceAtLeast(1.0)
+        Imgproc.GaussianBlur(src, blurred, org.opencv.core.Size(kSize, kSize), 0.0)
+
+        val highPass = Mat()
+        org.opencv.core.Core.subtract(src, blurred, highPass)
+
+        // Result = (Original - Blurred) * strength + 127
+        if (strength != 1f) {
+            org.opencv.core.Core.multiply(highPass, org.opencv.core.Scalar(strength.toDouble(), strength.toDouble(), strength.toDouble(), 1.0), highPass)
+        }
+        org.opencv.core.Core.add(highPass, org.opencv.core.Scalar(127.0, 127.0, 127.0, 0.0), highPass)
+
+        val result = highPass.toBitmap()
+        src.release()
+        blurred.release()
+        highPass.release()
+        return result
+    }
+
 }

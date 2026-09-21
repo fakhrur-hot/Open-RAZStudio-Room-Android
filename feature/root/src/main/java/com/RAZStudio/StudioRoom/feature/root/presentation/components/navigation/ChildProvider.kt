@@ -116,6 +116,7 @@ internal class ChildProvider @Inject constructor(
     private val galleryProjectComponentFactory: GalleryProjectComponent.Factory,
     private val canonRemoteShootComponentFactory: CanonRemoteShootComponent.Factory,
     private val canonBatchDownloadComponentFactory: CanonBatchDownloadComponent.Factory,
+    private val unstableFeatureScreens: UnstableFeatureScreensImpl,
 ) {
     fun RootComponent.createChild(
         config: Screen,
@@ -396,6 +397,18 @@ internal class ChildProvider @Inject constructor(
                 componentContext = componentContext,
                 onGoBack = ::navigateBack,
             )
+        )
+
+        Screen.LutCreator -> unstableFeatureScreens.lutCreator(
+            componentContext = componentContext,
+            onGoBack = ::navigateBack,
+            onNavigate = ::navigateTo,
+        )
+
+        Screen.VideoEditor -> unstableFeatureScreens.videoEditor(
+            componentContext = componentContext,
+            onGoBack = ::navigateBack,
+            onNavigate = ::navigateTo,
         )
 
         else -> Main(

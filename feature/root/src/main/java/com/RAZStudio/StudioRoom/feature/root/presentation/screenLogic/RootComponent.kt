@@ -51,6 +51,7 @@ import com.RAZStudio.StudioRoom.core.resources.icons.Error
 import com.RAZStudio.StudioRoom.core.settings.domain.SettingsManager
 import com.RAZStudio.StudioRoom.core.settings.domain.model.SettingsState
 import com.RAZStudio.StudioRoom.core.ui.utils.BaseComponent
+import com.RAZStudio.StudioRoom.core.ui.edition.EditionCapabilities
 import com.RAZStudio.StudioRoom.core.ui.utils.helper.AppToastHost
 import com.RAZStudio.StudioRoom.core.ui.utils.helper.handleDeeplinks
 import com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen
@@ -405,6 +406,14 @@ class RootComponent @AssistedInject internal constructor(
     }
 
     fun navigateTo(screen: Screen) {
+        if (!EditionCapabilities.includeOnHome(screen)) return
+        if (screen !is Screen.Main &&
+            !com.RAZStudio.StudioRoom.feature.main.presentation.components
+                .TrialExpiry.isActiveBlocking()
+        ) {
+            refuseExpiredTrial()
+            return
+        }
         componentScope.launch {
             delay(100)
             screen.simpleName.makeLog("Navigator").also(analyticsManager::registerScreenOpen)
@@ -414,6 +423,14 @@ class RootComponent @AssistedInject internal constructor(
     }
 
     fun replaceTo(screen: Screen) {
+        if (!EditionCapabilities.includeOnHome(screen)) return
+        if (screen !is Screen.Main &&
+            !com.RAZStudio.StudioRoom.feature.main.presentation.components
+                .TrialExpiry.isActiveBlocking()
+        ) {
+            refuseExpiredTrial()
+            return
+        }
         componentScope.launch {
             delay(100)
             screen.simpleName.makeLog("Navigator").also(analyticsManager::registerScreenOpen)
@@ -427,6 +444,14 @@ class RootComponent @AssistedInject internal constructor(
     }
 
     fun navigateToNew(screen: Screen) {
+        if (!EditionCapabilities.includeOnHome(screen)) return
+        if (screen !is Screen.Main &&
+            !com.RAZStudio.StudioRoom.feature.main.presentation.components
+                .TrialExpiry.isActiveBlocking()
+        ) {
+            refuseExpiredTrial()
+            return
+        }
         if (childStack.items.lastOrNull()?.configuration != Screen.Main) {
             navigateBack()
         }
@@ -459,16 +484,70 @@ class RootComponent @AssistedInject internal constructor(
     }
 
     fun handleDeeplinks(intent: Intent?) {
-        intent.handleDeeplinks(
-            onStart = ::hideSelectDialog,
-            onHasExtraDataType = ::updateExtraDataType,
-            onColdStart = ::cancelShowingExitDialog,
-            onGetUris = ::updateUris,
-            onNavigate = ::navigateTo,
-            isHasUris = !uris.isNullOrEmpty(),
-            onWantGithubReview = ::onWantGithubReview,
-            isOpenEditInsteadOfPreview = settingsState.openEditInsteadOfPreview
+        // Opening from the launcher starts at Room, even if Android restores a
+        // previously serialized editor stack after an APK update or process death.
+        // VIEW/SEND/shortcut/USB intents keep their existing targeted navigation
+        // only while the per-APK trial is still live.
+        val fromLauncher = shouldResetToMain(
+            isMainAction = intent?.action == Intent.ACTION_MAIN,
+            hasLauncherCategory = intent?.hasCategory(Intent.CATEGORY_LAUNCHER) == true,
         )
+        if (fromLauncher) {
+            if (childStack.items.lastOrNull()?.configuration != Screen.Main) {
+                navController.navigate { listOf(Screen.Main) }
+            }
+            hideSelectDialog()
+            return
+        }
+
+        // Share (VIEW/SEND/SEND_MULTIPLE), camera REVIEW, NFC, shortcuts, and
+        // USB OTG / SD-card attach must not open an editor or card browser after
+        // the 3-month live window. Blocking check for the common expired case;
+        // online Date confirms on cold start.
+        if (!com.RAZStudio.StudioRoom.feature.main.presentation.components
+                .TrialExpiry.isActiveBlocking()
+        ) {
+            refuseExpiredTrial()
+            return
+        }
+        componentScope.launch {
+            val active = com.RAZStudio.StudioRoom.feature.main.presentation
+                .components.TrialExpiry.isActive()
+            if (!active) {
+                refuseExpiredTrial()
+                return@launch
+            }
+            if (intent?.action == android.hardware.usb.UsbManager.ACTION_USB_DEVICE_ATTACHED) {
+                // App came to the foreground from an OTG/SD reader. Stay on
+                // Main (tiles already hidden if expired). Do not route URIs.
+                if (childStack.items.lastOrNull()?.configuration != Screen.Main) {
+                    navController.navigate { listOf(Screen.Main) }
+                }
+                hideSelectDialog()
+                return@launch
+            }
+            intent.handleDeeplinks(
+                onStart = ::hideSelectDialog,
+                onHasExtraDataType = ::updateExtraDataType,
+                onColdStart = ::cancelShowingExitDialog,
+                onGetUris = ::updateUris,
+                onNavigate = ::navigateTo,
+                isHasUris = !uris.isNullOrEmpty(),
+                onWantGithubReview = ::onWantGithubReview,
+                isOpenEditInsteadOfPreview = settingsState.openEditInsteadOfPreview
+            )
+        }
+    }
+
+    private fun refuseExpiredTrial() {
+        hideSelectDialog()
+        AppToastHost.showToast(
+            message = getString(R.string.alpha_trial_expired),
+            icon = Icons.Outlined.Error,
+        )
+        if (childStack.items.lastOrNull()?.configuration != Screen.Main) {
+            navController.navigate { listOf(Screen.Main) }
+        }
     }
 
 
@@ -480,3 +559,8 @@ class RootComponent @AssistedInject internal constructor(
     }
 
 }
+
+internal fun shouldResetToMain(
+    isMainAction: Boolean,
+    hasLauncherCategory: Boolean,
+): Boolean = isMainAction && hasLauncherCategory

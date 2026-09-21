@@ -25,6 +25,10 @@ plugins {
 android.namespace = "com.RAZStudio.StudioRoom.feature.photo_editor"
 
 android {
+    androidResources {
+        noCompress += listOf("onnx")
+    }
+
     testOptions {
         // LrPresetConverter (and friends) call android.util.Log; unit tests need
         // no-op stubs so batch XMP→cube conversion can run on the JVM.
@@ -190,8 +194,84 @@ run {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NOTE (Open / FOSS edition): a build-time asset-compaction task was removed
-// from this edition, as its inputs are not part of the open source tree.
+// Build-time LUT compaction (.cube → .smcube).
+//
+// The canonical LUTs are human-editable ASCII .cube committed under
+// src/main/assets/luts/. Shipping ASCII is wasteful (~4.5× larger, slower to
+// parse), so this task mirrors every .cube into a GENERATED assets dir as binary
+// .smcube (smol-cube fp16 — native parseSmcube reads it; validated visually
+// lossless, max fp16 round-trip diff < 0.0005). The generated dir is registered
+// as an assets source via the AGP variant API (auto-wires the task before asset
+// merge). The app module then drops the source *.cube from the APK
+// (androidResources.ignoreAssetsPatterns) so only the compact .smcube ship while
+// the editable .cube stay in the repo. LUTs already stored as .smcube in assets
+// have no .cube and pass through untouched.
+//
+// Requires Python 3 + numpy on the build machine (scripts/cube_to_smcube.py).
+// Override the interpreter with -PpythonExe=/path/to/python if needed.
+abstract class ConvertLutsToSmcube : DefaultTask() {
+    @get:Optional
+    @get:InputDirectory
+    @get:org.gradle.api.tasks.PathSensitive(org.gradle.api.tasks.PathSensitivity.RELATIVE)
+    abstract val cubeDir: DirectoryProperty
+
+    @get:InputFile
+    abstract val script: RegularFileProperty
+
+    @get:Input
+    abstract val pythonExe: Property<String>
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty   // assets root; .smcube go under /luts
+
+    @get:javax.inject.Inject
+    abstract val execOps: org.gradle.process.ExecOperations
+
+    @TaskAction
+    fun convert() {
+        val cube = cubeDir.orNull?.asFile
+        if (cube == null || !cube.exists() ||
+            cube.walkTopDown().none { it.isFile && (it.extension.equals("cube", true) || it.extension.equals("smcube", true)) }
+        ) {
+            outputDir.get().asFile.resolve("luts").mkdirs()
+            return
+        }
+        val lutsOut = outputDir.get().asFile.resolve("luts")
+        if (lutsOut.exists()) {
+            lutsOut.deleteRecursively()
+        }
+        lutsOut.mkdirs()
+        val result = execOps.exec {
+            commandLine(
+                pythonExe.get(),
+                script.get().asFile.absolutePath,
+                cubeDir.get().asFile.absolutePath,
+                "--out", lutsOut.absolutePath,
+            )
+            isIgnoreExitValue = true
+        }
+        if (result.exitValue != 0) {
+            throw GradleException(
+                "LUT .cube→.smcube conversion failed (exit ${result.exitValue}). " +
+                "Needs Python 3 + numpy on PATH (or -PpythonExe=...). " +
+                "See scripts/cube_to_smcube.py.")
+        }
+    }
+}
+
+val convertLutsToSmcube = tasks.register<ConvertLutsToSmcube>("convertLutsToSmcube") {
+    cubeDir.set(layout.projectDirectory.dir("src/main/assets/luts"))
+    script.set(rootProject.layout.projectDirectory.file("scripts/cube_to_smcube.py"))
+    pythonExe.set((project.findProperty("pythonExe") as? String) ?: "python")
+    outputDir.set(layout.buildDirectory.dir("generated/lut_smcube"))
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(
+            convertLutsToSmcube, ConvertLutsToSmcube::outputDir)
+    }
+}
 
 dependencies {
     testImplementation(libs.junit)

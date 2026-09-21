@@ -2,6 +2,7 @@
 /* Selective disc bokeh for Stage C — mirrors kFragSrc Phase 2 (Vogel-16).
  * Locked abs CoC: coc=abs(depth-focus); bgGate*=smoothstep(0.02,0.55,coc).
  * Phase 3: cocSigned=depth-focus; nearGate/farGate split Vogel radii.
+ * Phase 4: hard subject CoC=0 (dilated mask); disc samples reject subject.
  */
 #include "apply_macro.h"
 #include <cstdint>

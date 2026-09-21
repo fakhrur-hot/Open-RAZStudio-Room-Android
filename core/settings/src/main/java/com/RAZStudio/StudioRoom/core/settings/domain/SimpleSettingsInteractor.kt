@@ -22,6 +22,8 @@ import com.RAZStudio.StudioRoom.core.settings.domain.model.OneTimeSaveLocation
 
 interface SimpleSettingsInteractor {
 
+    suspend fun setSaveFolderUri(uri: String?)
+
     suspend fun toggleMagnifierEnabled()
 
     suspend fun setOneTimeSaveLocations(value: List<OneTimeSaveLocation>)

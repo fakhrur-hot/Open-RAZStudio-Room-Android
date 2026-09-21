@@ -17,9 +17,24 @@
 
 package com.RAZStudio.StudioRoom.feature.settings.presentation.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -28,6 +43,7 @@ import com.RAZStudio.StudioRoom.core.resources.Icons
 import com.RAZStudio.StudioRoom.core.resources.R
 import com.RAZStudio.StudioRoom.core.resources.icons.AspectRatio
 import com.RAZStudio.StudioRoom.core.settings.presentation.provider.LocalSettingsState
+import com.RAZStudio.StudioRoom.core.ui.theme.PhotoLabColors
 import com.RAZStudio.StudioRoom.core.ui.utils.helper.toModel
 import com.RAZStudio.StudioRoom.core.ui.widget.color_picker.ColorSelectionRowDefaults
 import com.RAZStudio.StudioRoom.core.ui.widget.controls.selection.ColorRowSelector
@@ -42,15 +58,56 @@ fun LetterboxColorSettingItem(
         .padding(horizontal = 8.dp),
 ) {
     val settingsState = LocalSettingsState.current
-
-    ColorRowSelector(
-        modifier = modifier.container(shape = shape),
-        value = settingsState.letterboxColor,
-        onValueChange = {
-            onValueChange(it.toModel())
-        },
-        icon = Icons.Outlined.AspectRatio,
-        title = stringResource(R.string.letterbox_color),
-        defaultColors = ColorSelectionRowDefaults.colorList
+    val chrome = MaterialTheme.colorScheme.surface
+    val presets = listOf(
+        stringResource(R.string.letterbox_preset_white) to PhotoLabColors.letterboxWhite,
+        stringResource(R.string.letterbox_preset_black) to PhotoLabColors.letterboxBlack,
+        stringResource(R.string.letterbox_preset_gray) to PhotoLabColors.letterboxGray18,
+        stringResource(R.string.letterbox_preset_chrome) to chrome,
     )
+
+    Column(modifier = modifier.container(shape = shape)) {
+        ColorRowSelector(
+            value = settingsState.letterboxColor,
+            onValueChange = { onValueChange(it.toModel()) },
+            icon = Icons.Outlined.AspectRatio,
+            title = stringResource(R.string.letterbox_color),
+            defaultColors = ColorSelectionRowDefaults.colorList
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            presets.forEach { (label, color) ->
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .clip(MaterialTheme.shapes.small)
+                        .clickable { onValueChange(color.toModel()) }
+                        .padding(4.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(color)
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
+                                shape = CircleShape
+                            )
+                    )
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
+        }
+    }
 }

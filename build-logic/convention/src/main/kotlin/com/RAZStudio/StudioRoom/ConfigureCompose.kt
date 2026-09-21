@@ -40,8 +40,10 @@ internal fun Project.configureCompose(
     }
 
     extensions.configure<ComposeCompilerGradlePluginExtension> {
-        stabilityConfigurationFiles.addAll(
+        val stabilityFile =
             rootProject.layout.projectDirectory.file("compose_compiler_config.conf")
-        )
+        if (stabilityFile.asFile.exists()) {
+            stabilityConfigurationFiles.add(stabilityFile)
+        }
     }
 }

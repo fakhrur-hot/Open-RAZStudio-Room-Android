@@ -85,6 +85,17 @@ struct StageAOptions {
      */
     float lensfunFocalOverrideMm = 0.f;
     /**
+     * Zero-DCE guided adaptive devignetting. Row-major square lift map
+     * (per-pixel mean |A| of the Zero-DCE curve channels, 256×256 from the
+     * RAW's embedded thumbnail), or EMPTY = classic static Lensfun pass.
+     * Inside the devignette loop the radial gain is attenuated in deep
+     * shadow:  G_final = 1 + (G_lens − 1) · (1 − clamp(aMean/τ, 0, 1)).
+     * liftTau is the shadow threshold τ (default 0.7).
+     */
+    std::vector<float> liftMap;
+    int   liftSide = 0;
+    float liftTau  = 0.7f;
+    /**
      * Manual override deltas applied to LibRaw's per-camera black/white-level
      * defaults. Both are in raw DN, signed: positive `blackLevelDelta` lifts
      * the black point (crushes shadows), negative lowers it (lifts shadows /

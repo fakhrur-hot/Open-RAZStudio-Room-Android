@@ -141,8 +141,13 @@ internal fun RowScope.ScreenPreferenceSelection(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 currentScreenList.forEach { screen ->
+                    val wired = com.RAZStudio.StudioRoom.core.ui.edition.EditionCapabilities.isHomeWired(screen)
+                    val unstableNote =
+                        (screen is Screen.LutCreator || screen is Screen.VideoEditor) &&
+                            com.RAZStudio.StudioRoom.core.ui.edition.EditionCapabilities.includeOnHome(screen)
                     PreferenceItemOverload(
-                        onClick = { onNavigateToScreenWithPopUpTo(screen) },
+                        onClick = { if (wired) onNavigateToScreenWithPopUpTo(screen) },
+                        enabled = wired,
                         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -152,7 +157,13 @@ internal fun RowScope.ScreenPreferenceSelection(
                             .padding(16.dp),
                         shape = ShapeDefaults.default,
                         title = stringResource(screen.title),
-                        subtitle = stringResource(screen.subtitle),
+                        subtitle = buildString {
+                            append(stringResource(screen.subtitle))
+                            if (unstableNote) {
+                                append('\n')
+                                append(stringResource(R.string.edition_not_in_release))
+                            }
+                        },
                         startIcon = {
                             screen.icon?.let {
                                 Icon(imageVector = it, contentDescription = null)
@@ -169,8 +180,12 @@ internal fun RowScope.ScreenPreferenceSelection(
                     verticalArrangement = Arrangement.Center
                 ) {
                     Spacer(Modifier.weight(1f))
+                    val trialActive by rememberTrialActive()
                     Text(
-                        text = stringResource(R.string.no_favorite_options_selected),
+                        text = stringResource(
+                            if (trialActive) R.string.no_favorite_options_selected
+                            else R.string.alpha_trial_expired
+                        ),
                         fontSize = 18.sp,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(

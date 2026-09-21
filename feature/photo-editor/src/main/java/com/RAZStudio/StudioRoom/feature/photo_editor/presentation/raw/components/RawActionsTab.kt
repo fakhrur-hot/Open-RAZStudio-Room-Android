@@ -22,6 +22,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -89,7 +91,7 @@ internal fun RawActionsTab(
     onLoad: (RawAction) -> Unit,
     onEyeToggle: (String) -> Unit,
     onToggleLock: (String) -> Unit,
-    onDelete: (String) -> Unit,
+    onDelete: (id: String, keepStorage: Boolean) -> Unit,
     onExport: () -> Unit,
     onImport: () -> Unit,
     /** Copy Settings — snapshot the current stack to the in-memory clipboard. */
@@ -103,6 +105,7 @@ internal fun RawActionsTab(
     onSavePreset: (String) -> Boolean,
     onLoadPreset: (Int) -> Unit,
     onDeletePreset: (Int) -> Unit,
+    onExportDebugMap: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // Pipeline stores actions oldest-first; reverse so newest appears at the top of the UI.
@@ -228,7 +231,7 @@ internal fun RawActionsTab(
             confirmButton = {
                 TextButton(onClick = {
                     // Remove every user edit → back to the Original sentinel.
-                    userActions.forEach { onDelete(it.id) }
+                    userActions.forEach { onDelete(it.id, false) }
                     explain("Reverted to original")
                     showRevertDialog = false
                 }) { Text("Revert") }
@@ -472,13 +475,43 @@ internal fun RawActionsTab(
                         onLoad       = { onLoad(action) },
                         onEyeToggle  = { onEyeToggle(action.id) },
                         onToggleLock = { onToggleLock(action.id) },
-                        onDelete     = { onDelete(action.id) },
+                        onDelete     = { onDelete(action.id, false) },
                     )
                 }
                 if (hasOriginal) OriginalCard(
                     enabled = userActions.isNotEmpty(),
                     onClick = { showRevertDialog = true },
                 )
+            }
+        }
+
+        // ─── Debug Exports ──────────────────────────────────────────────────
+        if (com.RAZStudio.StudioRoom.feature.photo_editor.BuildConfig.DEBUG) {
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Text(
+                text     = "Native Debug Maps (Export PNG to /sdcard/Documents/SR_Debug/)",
+                style    = MaterialTheme.typography.labelSmall,
+                color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(8.dp),
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(bottom = 12.dp),
+            ) {
+                listOf(
+                    "Blend" to 0, "Edge" to 1, "Texture" to 2, "Noise" to 3, "Highlights" to 4
+                ).forEach { (name, type) ->
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = { onExportDebugMap(type) },
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(name, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
             }
         }
     }

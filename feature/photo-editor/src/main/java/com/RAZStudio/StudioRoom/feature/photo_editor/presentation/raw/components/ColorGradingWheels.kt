@@ -121,7 +121,7 @@ internal fun ColorGradingSection(
         when (selected) {
             // Global → cgGlobal ColorWheel holder (offset).
             0 -> ColorWheelControl(
-                label = "Global (offset)",
+                label = "Global",
                 r = macro.cgGlobal.r, g = macro.cgGlobal.g, b = macro.cgGlobal.b,
                 sat = macro.cgGlobal.sat,
                 onChange = { nr, ng, nb ->
@@ -132,7 +132,7 @@ internal fun ColorGradingSection(
             )
             // Shadows → cgShadows (lift).
             1 -> ColorWheelControl(
-                label = "Shadows (lift)",
+                label = "Shadows",
                 r = macro.cgShadows.r, g = macro.cgShadows.g, b = macro.cgShadows.b,
                 sat = macro.cgShadows.sat,
                 onChange = { nr, ng, nb ->
@@ -143,7 +143,7 @@ internal fun ColorGradingSection(
             )
             // Midtones → cgMidtones (gamma).
             2 -> ColorWheelControl(
-                label = "Midtones (gamma)",
+                label = "Midtones",
                 r = macro.cgMidtones.r, g = macro.cgMidtones.g, b = macro.cgMidtones.b,
                 sat = macro.cgMidtones.sat,
                 onChange = { nr, ng, nb ->
@@ -154,7 +154,7 @@ internal fun ColorGradingSection(
             )
             // Highlights → cgHighlights (gain).
             else -> ColorWheelControl(
-                label = "Highlights (gain)",
+                label = "Highlights",
                 r = macro.cgHighlights.r, g = macro.cgHighlights.g, b = macro.cgHighlights.b,
                 sat = macro.cgHighlights.sat,
                 onChange = { nr, ng, nb ->

@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.takeOrElse
 import com.RAZStudio.StudioRoom.core.settings.presentation.provider.LocalSettingsState
+import com.RAZStudio.StudioRoom.core.ui.theme.Elevation
 import com.RAZStudio.StudioRoom.core.ui.theme.outlineVariant
 import com.RAZStudio.StudioRoom.core.ui.utils.provider.LocalContainerShape
 import com.RAZStudio.StudioRoom.core.ui.utils.provider.SafeLocalContainerColor
@@ -47,10 +48,10 @@ import com.RAZStudio.StudioRoom.core.ui.utils.provider.SafeLocalContainerColor
 fun Modifier.container(
     shape: Shape? = null,
     color: Color = Color.Unspecified,
-    resultPadding: Dp = 4.dp,
+    resultPadding: Dp = 8.dp,
     borderWidth: Dp = Dp.Unspecified,
     borderColor: Color? = null,
-    autoShadowElevation: Dp = if (color != Color.Transparent) 1.dp else 0.dp,
+    autoShadowElevation: Dp = if (color != Color.Transparent) Elevation.panel else Elevation.canvas,
     clip: Boolean = true,
     composeColorOnTopOfBackground: Boolean = true,
     isShadowClip: Boolean = color.alpha < 1f,

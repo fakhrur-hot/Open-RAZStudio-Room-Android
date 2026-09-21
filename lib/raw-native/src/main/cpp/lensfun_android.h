@@ -177,13 +177,17 @@ LfaLensCandidate lfa_score_one(const LfDatabase& db,
  */
 bool lfa_correct_rgba_f16(uint16_t* rgbaF16, int width, int height,
                           const LfaMatch& match,
-                          float focalMm, float apertureF);
+                          float focalMm, float apertureF,
+                          const float* liftMap = nullptr, int liftSide = 0,
+                          float liftTau = 0.7f);
 
 /**
  * Diagnostic record of the LAST lfa_correct_rgba_f16 call on this thread.
  * `vig`: 0 = none, 1 = profile calibration, 2 = generic cos⁴ fallback (the
- * lens has no <vignetting> data at all). Read it right after the call — the
- * Stage A / JPEG import paths fold it into their one-line LENS-REPORT log.
+ * lens has no <vignetting> data at all). `adaptive`/`liftMean`: Zero-DCE
+ * lift-map attenuation state (see the liftMap parameter). Read it right
+ * after the call — the Stage A / JPEG import paths fold it into their
+ * one-line LENS-REPORT log.
  */
 struct LfaReport {
     bool  ran      = false;   // lfa_correct_rgba_f16 got past its guards
@@ -191,6 +195,9 @@ struct LfaReport {
     bool  dist     = false;
     bool  tca      = false;
     int   vig      = 0;
+    bool  adaptive = false;   // Zero-DCE lift map attenuated the vignette gain
+    float liftMean = 0.f;     // mean sampled lift (aMean) across the pass
+    float cornerLiftMean = 0.f; // mean sampled lift in r > 0.8·corner region
     float zoom     = 1.f;
     float focalMm  = 0.f;
     float aperture = 0.f;

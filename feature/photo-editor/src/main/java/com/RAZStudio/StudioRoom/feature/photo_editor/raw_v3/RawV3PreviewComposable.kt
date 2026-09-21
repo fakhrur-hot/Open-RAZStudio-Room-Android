@@ -36,6 +36,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -179,6 +180,12 @@ fun RawV3PreviewComposable(
      * may still draw it — see GOTCHAS).
      */
     onPauseBackdrop: ((Bitmap) -> Unit)? = null,
+    /**
+     * Fires once the live GL renderer has actually presented its first frame.
+     * Used by the editor to hide the fallback Stage-A/thumb backdrop so it never
+     * sits under the live preview as a stale duplicate.
+     */
+    onFirstFrameRendered: (() -> Unit)? = null,
     /**
      * Stage B bake state callback. Receives (requestedKey, bakedKey). When the
      * two are equal, the editor preview reflects the latest macro for all
@@ -502,13 +509,15 @@ fun RawV3PreviewComposable(
     // gives ~16-bit effective resolution at the high-confidence end).
     val lastUploadedMaskState: MutableState<RawV3SegmentationMasks?> = remember { mutableStateOf(null) }
     val lastSubjectMaskView: MutableState<RawV3GlSurfaceView?> = remember { mutableStateOf(null) }
-    LaunchedEffect(subjectMask, glViewState.value) {
+    val eglBootTick = remember { mutableIntStateOf(0) }
+    val lastMaskBootTick = remember { mutableIntStateOf(-1) }
+    LaunchedEffect(subjectMask, glViewState.value, eglBootTick.intValue) {
         val v = glViewState.value ?: return@LaunchedEffect
-        // Re-upload after a rotation/View-recreation even if the mask
-        // data is the same — the new GL context has no texture yet.
         val sameView = lastSubjectMaskView.value === v
-        if (sameView && subjectMask === lastUploadedMaskState.value) return@LaunchedEffect
+        val sameBoot = lastMaskBootTick.intValue == eglBootTick.intValue
+        if (sameView && sameBoot && subjectMask === lastUploadedMaskState.value) return@LaunchedEffect
         lastSubjectMaskView.value = v
+        lastMaskBootTick.intValue = eglBootTick.intValue
         if (subjectMask == null || !subjectMask.hasSubject) {
             // An empty matte must not be "ready": the shader would then gate
             // Bokeh/Bloom against nothing (blur everything, protect nothing).
@@ -576,7 +585,7 @@ fun RawV3PreviewComposable(
     // Uploaded once when the masks become available; cleared (texture stays
     // bound but flag goes false) when null. Same 320×320 grid as the subject
     // mask so the shader can reuse uSubjectMaskRect for letterbox UV remap.
-    LaunchedEffect(cityscapesMasks, glViewState.value) {
+    LaunchedEffect(cityscapesMasks, glViewState.value, eglBootTick.intValue) {
         val v = glViewState.value ?: return@LaunchedEffect
         val masks = cityscapesMasks ?: return@LaunchedEffect
         val side = RawV3SegmentationMasks.MASK_SIZE
@@ -597,11 +606,14 @@ fun RawV3PreviewComposable(
     // Depth → CoC bokeh: gray8 + subject-median focus plane.
     val lastUploadedDepth = remember { mutableStateOf<RawV3DepthMap?>(null) }
     val lastDepthView = remember { mutableStateOf<RawV3GlSurfaceView?>(null) }
-    LaunchedEffect(depthMap, subjectMask, glViewState.value) {
+    val lastDepthBootTick = remember { mutableIntStateOf(-1) }
+    LaunchedEffect(depthMap, subjectMask, glViewState.value, eglBootTick.intValue) {
         val v = glViewState.value ?: return@LaunchedEffect
         val sameView = lastDepthView.value === v
-        if (sameView && depthMap === lastUploadedDepth.value) return@LaunchedEffect
+        val sameBoot = lastDepthBootTick.intValue == eglBootTick.intValue
+        if (sameView && sameBoot && depthMap === lastUploadedDepth.value) return@LaunchedEffect
         lastDepthView.value = v
+        lastDepthBootTick.intValue = eglBootTick.intValue
         val dm = depthMap
         if (dm == null || dm.isEmpty) {
             v.clearDepthMap()
@@ -723,15 +735,14 @@ fun RawV3PreviewComposable(
     // view so a rotation triggers a fresh upload (sticky LUT was lost
     // when the EGL context was torn down).
     val lastLutView: MutableState<RawV3GlSurfaceView?> = remember { mutableStateOf(null) }
-    // Also key on ungradedAhbState so we retry the upload once the GL renderer
-    // is fully initialized (rendererHandle != 0). The first attempt fires when
-    // glViewState is set but EGL may not be ready yet → nativeUploadLut3d
-    // returns false. Once the AHB is bound the renderer is guaranteed live.
-    LaunchedEffect(lutCubePath, glViewState.value, ungradedAhbState.value) {
+    val lastLutBootTick = remember { mutableIntStateOf(-1) }
+    LaunchedEffect(lutCubePath, glViewState.value, ungradedAhbState.value, eglBootTick.intValue) {
         val v = glViewState.value ?: return@LaunchedEffect
         val sameView = lastLutView.value === v
-        if (sameView && lutCubePath == lastUploadedLutState.value) return@LaunchedEffect
+        val sameBoot = lastLutBootTick.intValue == eglBootTick.intValue
+        if (sameView && sameBoot && lutCubePath == lastUploadedLutState.value) return@LaunchedEffect
         lastLutView.value = v
+        lastLutBootTick.intValue = eglBootTick.intValue
         if (lutCubePath == null) {
             v.clearLut3d()
             lastUploadedLutState.value = null
@@ -774,6 +785,19 @@ fun RawV3PreviewComposable(
         }
     }
 
+    // Vintage texture PNG — load once, upload film overlay, bake for JPEG/CPU.
+    LaunchedEffect(glViewState.value, ungradedAhbState.value, eglBootTick.intValue) {
+        val v = glViewState.value ?: return@LaunchedEffect
+        if (ungradedAhbState.value == null) return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            VintageFxAssets.ensureLoaded(ctx)
+            VintageFxAssets.bakeNative(ctx)
+        }
+        VintageFxAssets.texture?.let { v.uploadVintageFilm(it.rgba, it.width, it.height) }
+        VintageFxAssets.mist?.let { v.uploadVintageMist(it.rgba, it.width, it.height) }
+        Log.i(TAG, "vintage overlays uploaded texture=${VintageFxAssets.hasTexture} mist=${VintageFxAssets.hasMist}")
+    }
+
     // Preview pan/zoom → pushed into GL (window viewport). Re-runs whenever the
     // gesture state changes or the view is (re)created so the transform tracks.
     LaunchedEffect(canvasScale, canvasOffsetX, canvasOffsetY, glViewState.value) {
@@ -793,7 +817,16 @@ fun RawV3PreviewComposable(
         factory = { c ->
             RawV3GlSurfaceView(c).also { view ->
                 glViewState.value = view
-                // Rebind after rotation/recreate — replay source + current uniforms.
+                view.onFirstFrameRendered = {
+                    onFirstFrameRendered?.invoke()
+                }
+                view.onEglBooted = {
+                    eglBootTick.intValue++
+                    Log.i(TAG, "egl boot tick=${eglBootTick.intValue} (re-upload masks)")
+                }
+                view.onPreEglReleaseSnapshot = { bmp ->
+                    pauseBackdropCb.value?.invoke(bmp)
+                }
                 ungradedAhbState.value?.let {
                     view.updateUniforms(params)
                     view.setSource(it)
@@ -875,13 +908,16 @@ private fun allocateAndFillAhb(
     )
     val targetW = (srcW * scale).toInt().coerceAtLeast(1)
     val targetH = (srcH * scale).toInt().coerceAtLeast(1)
-    Log.d(TAG, "allocateAndFillAhb: scale=$scale targetW=$targetW targetH=$targetH")
+    val safeDims = PreviewAllocationGuard.capDimensions(targetW, targetH)
+    val finalW = safeDims.first
+    val finalH = safeDims.second
+    Log.d(TAG, "allocateAndFillAhb: scale=$scale targetW=$targetW targetH=$targetH safeW=$finalW safeH=$finalH")
 
     // CLAHE's native apply pass reads the buffer back, so the AHB needs CPU
     // READ usage too — otherwise the lock at stage_b_downsample.cpp fails.
     val tAlloc0 = System.currentTimeMillis()
     val ahb = HardwareBuffer.create(
-        targetW, targetH,
+        finalW, finalH,
         HardwareBuffer.RGBA_FP16,
         1,
         HardwareBuffer.USAGE_CPU_READ_RARELY or
@@ -893,7 +929,7 @@ private fun allocateAndFillAhb(
     // (smart sharpness, detail background smoothing) can feather by subject.
     val best = subjectMask?.gatingMask()
     val r = RawV3Engine.stageBDownsample(
-        stageATifPath, ahb, targetW, targetH, params.toFloatArray(),
+        stageATifPath, ahb, finalW, finalH, params.toFloatArray(),
         best?.first, best?.second ?: 0, best?.third ?: 0,
         cancelFlag = cancelFlag,
     )

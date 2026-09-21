@@ -60,10 +60,16 @@ object RawV3Bokeh {
         // ARGB_8888 buffer first.
         val safe = if (image.config == Bitmap.Config.ARGB_8888) image
                    else image.copy(Bitmap.Config.ARGB_8888, false)
-        val w = safe.width
-        val h = safe.height
+        val scaledDims = PreviewAllocationGuard.capDimensions(safe.width, safe.height)
+        val source = if (scaledDims.first != safe.width || scaledDims.second != safe.height) {
+            Bitmap.createScaledBitmap(safe, scaledDims.first, scaledDims.second, true)
+        } else {
+            safe
+        }
+        val w = source.width
+        val h = source.height
         val srcPixels = IntArray(w * h)
-        safe.getPixels(srcPixels, 0, w, 0, 0, w, h)
+        source.getPixels(srcPixels, 0, w, 0, 0, w, h)
         var work = srcPixels.copyOf()
 
         // Resample the (small) subject mask to image resolution once, as 0..1.
@@ -139,6 +145,7 @@ object RawV3Bokeh {
         }
         val result = createBitmap(w, h, Bitmap.Config.ARGB_8888)
         result.setPixels(out, 0, w, 0, 0, w, h)
+        if (source !== safe && source !== image) source.recycle()
         return result
     }
 

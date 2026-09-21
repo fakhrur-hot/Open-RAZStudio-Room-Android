@@ -17,12 +17,17 @@
 #include <android/log.h>
 #include <algorithm>
 #include <cinttypes>
+#include <cerrno>
+#include <cstdio>
 #include <cstring>
+#include <unistd.h>   // gettid, dup, close — GL-thread guard + fence fd handling
 #include <cstdint>
+#include <string>
 #include <vector>
 #include "grading_uniforms.h"
 #include "shader_sources.h"
 #include "bloom_filmic.h"
+#include "sampler_layout.h"
 
 #define LOG_TAG "RawV3.Gles"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
@@ -30,6 +35,11 @@
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 
 namespace raw_v3 {
+
+// Unqualified kMaskLayers used to resolve to GlesRenderer::kMaskLayers; the
+// constant now lives on ShaderParams. Alias it so member-function bodies keep
+// compiling without rewriting every array bound.
+constexpr int kMaskLayers = ShaderParams::kMaskLayers;
 
 // Fixed film-grain seed (Z axis of the 3D noise). Constant so the preview and
 // the Stage C export produce the identical grain pattern. Stage C uses the
@@ -45,6 +55,22 @@ PFNEGLGETNATIVECLIENTBUFFERANDROIDPROC fn_eglGetNativeClientBufferANDROID = null
 PFNEGLCREATEIMAGEKHRPROC               fn_eglCreateImageKHR               = nullptr;
 PFNEGLDESTROYIMAGEKHRPROC              fn_eglDestroyImageKHR              = nullptr;
 PFNGLEGLIMAGETARGETTEXTURE2DOESPROC    fn_glEGLImageTargetTexture2DOES    = nullptr;
+// EGL_ANDROID_native_fence_sync — optional; the AHB producer-fence wait is
+// skipped (with a log) when these don't resolve.
+PFNEGLCREATESYNCKHRPROC                fn_eglCreateSyncKHR                = nullptr;
+PFNEGLWAITSYNCKHRPROC                  fn_eglWaitSyncKHR                  = nullptr;
+PFNEGLDESTROYSYNCKHRPROC               fn_eglDestroySyncKHR               = nullptr;
+
+bool resolveFenceExtensions() {
+    if (fn_eglCreateSyncKHR) return true;
+    fn_eglCreateSyncKHR =
+        (PFNEGLCREATESYNCKHRPROC) eglGetProcAddress("eglCreateSyncKHR");
+    fn_eglWaitSyncKHR =
+        (PFNEGLWAITSYNCKHRPROC) eglGetProcAddress("eglWaitSyncKHR");
+    fn_eglDestroySyncKHR =
+        (PFNEGLDESTROYSYNCKHRPROC) eglGetProcAddress("eglDestroySyncKHR");
+    return fn_eglCreateSyncKHR && fn_eglWaitSyncKHR && fn_eglDestroySyncKHR;
+}
 
 bool resolveExtensions() {
     if (fn_eglGetNativeClientBufferANDROID) return true;
@@ -242,9 +268,33 @@ bool GlesRenderer::createProgram() {
             return false;
         }
     }
-    auto buildProg = [&](const char* vsSrc, const char* tag) -> GLuint {
+    // Fragment-shader capability configs, richest first. The uber shader
+    // declares 18 samplers at full config; many mobile GPUs cap fragment
+    // texture units at 16 (the GLES3 minimum) and the link then fails with
+    // "number of fragment samplers is greater than the maximum" — the editor
+    // canvas ends up blank/white (observed on a Transsion MTK device).
+    // Drop optional sampler blocks (extra brush-mask layers first, then the
+    // vintage-FX overlays) until the program links. Layers compiled out
+    // report mask alpha 0 in the shader, so edits simply skip them.
+    GLint maxTexUnits = 0;
+    glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &maxTexUnits);
+    LOGI("createProgram: GL_MAX_TEXTURE_IMAGE_UNITS=%d", (int)maxTexUnits);
+
+    auto buildProg = [&](const char* vsSrc, const char* fragPrefix, const char* tag) -> GLuint {
+        std::string fsSrc;
+        if (fragPrefix && *fragPrefix) {
+            // GLSL ES requires #version to be the program's FIRST directive —
+            // splice the capability defines in after the #version line
+            // instead of prepending them.
+            const char* nl = strchr(kFragSrc, '\n');
+            fsSrc.assign(kFragSrc, nl + 1);
+            fsSrc += fragPrefix;
+            fsSrc += nl + 1;
+        } else {
+            fsSrc = kFragSrc;
+        }
         GLuint vs = compileShader(GL_VERTEX_SHADER,   vsSrc);
-        GLuint fs = compileShader(GL_FRAGMENT_SHADER, kFragSrc);
+        GLuint fs = compileShader(GL_FRAGMENT_SHADER, fsSrc.c_str());
         if (!vs || !fs) return 0;
         GLuint p = glCreateProgram();
         glAttachShader(p, vs);
@@ -269,9 +319,47 @@ bool GlesRenderer::createProgram() {
         return p;
     };
 
-    program_     = buildProg(kVertSrcDisplay,  "display");
-    programSnap_ = buildProg(kVertSrcSnapshot, "snapshot");
-    if (!program_ || !programSnap_) return false;
+    auto fragPrefixFor = [](const SamplerLayout& cfg) -> std::string {
+        char prefix[160];
+        snprintf(prefix, sizeof(prefix),
+                 "#define RAZ_GLES_EXTRA_MASKS %d\n#define RAZ_GLES_FX_VINTAGE %d\n",
+                 cfg.extraMasks, cfg.fxVintage);
+        return std::string(prefix);
+    };
+
+    // Start from the richest config the advertised unit count can hold,
+    // then ladder down on link failure — the link is the ground truth,
+    // since drivers count optional samplers differently.
+    const int startCfg = firstSamplerLayoutFor(maxTexUnits);
+    int chosenCfg = -1;
+    std::string chosenPrefix;
+    for (int i = startCfg; i < kSamplerLayoutCount && i >= 0; ++i) {
+        std::string prefix = fragPrefixFor(kSamplerLayouts[i]);
+        GLuint p = buildProg(kVertSrcDisplay, prefix.c_str(), kSamplerLayouts[i].name);
+        if (p) {
+            program_ = p;
+            chosenCfg = i;
+            chosenPrefix = std::move(prefix);
+            break;
+        }
+    }
+    if (chosenCfg < 0) return false;
+        const SamplerLayout& layout = kSamplerLayouts[chosenCfg];
+        fxVintageTextureUnitBase_ = layout.vintageUnitBase;
+        LOGI("createProgram: fragment config '%s' (units=%d) samplers="
+            "uTex=0,uLutTex=1,uSubjectMask=2,uBrushMask=3,uSobelEdgeMask=4,"
+             "uBrushMask1=5,uBrushMask2=%d,uBrushMask3=%d,"
+             "uVintageMist=%d,uVintageFilm=%d,uBlurTex=8,"
+            "uToneCurveTex=9,uBokehAttenuation=10,uBloomTex=11,"
+            "uCurveMasterTex=12,uCurveRTex=13,uCurveGTex=14,uCurveBTex=15",
+            layout.name, (int)maxTexUnits,
+             layout.extraMasks >= 2 ? 6 : -1,
+             layout.extraMasks >= 3 ? 7 : -1,
+            layout.fxVintage ? layout.vintageUnitBase : -1,
+            layout.fxVintage ? layout.vintageUnitBase + 1 : -1);
+
+    programSnap_ = buildProg(kVertSrcSnapshot, chosenPrefix.c_str(), "snapshot");
+    if (!programSnap_) return false;
 
     // Bokeh blur program (separable Gaussian, identity vert). Non-fatal if it
     // fails to link — bokeh just stays inert, the rest of the editor works.
@@ -1197,6 +1285,12 @@ void GlesRenderer::cacheUniformLocations() {
     uFxVintageStrengthLoc_   = L("uFxVintageStrength");
     uFxVintageFadeLoc_       = L("uFxVintageFade");
     uFxVintageVigLoc_        = L("uFxVintageVig");
+    uFxVintageMistIntensityLoc_ = L("uFxVintageMistIntensity");
+    uFxVintageMistScaleLoc_     = L("uFxVintageMistScale");
+    uFxVintageTextureIntensityLoc_ = L("uFxVintageTextureIntensity");
+    uFxVintageTextureScaleLoc_     = L("uFxVintageTextureScale");
+    uFxVintageMistTexLoc_    = L("uFxVintageMistTex");
+    uFxVintageFilmTexLoc_    = L("uFxVintageFilmTex");
     uFxGlowStrengthLoc_      = L("uFxGlowStrength");
     uFxGlowSpreadLoc_        = L("uFxGlowSpread");
     uFxGlowWarmthLoc_        = L("uFxGlowWarmth");
@@ -1533,6 +1627,17 @@ bool GlesRenderer::uploadSubjectMask(const uint8_t* gray8, int width, int height
     return true;
 }
 
+bool GlesRenderer::uploadSubjectMask(AHardwareBuffer* ahb, int fenceFd) {
+    if (display_ == EGL_NO_DISPLAY) return false;
+    if (!eglMakeCurrent(display_, surface_, surface_, context_)) return false;
+    bool ok = importAhbToTexture(ahb, subjectMaskTex_, subjectMaskW_, subjectMaskH_,
+                                 subjectMaskImage_, subjectMaskAhb_,
+                                 AHARDWAREBUFFER_FORMAT_R8_UNORM,
+                                 AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM, fenceFd);
+    if (ok) subjectMaskReady_ = true;
+    return ok;
+}
+
 
 // Rebuild unit-10 GL_RG8 from CPU planes (R=atten, G=depth). Either plane
 // may be empty — missing channel uploads as 0.
@@ -1601,6 +1706,17 @@ bool GlesRenderer::uploadBokehAttenuation(const uint8_t* gray8, int width, int h
     return true;
 }
 
+bool GlesRenderer::uploadBokehAttenuation(AHardwareBuffer* ahb, int fenceFd) {
+    if (display_ == EGL_NO_DISPLAY) return false;
+    if (!eglMakeCurrent(display_, surface_, surface_, context_)) return false;
+    bool ok = importAhbToTexture(ahb, bokehAttenTex_, bokehAttenW_, bokehAttenH_,
+                                 bokehAttenImage_, bokehAttenAhb_,
+                                 AHARDWAREBUFFER_FORMAT_R8_UNORM,
+                                 AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM, fenceFd);
+    if (ok) bokehAttenReady_ = true;
+    return ok;
+}
+
 bool GlesRenderer::uploadDepthMap(const uint8_t* gray8, int width, int height,
                                   float focusDepth01) {
     if (display_ == EGL_NO_DISPLAY) {
@@ -1627,9 +1743,29 @@ bool GlesRenderer::uploadDepthMap(const uint8_t* gray8, int width, int height,
     return true;
 }
 
+bool GlesRenderer::uploadDepthMap(AHardwareBuffer* ahb, float focusDepth01, int fenceFd) {
+    if (display_ == EGL_NO_DISPLAY) return false;
+    if (!eglMakeCurrent(display_, surface_, surface_, context_)) return false;
+    // AHB depth map overwrites the unit-10 RG8 texture.
+    bool ok = importAhbToTexture(ahb, bokehAttenTex_, bokehAttenW_, bokehAttenH_,
+                                 bokehAttenImage_, bokehAttenAhb_,
+                                 AHARDWAREBUFFER_FORMAT_R8_UNORM,
+                                 AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM, fenceFd);
+    if (ok) {
+        depthMapReady_ = true;
+        bokehFocusDepth_ = focusDepth01 < 0.f ? 0.f : (focusDepth01 > 1.f ? 1.f : focusDepth01);
+    }
+    return ok;
+}
+
 void GlesRenderer::clearDepthMap() {
     depthMapReady_ = false;
     bokehFocusDepth_ = 0.5f;
+    if (display_ != EGL_NO_DISPLAY && bokehAttenImage_ != EGL_NO_IMAGE_KHR && fn_eglDestroyImageKHR) {
+        fn_eglDestroyImageKHR(display_, bokehAttenImage_);
+        bokehAttenImage_ = EGL_NO_IMAGE_KHR;
+        if (bokehAttenAhb_) { AHardwareBuffer_release(bokehAttenAhb_); bokehAttenAhb_ = nullptr; }
+    }
     if (!depthPlane_.empty()) {
         std::fill(depthPlane_.begin(), depthPlane_.end(), 0);
         if (display_ != EGL_NO_DISPLAY && bokehAttenTex_ != 0 &&
@@ -1672,10 +1808,26 @@ bool GlesRenderer::uploadSobelEdgeMask(const uint8_t* gray8, int width, int heig
     return true;
 }
 
+bool GlesRenderer::uploadSobelEdgeMask(AHardwareBuffer* ahb, int fenceFd) {
+    if (display_ == EGL_NO_DISPLAY) return false;
+    if (!eglMakeCurrent(display_, surface_, surface_, context_)) return false;
+    bool ok = importAhbToTexture(ahb, sobelEdgeTex_, sobelEdgeW_, sobelEdgeH_,
+                                 sobelEdgeImage_, sobelEdgeAhb_,
+                                 AHARDWAREBUFFER_FORMAT_R8_UNORM,
+                                 AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM, fenceFd);
+    if (ok) sobelEdgeReady_ = true;
+    return ok;
+}
+
 void GlesRenderer::clearSobelEdgeMask() {
-    if (display_ != EGL_NO_DISPLAY && sobelEdgeTex_) {
+    if (display_ != EGL_NO_DISPLAY) {
         eglMakeCurrent(display_, surface_, surface_, context_);
-        glDeleteTextures(1, &sobelEdgeTex_);
+        if (sobelEdgeImage_ != EGL_NO_IMAGE_KHR && fn_eglDestroyImageKHR) {
+            fn_eglDestroyImageKHR(display_, sobelEdgeImage_);
+            sobelEdgeImage_ = EGL_NO_IMAGE_KHR;
+            if (sobelEdgeAhb_) { AHardwareBuffer_release(sobelEdgeAhb_); sobelEdgeAhb_ = nullptr; }
+        }
+        if (sobelEdgeTex_) glDeleteTextures(1, &sobelEdgeTex_);
     }
     sobelEdgeTex_   = 0;
     sobelEdgeW_     = 0;
@@ -1715,6 +1867,114 @@ void GlesRenderer::clearToneCurve() {
     }
     toneCurveTex_   = 0;
     toneCurveReady_ = false;
+}
+
+void GlesRenderer::ensureVintageBlackTex() {
+    if (fxVintageBlackTex_) return;
+    glGenTextures(1, &fxVintageBlackTex_);
+    glBindTexture(GL_TEXTURE_2D, fxVintageBlackTex_);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    const uint8_t z[4] = {0, 0, 0, 255};
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, z);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+bool GlesRenderer::uploadVintageOverlay(GLuint& tex, int& tw, int& th,
+                                        const uint8_t* bytes, int nbytes,
+                                        int width, int height) {
+    if (display_ == EGL_NO_DISPLAY) {
+        LOGE("uploadVintageOverlay: renderer not initialized");
+        return false;
+    }
+    if (!bytes || width <= 0 || height <= 0 || nbytes <= 0) {
+        LOGE("uploadVintageOverlay: bad args (%p %dx%d n=%d)", bytes, width, height, nbytes);
+        return false;
+    }
+    if (!eglMakeCurrent(display_, surface_, surface_, context_)) {
+        LOGE("uploadVintageOverlay: eglMakeCurrent failed err=0x%x", eglGetError());
+        return false;
+    }
+    const size_t n = size_t(width) * size_t(height);
+    const uint8_t* rgba = bytes;
+    std::vector<uint8_t> expand;
+    if (nbytes >= int(n * 4)) {
+        rgba = bytes;
+    } else if (nbytes >= int(n * 3)) {
+        expand.resize(n * 4);
+        for (size_t i = 0; i < n; ++i) {
+            expand[i * 4 + 0] = bytes[i * 3 + 0];
+            expand[i * 4 + 1] = bytes[i * 3 + 1];
+            expand[i * 4 + 2] = bytes[i * 3 + 2];
+            expand[i * 4 + 3] = 255;
+        }
+        rgba = expand.data();
+    } else if (nbytes >= int(n)) {
+        expand.resize(n * 4);
+        for (size_t i = 0; i < n; ++i) {
+            expand[i * 4 + 0] = bytes[i];
+            expand[i * 4 + 1] = bytes[i];
+            expand[i * 4 + 2] = bytes[i];
+            expand[i * 4 + 3] = 255;
+        }
+        rgba = expand.data();
+    } else {
+        LOGE("uploadVintageOverlay: short buffer %d for %dx%d", nbytes, width, height);
+        return false;
+    }
+    if (tex == 0 || width != tw || height != th) {
+        if (tex) {
+            glDeleteTextures(1, &tex);
+            tex = 0;
+        }
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, width, height);
+        tw = width;
+        th = height;
+    } else {
+        glBindTexture(GL_TEXTURE_2D, tex);
+    }
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height,
+                    GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    return true;
+}
+
+bool GlesRenderer::uploadVintageMist(const uint8_t* bytes, int nbytes, int width, int height) {
+    return uploadVintageOverlay(fxVintageMistTex_, fxVintageMistW_, fxVintageMistH_,
+                                bytes, nbytes, width, height);
+}
+
+bool GlesRenderer::uploadVintageFilm(const uint8_t* bytes, int nbytes, int width, int height) {
+    return uploadVintageOverlay(fxVintageFilmTex_, fxVintageFilmW_, fxVintageFilmH_,
+                                bytes, nbytes, width, height);
+}
+
+void GlesRenderer::bindVintageFxTextures(GLuint prog) {
+    GLint mistLoc = (prog == program_) ? uFxVintageMistTexLoc_
+                    : glGetUniformLocation(prog, "uFxVintageMistTex");
+    GLint filmLoc = (prog == program_) ? uFxVintageFilmTexLoc_
+                    : glGetUniformLocation(prog, "uFxVintageFilmTex");
+    if (mistLoc < 0 && filmLoc < 0) return;
+    ensureVintageBlackTex();
+    if (mistLoc >= 0) {
+        glActiveTexture(GL_TEXTURE0 + fxVintageTextureUnitBase_);
+        glBindTexture(GL_TEXTURE_2D, fxVintageMistTex_ ? fxVintageMistTex_ : fxVintageBlackTex_);
+        glUniform1i(mistLoc, fxVintageTextureUnitBase_);
+    }
+    if (filmLoc >= 0) {
+        glActiveTexture(GL_TEXTURE0 + fxVintageTextureUnitBase_ + 1);
+        glBindTexture(GL_TEXTURE_2D, fxVintageFilmTex_ ? fxVintageFilmTex_ : fxVintageBlackTex_);
+        glUniform1i(filmLoc, fxVintageTextureUnitBase_ + 1);
+    }
 }
 
 
@@ -1761,11 +2021,28 @@ bool GlesRenderer::uploadBrushMask(int layer, const uint8_t* gray8, int width, i
     return true;
 }
 
+bool GlesRenderer::uploadBrushMask(int layer, AHardwareBuffer* ahb, int fenceFd) {
+    if (layer < 0 || layer >= kMaskLayers) return false;
+    if (display_ == EGL_NO_DISPLAY) return false;
+    if (!eglMakeCurrent(display_, surface_, surface_, context_)) return false;
+    bool ok = importAhbToTexture(ahb, brushMaskTex_[layer], brushMaskW_[layer], brushMaskH_[layer],
+                                 brushMaskImage_[layer], brushMaskAhb_[layer],
+                                 AHARDWAREBUFFER_FORMAT_R8_UNORM,
+                                 AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM, fenceFd);
+    if (ok) brushMaskReady_[layer] = true;
+    return ok;
+}
+
 void GlesRenderer::clearBrushMask(int layer) {
     if (layer < 0 || layer >= kMaskLayers) return;
-    if (display_ != EGL_NO_DISPLAY && brushMaskTex_[layer]) {
+    if (display_ != EGL_NO_DISPLAY) {
         eglMakeCurrent(display_, surface_, surface_, context_);
-        glDeleteTextures(1, &brushMaskTex_[layer]);
+        if (brushMaskImage_[layer] != EGL_NO_IMAGE_KHR && fn_eglDestroyImageKHR) {
+            fn_eglDestroyImageKHR(display_, brushMaskImage_[layer]);
+            brushMaskImage_[layer] = EGL_NO_IMAGE_KHR;
+            if (brushMaskAhb_[layer]) { AHardwareBuffer_release(brushMaskAhb_[layer]); brushMaskAhb_[layer] = nullptr; }
+        }
+        if (brushMaskTex_[layer]) glDeleteTextures(1, &brushMaskTex_[layer]);
     }
     brushMaskTex_[layer]   = 0;
     brushMaskW_[layer]     = 0;
@@ -1778,9 +2055,14 @@ void GlesRenderer::clearAllBrushMasks() {
 }
 
 void GlesRenderer::clearSubjectMask() {
-    if (display_ != EGL_NO_DISPLAY && subjectMaskTex_) {
+    if (display_ != EGL_NO_DISPLAY) {
         eglMakeCurrent(display_, surface_, surface_, context_);
-        glDeleteTextures(1, &subjectMaskTex_);
+        if (subjectMaskImage_ != EGL_NO_IMAGE_KHR && fn_eglDestroyImageKHR) {
+            fn_eglDestroyImageKHR(display_, subjectMaskImage_);
+            subjectMaskImage_ = EGL_NO_IMAGE_KHR;
+            if (subjectMaskAhb_) { AHardwareBuffer_release(subjectMaskAhb_); subjectMaskAhb_ = nullptr; }
+        }
+        if (subjectMaskTex_) glDeleteTextures(1, &subjectMaskTex_);
     }
     subjectMaskTex_   = 0;
     subjectMaskW_     = 0;
@@ -2078,6 +2360,10 @@ void GlesRenderer::pushUniforms() {
     if (uFxVintageStrengthLoc_ >= 0) glUniform1f(uFxVintageStrengthLoc_, params_.fxVintageStrength);
     if (uFxVintageFadeLoc_     >= 0) glUniform1f(uFxVintageFadeLoc_,     params_.fxVintageFade);
     if (uFxVintageVigLoc_      >= 0) glUniform1f(uFxVintageVigLoc_,      params_.fxVintageVig);
+    if (uFxVintageMistIntensityLoc_ >= 0) glUniform1f(uFxVintageMistIntensityLoc_, params_.fxVintageMistIntensity);
+    if (uFxVintageMistScaleLoc_     >= 0) glUniform1f(uFxVintageMistScaleLoc_,     params_.fxVintageMistScale);
+    if (uFxVintageTextureIntensityLoc_ >= 0) glUniform1f(uFxVintageTextureIntensityLoc_, params_.fxVintageTextureIntensity);
+    if (uFxVintageTextureScaleLoc_     >= 0) glUniform1f(uFxVintageTextureScaleLoc_,     params_.fxVintageTextureScale);
     if (uFxGlowStrengthLoc_    >= 0) glUniform1f(uFxGlowStrengthLoc_,    params_.fxGlowStrength);
     if (uFxGlowSpreadLoc_      >= 0) glUniform1f(uFxGlowSpreadLoc_,      params_.fxGlowSpread);
     if (uFxGlowWarmthLoc_      >= 0) glUniform1f(uFxGlowWarmthLoc_,      params_.fxGlowWarmth);
@@ -2113,12 +2399,71 @@ void GlesRenderer::pushUniformsForProgram(unsigned int prog) {
     pushGradingUniforms(prog, params_, in);
 }
 
-bool GlesRenderer::importAhbAsTexture(AHardwareBuffer* ahb) {
-    if (!resolveExtensions()) return false;
+void GlesRenderer::assertGlThread(const char* what) {
+    if (glThreadTid_ < 0) return;   // context not created yet — nothing to compare
+    pid_t tid = gettid();
+    if (tid != glThreadTid_) {
+        LOGE("%s: called off the GL thread (tid=%d, glTid=%d) — eglMakeCurrent "
+             "here steals the context from the render loop mid-frame. Post to "
+             "RawV3GlSurfaceView's renderHandler instead.", what, (int) tid,
+             (int) glThreadTid_);
+    }
+}
+
+void GlesRenderer::waitOnProducerFence(int fenceFd) {
+    if (fenceFd < 0) return;
+    if (!resolveFenceExtensions()) {
+        LOGE("waitOnProducerFence: EGL sync/fence extensions missing — sampling "
+             "the AHB without a producer wait (fd=%d)", fenceFd);
+        return;
+    }
+    // POSIX dup: eglCreateSyncKHR(EGL_SYNC_NATIVE_FENCE_ANDROID) takes
+    // ownership of the fd we pass. eglDupNativeFenceFDANDROID is the inverse
+    // (sync → fd) and must not be used here.
+    int dupFd = dup(fenceFd);
+    if (dupFd < 0) {
+        LOGE("waitOnProducerFence: dup(fd=%d) failed errno=%d", fenceFd, errno);
+        return;
+    }
+    const EGLint attrs[] = { EGL_SYNC_NATIVE_FENCE_FD_ANDROID, dupFd, EGL_NONE };
+    EGLSyncKHR sync = fn_eglCreateSyncKHR(display_, EGL_SYNC_NATIVE_FENCE_ANDROID, attrs);
+    if (sync == EGL_NO_SYNC_KHR) {
+        LOGE("waitOnProducerFence: eglCreateSyncKHR failed err=0x%x", eglGetError());
+        close(dupFd);   // createSync takes ownership only on success
+        return;
+    }
+    // eglCreateSyncKHR consumed dupFd (even on EGLSyncKHR success we no longer
+    // own it). GPU-side wait: inserts a pipeline barrier, never stalls the CPU.
+    if (fn_eglWaitSyncKHR(display_, sync, 0) != EGL_TRUE) {
+        LOGE("waitOnProducerFence: eglWaitSyncKHR failed err=0x%x", eglGetError());
+    }
+    fn_eglDestroySyncKHR(display_, sync);
+}
+
+bool GlesRenderer::importAhbToTexture(AHardwareBuffer* ahb, GLuint& tex, int& tw, int& th,
+                                      EGLImageKHR& img, AHardwareBuffer*& owner,
+                                      uint32_t fmt0, uint32_t fmt1,
+                                      int fenceFd, GLenum target) {
+    if (!ahb || !resolveExtensions()) return false;
+    assertGlThread("importAhbToTexture");
+
+    // Validate BEFORE import: an AHB in an unexpected format imports
+    // "successfully" and then samples garbage — fail loudly instead.
+    AHardwareBuffer_Desc desc{};
+    AHardwareBuffer_describe(ahb, &desc);
+    if (desc.format != fmt0 && (fmt1 == 0 || desc.format != fmt1)) {
+        LOGE("importAhbToTexture: rejecting AHB — format 0x%x not in allowed "
+             "{0x%x%s0x%x} (%ux%u layers=%u usage=0x%" PRIx64 ")",
+             desc.format, fmt0, fmt1 ? ", " : "", fmt1,
+             desc.width, desc.height, desc.layers, desc.usage);
+        return false;
+    }
+
+    waitOnProducerFence(fenceFd);
 
     EGLClientBuffer clientBuf = fn_eglGetNativeClientBufferANDROID(ahb);
     if (!clientBuf) {
-        LOGE("importAhbAsTexture: eglGetNativeClientBufferANDROID null");
+        LOGE("importAhbToTexture: eglGetNativeClientBufferANDROID null");
         return false;
     }
 
@@ -2130,35 +2475,52 @@ bool GlesRenderer::importAhbAsTexture(AHardwareBuffer* ahb) {
         display_, EGL_NO_CONTEXT,
         EGL_NATIVE_BUFFER_ANDROID, clientBuf, imageAttribs);
     if (image == EGL_NO_IMAGE_KHR) {
-        LOGE("importAhbAsTexture: eglCreateImageKHR failed err=0x%x", eglGetError());
+        LOGE("importAhbToTexture: eglCreateImageKHR failed err=0x%x", eglGetError());
         return false;
     }
 
-    if (ahbImage_ != EGL_NO_IMAGE_KHR) {
-        fn_eglDestroyImageKHR(display_, ahbImage_);
+    // Hold a native ref on the buffer for the EGLImage's lifetime. The EGL
+    // image does NOT own the AHB; Java's HardwareBuffer.close() can otherwise
+    // free it under the driver (UAF).
+    AHardwareBuffer_acquire(ahb);
+    if (img != EGL_NO_IMAGE_KHR) {
+        fn_eglDestroyImageKHR(display_, img);
+        if (owner) AHardwareBuffer_release(owner);
     }
-    ahbImage_ = image;
+    img = image;
+    owner = ahb;
 
-    if (!texture_) glGenTextures(1, &texture_);
-    glBindTexture(GL_TEXTURE_2D, texture_);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,     GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,     GL_CLAMP_TO_EDGE);
-    fn_glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, (GLeglImageOES) image);
+    if (!tex) glGenTextures(1, &tex);
+    glBindTexture(target, tex);
+    glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(target, GL_TEXTURE_WRAP_S,     GL_CLAMP_TO_EDGE);
+    glTexParameteri(target, GL_TEXTURE_WRAP_T,     GL_CLAMP_TO_EDGE);
+    fn_glEGLImageTargetTexture2DOES(target, (GLeglImageOES) image);
+
     GLenum err = glGetError();
     if (err != GL_NO_ERROR) {
-        LOGE("importAhbAsTexture: glEGLImageTargetTexture2DOES err=0x%x", err);
+        LOGE("importAhbToTexture: glEGLImageTargetTexture2DOES err=0x%x", err);
+        fn_eglDestroyImageKHR(display_, image);
+        img = EGL_NO_IMAGE_KHR;
+        owner = nullptr;
+        AHardwareBuffer_release(ahb);
         return false;
     }
 
-    AHardwareBuffer_Desc desc{};
-    AHardwareBuffer_describe(ahb, &desc);
-    texW_ = int(desc.width);
-    texH_ = int(desc.height);
-    LOGI("importAhbAsTexture: bound %dx%d (format=0x%x stride=%u)",
-         texW_, texH_, desc.format, desc.stride);
+    tw = int(desc.width);
+    th = int(desc.height);
     return true;
+}
+
+bool GlesRenderer::importAhbAsTexture(AHardwareBuffer* ahb) {
+    return importAhbAsTexture(ahb, -1);
+}
+
+bool GlesRenderer::importAhbAsTexture(AHardwareBuffer* ahb, int fenceFd) {
+    return importAhbToTexture(ahb, texture_, texW_, texH_, ahbImage_, sourceAhb_,
+                              AHARDWAREBUFFER_FORMAT_R16G16B16A16_FLOAT,
+                              AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM, fenceFd);
 }
 
 bool GlesRenderer::init(ANativeWindow* window, AHardwareBuffer* ahb) {
@@ -2167,13 +2529,16 @@ bool GlesRenderer::init(ANativeWindow* window, AHardwareBuffer* ahb) {
         return false;
     }
     if (!initEgl(window))           return false;
+    // init() runs on the RawV3Gl render thread (Kotlin posts nativeInitRenderer
+    // there); record its tid so assertGlThread can catch off-thread uploads.
+    glThreadTid_ = gettid();
     if (!createProgram())           return false;
     if (!importAhbAsTexture(ahb))   return false;
     LOGI("init: OK");
     return true;
 }
 
-bool GlesRenderer::updateAhb(AHardwareBuffer* ahb) {
+bool GlesRenderer::updateAhb(AHardwareBuffer* ahb, int fenceFd) {
     if (!ahb) return false;
     if (display_ == EGL_NO_DISPLAY) {
         LOGE("updateAhb: renderer not initialized");
@@ -2183,12 +2548,37 @@ bool GlesRenderer::updateAhb(AHardwareBuffer* ahb) {
         LOGE("updateAhb: eglMakeCurrent failed err=0x%x", eglGetError());
         return false;
     }
+    assertGlThread("updateAhb");
     // Source texture changed — all pre-passes must re-run.
     blurPassDirty_     = true;
     softDiffPassDirty_ = true;
     bloomPassDirty_    = true;
     nrPassDirty_       = true;
-    return importAhbAsTexture(ahb);
+    return importAhbAsTexture(ahb, fenceFd);
+}
+
+bool GlesRenderer::bindTextureToMask(int layer, GLuint textureId) {
+    if (layer < -3 || layer >= kMaskLayers) return false;
+    if (display_ == EGL_NO_DISPLAY) return false;
+    if (!eglMakeCurrent(display_, surface_, surface_, context_)) return false;
+
+    // layer -1 = subject mask (unit 2)
+    // layer -2 = bokeh aux (unit 10)
+    // layer -3 = sobel edge (unit 4)
+    if (layer == -1) {
+        subjectMaskTex_ = textureId;
+        subjectMaskReady_ = (textureId != 0);
+    } else if (layer == -2) {
+        bokehAttenTex_ = textureId;
+        bokehAttenReady_ = (textureId != 0);
+    } else if (layer == -3) {
+        sobelEdgeTex_ = textureId;
+        sobelEdgeReady_ = (textureId != 0);
+    } else if (layer >= 0) {
+        brushMaskTex_[layer] = textureId;
+        brushMaskReady_[layer] = (textureId != 0);
+    }
+    return true;
 }
 
 bool GlesRenderer::renderFrame() {
@@ -2333,11 +2723,10 @@ bool GlesRenderer::renderFrame() {
     const bool sharpenActive = sharpenAmt > 0.0f && sharpenProg_ != 0;
     int vpX = 0, vpY = 0, vpW = surfaceW_, vpH = surfaceH_;
 
-    // Letterbox: clear to transparent so the Compose background (letterboxColor)
-    // shows through the SurfaceView's TRANSLUCENT surface in the bar regions.
+    // Letterbox: clear to opaque black to prevent stale overlays from showing through.
     glViewport(0, 0, surfaceW_, surfaceH_);
-    glClearColor(0.f, 0.f, 0.f, 0.f);
-    glClear(GL_COLOR_BUFFER_BIT);
+    glClearColor(0.f, 0.f, 0.f, 1.f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     if (texW_ > 0 && texH_ > 0 && surfaceW_ > 0 && surfaceH_ > 0) {
         float texAspect = float(texW_) / float(texH_);
@@ -2433,7 +2822,9 @@ bool GlesRenderer::renderFrame() {
     glActiveTexture(GL_TEXTURE9);
     glBindTexture(GL_TEXTURE_2D, toneCurveTex_);
 
-    // Karis bloom pyramid composite on unit 11 (bloomTex_[0] — mip 0
+    bindVintageFxTextures(program_);
+
+    // Karis bloom pyramid composite on unit 11 (bloomTex_[0] — mip 0)
     // after the upsample chain composited all smaller mips into it).
     // Glow samples uBloomTex without Orton — bind whenever bloomTexNeeded.
     glActiveTexture(GL_TEXTURE11);
@@ -2672,6 +3063,7 @@ bool GlesRenderer::snapshotGradedToAhb(AHardwareBuffer* dst) {
     // Tone Curve LUT on unit 9.
     glActiveTexture(GL_TEXTURE9);
     glBindTexture(GL_TEXTURE_2D, toneCurveTex_);
+    bindVintageFxTextures(programSnap_);
     // Karis bloom pyramid on unit 11 (mip 0 = final composited bloom).
     glActiveTexture(GL_TEXTURE11);
     glBindTexture(GL_TEXTURE_2D, snapBloomNeeded ? bloomTex_[0] : 0);
@@ -2777,6 +3169,7 @@ bool GlesRenderer::histogramGraded(int side, int* outHist) {
     // Tone Curve LUT on unit 9 (so the graded histogram reflects the curve).
     glActiveTexture(GL_TEXTURE9);
     glBindTexture(GL_TEXTURE_2D, toneCurveTex_);
+    bindVintageFxTextures(programSnap_);
 
     pushUniformsForProgram(programSnap_);
 
@@ -2921,6 +3314,7 @@ bool GlesRenderer::snapshotGradedToBitmap(int outW, int outH, uint8_t* outRgba) 
     // Tone Curve LUT on unit 9 (so the Export-page preview reflects the curve).
     glActiveTexture(GL_TEXTURE9);
     glBindTexture(GL_TEXTURE_2D, toneCurveTex_);
+    bindVintageFxTextures(programSnap_);
     // Gaussian blur reference on unit 8 (uBlurTex). Used by Ambiance,
     // Clarity, CenterPop, Bokeh — softDiff is baked into uBloomTex.
     glActiveTexture(GL_TEXTURE8);
@@ -2963,6 +3357,29 @@ void GlesRenderer::release() {
             fn_eglDestroyImageKHR(display_, ahbImage_);
             ahbImage_ = EGL_NO_IMAGE_KHR;
         }
+        if (sourceAhb_) { AHardwareBuffer_release(sourceAhb_); sourceAhb_ = nullptr; }
+        if (subjectMaskImage_ != EGL_NO_IMAGE_KHR && fn_eglDestroyImageKHR) {
+            fn_eglDestroyImageKHR(display_, subjectMaskImage_);
+            subjectMaskImage_ = EGL_NO_IMAGE_KHR;
+        }
+        if (subjectMaskAhb_) { AHardwareBuffer_release(subjectMaskAhb_); subjectMaskAhb_ = nullptr; }
+        if (bokehAttenImage_ != EGL_NO_IMAGE_KHR && fn_eglDestroyImageKHR) {
+            fn_eglDestroyImageKHR(display_, bokehAttenImage_);
+            bokehAttenImage_ = EGL_NO_IMAGE_KHR;
+        }
+        if (bokehAttenAhb_) { AHardwareBuffer_release(bokehAttenAhb_); bokehAttenAhb_ = nullptr; }
+        if (sobelEdgeImage_ != EGL_NO_IMAGE_KHR && fn_eglDestroyImageKHR) {
+            fn_eglDestroyImageKHR(display_, sobelEdgeImage_);
+            sobelEdgeImage_ = EGL_NO_IMAGE_KHR;
+        }
+        if (sobelEdgeAhb_) { AHardwareBuffer_release(sobelEdgeAhb_); sobelEdgeAhb_ = nullptr; }
+        for (int i = 0; i < kMaskLayers; ++i) {
+            if (brushMaskImage_[i] != EGL_NO_IMAGE_KHR && fn_eglDestroyImageKHR) {
+                fn_eglDestroyImageKHR(display_, brushMaskImage_[i]);
+                brushMaskImage_[i] = EGL_NO_IMAGE_KHR;
+            }
+            if (brushMaskAhb_[i]) { AHardwareBuffer_release(brushMaskAhb_[i]); brushMaskAhb_[i] = nullptr; }
+        }
         if (texture_) { glDeleteTextures(1, &texture_); texture_ = 0; }
         if (subjectMaskTex_) { glDeleteTextures(1, &subjectMaskTex_); subjectMaskTex_ = 0; }
         subjectMaskW_ = 0; subjectMaskH_ = 0; subjectMaskReady_ = false;
@@ -2978,6 +3395,11 @@ void GlesRenderer::release() {
         sobelEdgeW_ = 0; sobelEdgeH_ = 0; sobelEdgeReady_ = false;
         if (toneCurveTex_) { glDeleteTextures(1, &toneCurveTex_); toneCurveTex_ = 0; }
         toneCurveReady_ = false;
+        if (fxVintageMistTex_) { glDeleteTextures(1, &fxVintageMistTex_); fxVintageMistTex_ = 0; }
+        fxVintageMistW_ = 0; fxVintageMistH_ = 0;
+        if (fxVintageFilmTex_) { glDeleteTextures(1, &fxVintageFilmTex_); fxVintageFilmTex_ = 0; }
+        fxVintageFilmW_ = 0; fxVintageFilmH_ = 0;
+        if (fxVintageBlackTex_) { glDeleteTextures(1, &fxVintageBlackTex_); fxVintageBlackTex_ = 0; }
         if (blurProg_)    { glDeleteProgram(blurProg_);    blurProg_ = 0; }
         if (blurFboA_)    { glDeleteFramebuffers(1, &blurFboA_); blurFboA_ = 0; }
         if (blurFboB_)    { glDeleteFramebuffers(1, &blurFboB_); blurFboB_ = 0; }

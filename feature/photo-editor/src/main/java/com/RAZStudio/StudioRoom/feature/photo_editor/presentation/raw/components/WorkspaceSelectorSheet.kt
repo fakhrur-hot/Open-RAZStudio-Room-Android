@@ -1,4 +1,4 @@
-﻿/*
+/*
  * StudioRoom is an image editor for android
  * Copyright (c) 2026 RAZStudio (Fakhrurraze)
  *
@@ -431,6 +431,8 @@ fun WorkspaceSelectorSheet(
     var lfManualBrand by remember(sourceUri) { mutableStateOf("") }
     var lfManualLensModel by remember(sourceUri) { mutableStateOf("") }
     var lfFocalText by remember(sourceUri) { mutableStateOf("") }
+    // Zero-DCE adaptive devignetting threshold τ (see WorkspaceConfig.liftTau).
+    var lfLiftTau by remember(sourceUri) { mutableStateOf(0.7f) }
     var lfConfidence by remember(sourceUri) {
         mutableStateOf(com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3
             .RawV3Engine.LensMatchConfidence.None)
@@ -1085,6 +1087,19 @@ fun WorkspaceSelectorSheet(
                             modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                         )
                     }
+                    // Zero-DCE adaptive devignetting: how early (in shadow
+                    // depth) the corner optical gain starts being attenuated.
+                    Text(
+                        text = "Shadow protection",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(top = 10.dp),
+                    )
+                    Slider(
+                        value = lfLiftTau,
+                        onValueChange = { lfLiftTau = it },
+                        valueRange = 0.3f..1.2f,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
 
                 // Output Format section hidden — locked to JPEG (selectedExportFormat).
@@ -1186,6 +1201,7 @@ fun WorkspaceSelectorSheet(
                                 lensfunCameraId = if (lfReady) lfCam else "",
                                 lensfunLensId   = if (lfReady) lfLens else "",
                                 lensfunFocalOverrideMm = if (lfReady) effectiveFocalOv else 0f,
+                                liftTau = lfLiftTau,
                                 lensfunMatchConfidence = when {
                                     !lfReady -> 0
                                     lfManualLensModel.isNotBlank() -> 3

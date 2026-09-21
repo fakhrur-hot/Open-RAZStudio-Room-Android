@@ -237,6 +237,132 @@ fun RawExportScreen(
     val appContext = LocalContext.current
     var watermarkConfig by remember { mutableStateOf<com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components.CombinedWatermarkConfig?>(null) }
     var showWatermarkSheet by remember { mutableStateOf(false) }
+    var showAiDenoiseSheet by remember { mutableStateOf(false) }
+    var aiDenoiseSession by remember {
+        mutableStateOf(com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.AiDenoiseEditSession())
+    }
+    var aiAppliedPreview by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    val aiDenoiseModel by remember(context) {
+        mutableStateOf(
+            runCatching {
+                com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.AiDenoiseModelAssetLoader.load(context.applicationContext)
+            }.getOrNull(),
+        )
+    }
+    val aiDenoiseRunner = remember(context, aiDenoiseModel) {
+        aiDenoiseModel?.let {
+            com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.AiDenoiseRunner().apply {
+                load(context.applicationContext, it.manifestAsset, it.modelAsset)
+            }
+        }
+    }
+    val aiDenoiseAdapterParams = remember(context, aiDenoiseModel) {
+        aiDenoiseModel?.let {
+            com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.AiDenoiseAdapterParams(
+                gamma = it.manifest.adapterGamma,
+                alpha = it.manifest.adapterStrength,
+                maxVal = it.manifest.adapterMaxValue,
+            )
+        } ?: com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.AiDenoiseAdapterParams(
+            gamma = 2.2f,
+            alpha = 0.10f,
+            maxVal = 65535f,
+        )
+    }
+    // RawExportScreen owns preview scheduling and Stage A buffer lifetime. The
+    // scheduler remains idle until an approved model and Stage A proxy are available.
+    val aiDenoisePreviewScheduler = remember(scope) {
+        com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.AiDenoisePreviewScheduler<android.graphics.Bitmap>(scope)
+    }
+    val aiDenoisePreviewState by aiDenoisePreviewScheduler.state.collectAsState()
+    val aiDenoiseLivePreview = remember(aiDenoisePreviewState) {
+        (aiDenoisePreviewState as? com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.AiDenoisePreviewState.Ready<android.graphics.Bitmap>)?.value
+    }
+    val basePreview: Bitmap? = gradedPreview
+        ?: stageBBmp
+        ?: neutralBmp
+        ?: sentinelPreview?.takeIf { it.width > 1 || it.height > 1 }
+    val persistentCanvasBitmap: Bitmap? = remember(
+        basePreview,
+        fullResBitmap,
+        cosmeticCroppedPreview,
+        cosmeticHealedPreview,
+        cosmeticCloudEditPreview,
+        watermarkConfig,
+        aiAppliedPreview,
+        context,
+    ) {
+        var source = aiAppliedPreview
+            ?: cosmeticCloudEditPreview
+            ?: cosmeticHealedPreview
+            ?: cosmeticCroppedPreview
+            ?: fullResBitmap
+            ?: basePreview
+        val activeWatermark = watermarkConfig
+        if (source != null && activeWatermark != null) {
+            source = runCatching {
+                val copy = source.copy(Bitmap.Config.ARGB_8888, true)
+                com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components
+                    .burnCombinedWatermarkOnto(copy, activeWatermark, context)
+            }.getOrElse { source }
+        }
+        source
+    }
+    val previewBitmap: Bitmap? = aiDenoiseLivePreview
+        ?: persistentCanvasBitmap
+    // Trigger a denoise preview whenever the draft state changes and a proxy buffer exists.
+    LaunchedEffect(aiDenoiseSession.draft, previewBitmap, aiDenoiseRunner, aiDenoiseModel) {
+        val state = aiDenoiseSession.draft
+        val bitmap = previewBitmap ?: return@LaunchedEffect
+        val runner = aiDenoiseRunner ?: return@LaunchedEffect
+        AppLog.i("AiDenoise", "preview request: enabled=${state.enabled} strength=${state.strength} input=${bitmap.width}x${bitmap.height}")
+        if (!state.enabled) {
+            AppLog.i("AiDenoise", "preview request disabled; cancelling queued denoise preview")
+            aiDenoisePreviewScheduler.cancel()
+            return@LaunchedEffect
+        }
+        val stageAProxy = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+        val proxyRgb = IntArray(stageAProxy.width * stageAProxy.height * 3)
+        val pixels = IntArray(stageAProxy.width * stageAProxy.height)
+        stageAProxy.getPixels(pixels, 0, stageAProxy.width, 0, 0, stageAProxy.width, stageAProxy.height)
+        var i = 0
+        for (pixel in pixels) {
+            val a = android.graphics.Color.alpha(pixel)
+            val r = android.graphics.Color.red(pixel)
+            val g = android.graphics.Color.green(pixel)
+            val b = android.graphics.Color.blue(pixel)
+            proxyRgb[i++] = r
+            proxyRgb[i++] = g
+            proxyRgb[i++] = b
+            if (a == 0) {
+                proxyRgb[i - 3] = 0
+                proxyRgb[i - 2] = 0
+                proxyRgb[i - 1] = 0
+            }
+        }
+        aiDenoisePreviewScheduler.submit(state) {
+            val tile = com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.AiDenoiseTileStitcher.processRgb16(
+                input = proxyRgb,
+                width = stageAProxy.width,
+                height = stageAProxy.height,
+            ) { tileInput ->
+                val normalized = com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.AiDenoiseTensorContract.uint16ToNormalized(tileInput)
+                val output = runner.runRgbTile(normalized)
+                com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.AiDenoiseTensorContract.normalizedToUint16(output)
+            }
+            android.graphics.Bitmap.createBitmap(stageAProxy.width, stageAProxy.height, Bitmap.Config.ARGB_8888).also { out ->
+                val outPixels = IntArray(tile.size / 3)
+                var pos = 0
+                for (idx in tile.indices step 3) {
+                    val r = tile[idx].coerceIn(0, 65535)
+                    val g = tile[idx + 1].coerceIn(0, 65535)
+                    val b = tile[idx + 2].coerceIn(0, 65535)
+                    outPixels[pos++] = android.graphics.Color.rgb(r shr 8, g shr 8, b shr 8)
+                }
+                out.setPixels(outPixels, 0, stageAProxy.width, 0, 0, stageAProxy.width, stageAProxy.height)
+            }
+        }
+    }
     // Online AI Editing consent — per-install flag (Requirement 7.4), not
     // Hilt-injected, following the same manual-remember pattern already used
     // for RawBatchPrefs (see RawBatchSettingsPanel).
@@ -257,10 +383,6 @@ fun RawExportScreen(
     // Underlying preview from the pipeline. The transform-bar Crop sheet
     // may override this with a cosmetic crop (cosmeticCroppedPreview)
     // that's preferred for downstream display.
-    val basePreview: Bitmap? = gradedPreview
-        ?: stageBBmp
-        ?: neutralBmp
-        ?: sentinelPreview?.takeIf { it.width > 1 || it.height > 1 }
     // Capture checkpoint the first time basePreview arrives — never updated.
     if (basePreview != null && checkpointPreview == null) {
         checkpointPreview = basePreview
@@ -268,10 +390,6 @@ fun RawExportScreen(
     // Cloud edit beats heal beats crop beats base — each later sheet's Apply
     // runs on whatever the user currently sees, so the most-recently-applied
     // edit is always the freshest truth.
-    val previewBitmap: Bitmap? = cosmeticCloudEditPreview
-        ?: cosmeticHealedPreview
-        ?: cosmeticCroppedPreview
-        ?: basePreview
     val componentMeta = component.rawMetadata
     val pipelineMeta = pipelineReady?.metadata?.takeIf {
         it.cameraMake.isNotBlank() || it.rawWidth > 0
@@ -343,10 +461,7 @@ fun RawExportScreen(
         // (5472×3648 for landscape, 3648×5472 for portrait). That's the landscape
         // dims swapped when orientation tag indicates 90° rotation.
         val (sensorW, sensorH) = when {
-            // Preferred: full-res decode landed; `original_dims.bin` is the authoritative
-            // landscape sensor W×H.
-            component.fullResSensorDims() != null -> component.fullResSensorDims()!!
-            // Early fallback: full-res not done yet. The preview metadata's
+            // The v3 component does not expose the legacy full-res cache API. The preview metadata's
             // outputWidth/Height is the half-size decode result. Multiply by 2 to
             // estimate full sensor. The "looksAlreadyFull" guard handles the rare
             // CR2 variants where LibRaw ignores half_size=1 (verified 2026-05-24
@@ -629,6 +744,7 @@ fun RawExportScreen(
                     // itself. The screen observes isSaving + lastSaveResult,
                     // so a rotation just rebuilds the UI on top of the same
                     // in-flight save instead of killing it.
+                    val denoiseEnabled = aiDenoiseSession.committed.enabled && aiDenoiseRunner != null
                     val tw = if (useFullResolution) 0 else (dimW.toIntOrNull() ?: 0)
                     val th = if (useFullResolution) 0 else (dimH.toIntOrNull() ?: 0)
                     // Bake the on-screen healed preview when the user
@@ -676,6 +792,8 @@ fun RawExportScreen(
                         cloudEditJobId = cloudEditJobId,
                         borderThickness = exportBorder,
                         borderColorArgb = borderColorArgb,
+                        aiDenoiseSession = aiDenoiseSession,
+                        aiDenoiseRunner = aiDenoiseRunner,
                     )
                 },
                 onImagePicker   = { showClearCacheDialog = true },
@@ -893,6 +1011,7 @@ fun RawExportScreen(
                     ) {
                     com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw
                         .components.RawExportTransformBar(
+                        hasAiDenoise = aiDenoiseSession.committed.enabled,
                         hasWatermark = watermarkConfig != null,
                         hasCrop = cosmeticCroppedPreview != null,
                         hasHeal = cosmeticHealedPreview != null,
@@ -920,6 +1039,22 @@ fun RawExportScreen(
                             }
                         },
                         onWatermark = { showWatermarkSheet = true },
+                        onAiDenoise = {
+                            aiDenoiseSession = aiDenoiseSession.copy(draft = aiDenoiseSession.committed)
+                            if (fullResBitmap == null && !isPreparingFullRes) {
+                                isPreparingFullRes = true
+                                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                    val bmp = component.prepareFullResBitmap()
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        fullResBitmap = bmp
+                                        isPreparingFullRes = false
+                                        showAiDenoiseSheet = true
+                                    }
+                                }
+                            } else {
+                                showAiDenoiseSheet = true
+                            }
+                        },
                         // Focus & Fade is now 100% on-device — no cloud upload,
                         // so no consent gate. Open the local sheet directly.
                         onOnlineAiEdit = { showOnlineAiEditSheet = true },
@@ -931,7 +1066,10 @@ fun RawExportScreen(
                             cosmeticCloudEditPreview = null
                             cloudEditJobId = null
                             fullResBitmap = null
+                            aiAppliedPreview = null
                             watermarkConfig = null
+                            aiDenoiseSession = com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.AiDenoiseEditSession()
+                            aiDenoisePreviewScheduler.cancel()
                             cropRectL = 0f
                             cropRectT = 0f
                             cropRectR = 1f
@@ -1341,6 +1479,33 @@ fun RawExportScreen(
                 },
             )
         }
+    }
+    if (showAiDenoiseSheet) {
+        com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components.RawAiDenoiseSheet(
+            state = aiDenoiseSession.draft,
+            onStateChange = { next ->
+                aiDenoiseSession = aiDenoiseSession.update(next)
+            },
+            onApply = {
+                aiDenoiseSession = aiDenoiseSession.apply()
+                val denoisedCanvas = aiDenoiseLivePreview ?: persistentCanvasBitmap
+                if (denoisedCanvas != null && aiDenoiseSession.committed.enabled) {
+                    aiAppliedPreview = denoisedCanvas
+                    fullResBitmap = denoisedCanvas
+                }
+                aiDenoisePreviewScheduler.cancel()
+                showAiDenoiseSheet = false
+            },
+            onCancel = {
+                aiDenoiseSession = aiDenoiseSession.cancel()
+                aiDenoisePreviewScheduler.cancel()
+                showAiDenoiseSheet = false
+            },
+            onReset = {
+                aiDenoiseSession = aiDenoiseSession.reset()
+                aiDenoisePreviewScheduler.cancel()
+            },
+        )
     }
     // Atmosphere sheet REMOVED from the Export page 2026-09-06 (owner request),
     // together with its ✨ launcher in the transform bar (see

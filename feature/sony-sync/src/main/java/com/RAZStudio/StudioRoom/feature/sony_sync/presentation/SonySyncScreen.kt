@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -48,7 +47,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.RAZStudio.StudioRoom.core.resources.Icons
@@ -63,7 +61,6 @@ fun SonySyncContent(component: SonySyncComponent) {
     val step by component.step.collectAsState()
     val running by component.running.collectAsState()
     val progress by component.progress.collectAsState()
-    val logLines by component.logLines.collectAsState()
     val result by component.result.collectAsState()
     val importSize by component.importSize.collectAsState()
     val connectionType by component.connectionType.collectAsState()
@@ -147,28 +144,28 @@ fun SonySyncContent(component: SonySyncComponent) {
                         selected = connectionType == SonyConnectionType.AUTO,
                         enabled = !running,
                         title = "Auto-detect (recommended)",
-                        subtitle = "One quick scan picks the right Wi-Fi path for your camera",
+                        subtitle = "Picks the right Wi-Fi option automatically",
                         onClick = { component.setConnectionType(SonyConnectionType.AUTO) },
                     )
                     ConnectionRow(
                         selected = connectionType == SonyConnectionType.WIFI_OLDER,
                         enabled = !running,
                         title = "Wi-Fi · older models",
-                        subtitle = "A7 II, α6000, early α7, RX — Send-to-Smartphone (DLNA)",
+                        subtitle = "A7 II, α6000, RX",
                         onClick = { component.setConnectionType(SonyConnectionType.WIFI_OLDER) },
                     )
                     ConnectionRow(
                         selected = connectionType == SonyConnectionType.WIFI_NEWER,
                         enabled = !running,
                         title = "Wi-Fi · newer models",
-                        subtitle = "A7 III/R III, α9… — Camera Remote API (falls back to DLNA)",
+                        subtitle = "A7 III, α9 and later",
                         onClick = { component.setConnectionType(SonyConnectionType.WIFI_NEWER) },
                     )
                     ConnectionRow(
                         selected = connectionType == SonyConnectionType.USB_MASS_STORAGE,
                         enabled = !running,
-                        title = "USB Mass Storage",
-                        subtitle = "OTG cable, camera set to Mass Storage — pulls originals incl. RAW",
+                        title = "USB cable",
+                        subtitle = "Copies everything, including RAW",
                         onClick = { component.setConnectionType(SonyConnectionType.USB_MASS_STORAGE) },
                     )
 
@@ -208,8 +205,7 @@ fun SonySyncContent(component: SonySyncComponent) {
                             )
                         }
                         Text(
-                            text = "The camera must also be set to send this size — on the A7 II " +
-                                "the resolution offered depends on its Send-to-Smartphone setting.",
+                            text = "The camera must be set to send this size too.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 8.dp),
@@ -247,9 +243,7 @@ fun SonySyncContent(component: SonySyncComponent) {
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = "Live view + full control (ISO, aperture, shutter, EV, DRO, " +
-                            "AF, shutter, movie) over an OTG cable. Set the camera's USB " +
-                            "Connection to PC Remote first.",
+                        text = "Live view and controls over USB. Set the camera to PC Remote first.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -272,8 +266,7 @@ fun SonySyncContent(component: SonySyncComponent) {
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = "Each snap uploads (~2 MP) to a public cloud folder and shows a " +
-                            "scannable QR of the folder link. Set up the account + folder first.",
+                        text = "Each photo uploads to a cloud folder with a shareable QR.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -334,33 +327,7 @@ fun SonySyncContent(component: SonySyncComponent) {
                 }
             }
 
-            // ── Live log ───────────────────────────────────────────────────
-            if (logLines.isNotEmpty()) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                    ),
-                ) {
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 260.dp)
-                            .verticalScroll(rememberScrollState())
-                            .padding(12.dp),
-                    ) {
-                        logLines.forEach { line ->
-                            Text(
-                                text = line,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                            )
-                        }
-                    }
-                }
-            }
-
-            // ── How it works ───────────────────────────────────────────────
+            // ── How it works (short) ──────────────────────────────────────
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -369,25 +336,14 @@ fun SonySyncContent(component: SonySyncComponent) {
             ) {
                 Column(Modifier.padding(16.dp)) {
                     Text(
-                        text = "How to connect the Sony A7 II",
+                        text = "How to connect",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Spacer(Modifier.height(8.dp))
-                    HowToStep(1, "On the camera, start \"Ctrl w/ Smartphone\" (or the " +
-                        "Smart Remote app) so it opens its camera Wi-Fi and its API.")
-                    HowToStep(2, "On the phone, join the camera's Wi-Fi " +
-                        "(DIRECT-…:ILCE-7M2) — tap the N-Mark for NFC, or use Wi-Fi settings.")
-                    HowToStep(3, "Set a Default Output folder in Settings, then tap " +
-                        "Connect & Download here.")
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = "Note: the A7 II transfers JPEG only (not RAW) over camera " +
-                            "Wi-Fi, and defaults to a 2 MP copy unless the camera is set to " +
-                            "send the original size. RAW needs USB or a card reader.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    HowToStep(1, "Turn on the camera's Wi-Fi and join it on your phone (or connect by USB).")
+                    HowToStep(2, "Pick an output folder in Settings.")
+                    HowToStep(3, "Tap Connect & Download.")
                 }
             }
         }
@@ -443,9 +399,9 @@ private fun HowToStep(number: Int, text: String) {
 }
 
 private fun stepLabel(step: SonyConnectionStep): String = when (step) {
-    SonyConnectionStep.Idle -> "Not connected. Join the camera Wi-Fi, then tap Connect & Download."
-    SonyConnectionStep.WaitingForNfcTap -> "Tap the phone to the camera's N-Mark…"
-    SonyConnectionStep.JoiningSoftAp -> "Binding to the camera Wi-Fi…"
-    SonyConnectionStep.Discovering -> "Finding the camera on the network…"
-    SonyConnectionStep.Connected -> "Connected."
+    SonyConnectionStep.Idle -> "Not connected"
+    SonyConnectionStep.WaitingForNfcTap -> "Waiting for camera…"
+    SonyConnectionStep.JoiningSoftAp -> "Connecting…"
+    SonyConnectionStep.Discovering -> "Finding camera…"
+    SonyConnectionStep.Connected -> "Connected"
 }

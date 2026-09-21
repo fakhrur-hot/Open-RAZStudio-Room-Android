@@ -169,18 +169,33 @@ class LocalLutRepository(private val context: Context) {
         reconcileRegistryWithFolder()
         val bundled = loadBundledCategories()
         val custom = loadCustomCategory()
-        // Order: User's Custom → Correction → rest (alphabetical). (The
-        // "Aesthetic" featured category was removed entirely 2026-08-29 —
-        // assets deleted; a stale favorite/sidecar reference to one of its
-        // .cube files simply no-ops like any other missing LUT.)
-        val all = (bundled + custom).sortedBy { it.categoryName }
+        // Order: RAZ Looks (owned) → User's Lut → Correction → rest (alpha).
+        val all = withRazClassic(bundled + custom).sortedBy { it.categoryName }
+        val razLooks    = all.filter { it.categoryName == RAZ_LOOKS_CATEGORY }
         val userCustom  = all.filter { it.categoryName == USER_CUSTOM_CATEGORY }
         val correction  = all.filter { it.categoryName == CORRECTION_CATEGORY }
         val rest        = all.filter {
-            it.categoryName != USER_CUSTOM_CATEGORY &&
+            it.categoryName != RAZ_LOOKS_CATEGORY &&
+                it.categoryName != USER_CUSTOM_CATEGORY &&
                 it.categoryName != CORRECTION_CATEGORY
         }
-        userCustom + correction + rest
+        razLooks + userCustom + correction + rest
+    }
+
+    private fun withRazClassic(cats: List<LutCategory>): List<LutCategory> {
+        val classic = RazClassicLook.entry()
+        val hasRaz = cats.any { it.categoryName == RAZ_LOOKS_CATEGORY }
+        return if (hasRaz) {
+            cats.map { cat ->
+                if (cat.categoryName != RAZ_LOOKS_CATEGORY) cat
+                else {
+                    val without = cat.entries.filterNot { RazClassicLook.isSentinel(it) }
+                    cat.copy(entries = listOf(classic) + without)
+                }
+            }
+        } else {
+            listOf(LutCategory(categoryName = RAZ_LOOKS_CATEGORY, entries = listOf(classic))) + cats
+        }
     }
 
     private fun loadBundledCategories(): List<LutCategory> {

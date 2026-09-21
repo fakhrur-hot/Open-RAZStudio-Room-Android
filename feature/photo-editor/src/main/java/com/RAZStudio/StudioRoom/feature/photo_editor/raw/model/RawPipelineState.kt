@@ -813,6 +813,11 @@ data class UserMacro(
     val fxVintageStrength:    Float = 0f,   // [0..100] UI → /100
     val fxVintageFade:        Float = 0f,   // [0..100] UI → /100
     val fxVintageVig:         Float = 0f,   // [0..100] UI → /100
+    val fxVintageMistIntensity: Float = 0f,
+    val fxVintageMistScale:     Float = 1f,
+    val fxVintageTextureIntensity: Float = 0f,
+    val fxVintageTextureScale:  Float = 1f,
+    val fxVintageTextureStyle:  Int = 0,
     val fxGlowStrength:       Float = 0f,   // [0..100] UI → /100
     val fxGlowSpread:         Float = 0f,   // [0..100] UI → /100
     val fxGlowWarmth:         Float = 0f,   // [-50..+50] UI → /100
@@ -1273,6 +1278,10 @@ data class UserMacro(
             fxVintageStrength   = if (delta.fxVintageStrength   != 0f) delta.fxVintageStrength   else fxVintageStrength,
             fxVintageFade       = if (delta.fxVintageFade       != 0f) delta.fxVintageFade       else fxVintageFade,
             fxVintageVig        = if (delta.fxVintageVig        != 0f) delta.fxVintageVig        else fxVintageVig,
+            fxVintageMistIntensity = if (delta.fxVintageMistIntensity != 0f) delta.fxVintageMistIntensity else fxVintageMistIntensity,
+            fxVintageMistScale     = if (delta.fxVintageMistScale     != 1f) delta.fxVintageMistScale     else fxVintageMistScale,
+            fxVintageTextureIntensity = if (delta.fxVintageTextureIntensity != 0f) delta.fxVintageTextureIntensity else fxVintageTextureIntensity,
+            fxVintageTextureScale     = if (delta.fxVintageTextureScale     != 1f) delta.fxVintageTextureScale     else fxVintageTextureScale,
             fxGlowStrength      = if (delta.fxGlowStrength      != 0f) delta.fxGlowStrength      else fxGlowStrength,
             fxGlowSpread        = if (delta.fxGlowSpread        != 0f) delta.fxGlowSpread        else fxGlowSpread,
             fxGlowWarmth        = if (delta.fxGlowWarmth        != 0f) delta.fxGlowWarmth        else fxGlowWarmth,
@@ -1317,4 +1326,13 @@ data class UserMacro(
      *  interest — the Stage A ROI loader keys off the rect only. */
     fun isOrientationActive(): Boolean =
         cropRotate90 != 0 || cropFlipH || cropFlipV
+
+    /**
+     * Details Sharpness slider: Smart Sharp stays in the same kernels at 1:2.
+     * UI sharpness 15 → [sharpness]=15, [smartSharpness]=0.30 (display 30).
+     */
+    fun withLinkedSharpness(sharpnessUi: Float): UserMacro {
+        val s = sharpnessUi.coerceIn(0f, 100f)
+        return copy(sharpness = s, smartSharpness = (s * 2f / 100f).coerceIn(0f, 1f))
+    }
 }

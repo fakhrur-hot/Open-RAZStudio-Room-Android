@@ -88,6 +88,8 @@ object RawV3Engine {
         hdrModelData: ByteArray? = null,
         shadowModelData: ByteArray? = null,
         isLinearRaw: Boolean = false,
+        liftMap: FloatArray? = null,
+        liftTau: Float = 0.7f,
     ): StageAResult {
         val json = nativeStageADecode(
             rawFilePath,
@@ -125,6 +127,8 @@ object RawV3Engine {
             isLinearRaw,
             options.lensfunDbDir,
             options.lensfunFocalOverrideMm,
+            liftMap,
+            liftTau,
         )
         return parseStageAJson(json)
     }
@@ -444,6 +448,8 @@ object RawV3Engine {
         isLinearRaw: Boolean,
         lensfunDbDir: String,
         lensfunFocalOverrideMm: Float,
+        liftMap: FloatArray?,
+        liftTau: Float,
     ): String
 
     /**
@@ -905,6 +911,11 @@ object RawV3Engine {
         attenMask: FloatArray? = null,
         attenMaskSize: Int = 0,
         attenMaskH: Int = 0,
+        // Depth→CoC (DA-V2) — same plane GL unit-10 .g uses. Null = depth-off disc.
+        depthMap: FloatArray? = null,
+        depthMapW: Int = 0,
+        depthMapH: Int = 0,
+        focusDepth: Float = 0.5f,
         // Up to 4 brush-mask layer alphas ([0,1]), each maskLayerW×maskLayerH,
         // concatenated (layer i at offset i·W·H). Null = no brush masks.
         maskLayers: FloatArray? = null,
@@ -925,6 +936,7 @@ object RawV3Engine {
             subjectMask, subjectMaskSize, subjectMaskH,
             subjectMaskRectU0, subjectMaskRectV0, subjectMaskRectU1, subjectMaskRectV1,
             attenMask, attenMaskSize, attenMaskH,
+            depthMap, depthMapW, depthMapH, focusDepth,
             maskLayers, maskLayerW, maskLayerH, maskLayerCount,
             toneCurveLut,
             iccProfile,
@@ -974,6 +986,10 @@ object RawV3Engine {
         attenMask: FloatArray?,
         attenMaskSize: Int,
         attenMaskH: Int,
+        depthMap: FloatArray?,
+        depthMapW: Int,
+        depthMapH: Int,
+        focusDepth: Float,
         maskLayers: FloatArray?,
         maskLayerW: Int,
         maskLayerH: Int,
@@ -1226,6 +1242,18 @@ object RawV3Engine {
         nativeDownsampleStageATiff(srcPath, dstPath, destW, destH)
     }.getOrDefault(false)
 
+    fun bakeVintageOverlay(film: Boolean, rgba: ByteArray, width: Int, height: Int) {
+        nativeBakeVintageOverlay(film, rgba, width, height)
+    }
+
+    @JvmStatic
+    private external fun nativeBakeVintageOverlay(
+        film: Boolean,
+        rgba: ByteArray,
+        width: Int,
+        height: Int,
+    )
+
     @JvmStatic
     private external fun nativeDownsampleStageATiff(
         srcPath: String,
@@ -1315,4 +1343,30 @@ object RawV3Engine {
 
     @JvmStatic
     private external fun nativeResetAdjustmentDebugLog()
+
+    // ─── Debug Exports (dual-demosaic maps) ──────────────────────────────────
+    fun exportDebugMap(type: Int, path: String): Boolean =
+        runCatching { nativeExportDebugMap(type, path) }.getOrDefault(false)
+
+    @JvmStatic
+    private external fun nativeExportDebugMap(type: Int, path: String): Boolean
+
+    // ─── AhbMaskLoader (zero-copy NPU bridge) ────────────────────────────────
+    fun createAhbMaskLoader(): Long = nativeCreateAhbMaskLoader()
+
+    fun destroyAhbMaskLoader(ptr: Long) = nativeDestroyAhbMaskLoader(ptr)
+
+    fun importAhbMask(ptr: Long, buffer: HardwareBuffer, eglDisplay: Long, generation: Long): Int =
+        nativeImportAhbMask(ptr, buffer, eglDisplay, generation)
+
+    @JvmStatic
+    private external fun nativeCreateAhbMaskLoader(): Long
+
+    @JvmStatic
+    private external fun nativeDestroyAhbMaskLoader(ptr: Long)
+
+    @JvmStatic
+    private external fun nativeImportAhbMask(
+        ptr: Long, buffer: HardwareBuffer, eglDisplay: Long, generation: Long
+    ): Int
 }

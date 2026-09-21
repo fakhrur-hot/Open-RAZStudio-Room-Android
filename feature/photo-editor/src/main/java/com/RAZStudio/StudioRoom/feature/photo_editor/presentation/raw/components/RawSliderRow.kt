@@ -18,19 +18,17 @@
 package com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.RAZStudio.StudioRoom.core.ui.theme.Spacing
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
@@ -76,21 +74,16 @@ internal fun RawSliderRow(
 
     val controlsEnabled = LocalPanelControlsEnabled.current
 
-    Row(
+    Column(
         modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(Spacing.micro),
     ) {
         Text(
-            text = label,
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.widthIn(min = 96.dp, max = 132.dp),
+            text = "$label $displayText",
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.fillMaxWidth(),
             maxLines = 1,
         )
-        // When a step is set, snap the slider's reported value to the nearest
-        // multiple. Material3's Slider supports `steps` (number of discrete
-        // notches between min/max) — compute that from the requested step
-        // size so the user gets haptic detents at each increment.
         val sliderSteps = if (step > 0f) {
             val span = valueRange.endInclusive - valueRange.start
             val n = (span / step).roundToLong().toInt() - 1
@@ -110,15 +103,10 @@ internal fun RawSliderRow(
             valueRange = valueRange,
             steps = sliderSteps,
             enabled = controlsEnabled && enabled,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = displayText,
-            style = MaterialTheme.typography.labelMedium,
-            textAlign = TextAlign.End,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            modifier = Modifier.width(44.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 56.dp)
+                .padding(bottom = Spacing.item),
         )
     }
 }

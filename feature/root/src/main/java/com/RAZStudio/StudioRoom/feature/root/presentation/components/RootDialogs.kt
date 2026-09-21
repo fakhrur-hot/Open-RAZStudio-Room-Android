@@ -61,6 +61,12 @@ internal fun RootDialogs(component: RootComponent) {
     val sharedUri = uris?.firstOrNull()
     LaunchedEffect(component.showSelectDialog, sharedUri) {
         if (component.showSelectDialog && sharedUri != null) {
+            if (!com.RAZStudio.StudioRoom.feature.main.presentation.components
+                    .TrialExpiry.isActiveBlocking()
+            ) {
+                component.hideSelectDialog()
+                return@LaunchedEffect
+            }
             component.hideSelectDialog()
             component.navigateTo(Screen.RawEditor(sharedUri))
             Clipboard.clear()

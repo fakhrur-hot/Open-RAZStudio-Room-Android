@@ -29,6 +29,7 @@ import com.RAZStudio.StudioRoom.libs
 import com.RAZStudio.StudioRoom.projects
 import com.RAZStudio.StudioRoom.resources
 import com.RAZStudio.StudioRoom.settings
+import com.RAZStudio.StudioRoom.shouldApplyDetekt
 import com.RAZStudio.StudioRoom.ui
 import com.RAZStudio.StudioRoom.utils
 import io.gitlab.arturbosch.detekt.extensions.DetektExtension
@@ -49,9 +50,10 @@ class StudioRoomApplicationPlugin : Plugin<Project> {
             apply(plugin = "com.google.firebase.crashlytics")
             apply(plugin = "com.mikepenz.aboutlibraries.plugin.android")
             apply(plugin = "org.jetbrains.kotlin.plugin.compose")
-            apply(plugin = "io.gitlab.arturbosch.detekt")
-
-            configureDetekt(extensions.getByType<DetektExtension>())
+            if (shouldApplyDetekt()) {
+                apply(plugin = "io.gitlab.arturbosch.detekt")
+                configureDetekt(extensions.getByType<DetektExtension>())
+            }
 
             extensions.configure<ApplicationExtension> {
                 configureKotlinAndroid(

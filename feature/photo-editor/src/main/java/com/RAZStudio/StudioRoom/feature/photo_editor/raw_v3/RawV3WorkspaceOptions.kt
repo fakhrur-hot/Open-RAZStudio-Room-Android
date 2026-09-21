@@ -56,6 +56,14 @@ data class RawV3WorkspaceOptions(
     /** Focal length (mm) override for the Lensfun correction; 0 = EXIF focal. */
     val lensfunFocalOverrideMm: Float = 0f,
     /**
+     * Zero-DCE adaptive devignetting: shadow threshold τ for the SNR mask
+     * (M = 1 − clamp(aMean/τ, 0, 1)) applied natively inside the Lensfun
+     * vignette pass. Higher = corners protected already at moderate shadow;
+     * lower = only the deepest shadows attenuate the optical gain.
+     * ~0.3–1.2, default 0.7. Only used when Lensfun correction runs.
+     */
+    val liftTau: Float = 0.7f,
+    /**
      * Manual offset applied to LibRaw's per-camera black-level default, in
      * raw DN. Positive lifts the black point (crushes shadows), negative
      * lowers it (lifts shadows / removes black tint).

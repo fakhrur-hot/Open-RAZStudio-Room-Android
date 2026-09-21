@@ -62,6 +62,13 @@ import com.RAZStudio.StudioRoom.feature.photo_editor.BuildConfig
 /** 8-point identity curve: (0,0),(1/7,1/7),...,(1,1). Used as default for all curve channels. */
 private val IDENTITY_CURVE_16: FloatArray = FloatArray(16) { i -> (i / 2) / 7f }
 
+data class VintageFx(
+    val mistIntensity: Float = 0f,
+    val mistScale: Float = 1f,
+    val textureIntensity: Float = 0f,
+    val textureScale: Float = 1f,
+)
+
 data class ShaderParams(
     // ── Workspace block (M4) ────────────────────────────────────────────
     val exposure: Float = 0f,        // [0]   stops, [-4..+4]
@@ -353,6 +360,7 @@ data class ShaderParams(
     val fxVintageStrength:    Float = 0f,   // [369] vintage strength 0..1
     val fxVintageFade:        Float = 0f,   // [370] vintage fade (black lift) 0..1
     val fxVintageVig:         Float = 0f,   // [371] vintage corner vignette 0..1
+    val vintage: VintageFx = VintageFx(),
     val fxGlowStrength:       Float = 0f,   // [372] glow bloom intensity 0..1
     val fxGlowSpread:         Float = 0f,   // [373] glow bloom radius 0..1
     val fxGlowWarmth:         Float = 0f,   // [374] glow warmth tint −0.5..+0.5
@@ -641,6 +649,15 @@ data class ShaderParams(
     // clarity paths — preview=export. See docs/GOTCHAS.md (clarity is a pair).
     val clarityLift:             Float = 0f, // [408] [0..1]
 ) {
+    val fxVintageMistIntensity: Float
+        get() = vintage.mistIntensity
+    val fxVintageMistScale: Float
+        get() = vintage.mistScale
+    val fxVintageTextureIntensity: Float
+        get() = vintage.textureIntensity
+    val fxVintageTextureScale: Float
+        get() = vintage.textureScale
+
     fun toFloatArray(): FloatArray = FloatArray(FLOAT_COUNT).also { a ->
         a[0]  = exposure
         a[1]  = contrast
@@ -661,6 +678,10 @@ data class ShaderParams(
         a[450] = if (lutBwForce) 1f else 0f
         a[451] = filmicLuma
         a[452] = oklabHlChroma
+        a[454] = vintage.mistIntensity
+        a[455] = vintage.mistScale
+        a[456] = vintage.textureIntensity
+        a[457] = vintage.textureScale
         a[32] = if (xmpEnabled) 1f else 0f
         a[33] = xmpExposure
         a[34] = xmpContrast
@@ -890,6 +911,10 @@ data class ShaderParams(
         a[450] = if (lutBwForce) 1f else 0f
         a[451] = filmicLuma
         a[452] = oklabHlChroma
+        a[454] = vintage.mistIntensity
+        a[455] = vintage.mistScale
+        a[456] = vintage.textureIntensity
+        a[457] = vintage.textureScale
         a[32] = if (xmpEnabled) 1f else 0f
         a[33] = xmpExposure
         a[34] = xmpContrast
@@ -1102,15 +1127,17 @@ data class ShaderParams(
     }
 
     companion object {
-        // Append-only ABI. Highest used slot [452] (oklabHlChroma);
-        // next free is [453].
+        // Append-only ABI. Highest used slot is [457] (vintage.textureScale);
+        // next free is [458].
         // lensFlare [400,401,409,430,431] + lensFlareWarmth [435],
         // colorShift [432,433,434],
         // film response [436..446], cinematic bloom [447..448],
         // purpleFringeMode [449] (moved off contested [199] — shadowsBackground),
-        // lutBwForce [450] — B&W pack chroma lock on intensity mix.
-        // filmicLuma [451], oklabHlChroma [452] — selective-bokeh look.
-        const val FLOAT_COUNT = 453
+        // lutBwForce [450], filmicLuma [451], oklabHlChroma [452]
+        // (slot [453] reserved to keep these three clear of the 450+ vintage
+        //  range they used to collide with),
+        // vintage [454..457] — mist intensity/scale and texture intensity/scale.
+        const val FLOAT_COUNT = 458
         const val XMP_BLOB_FLOAT_COUNT = 25
         /** Brush-mask layer count — matches GlesRenderer::kMaskLayers. */
         const val MASK_LAYER_COUNT = 4
@@ -1147,6 +1174,12 @@ data class ShaderParams(
             // hsl2 lives at [211..228]; default zero if blob predates Color Zones.
             val hsl2 = FloatArray(18)
             if (arr.size > 228) for (i in 0 until 18) hsl2[i] = arr[211 + i]
+            val vintage = VintageFx(
+                mistIntensity = arr.getOrElse(454) { 0f }.coerceIn(0f, 1f),
+                mistScale = arr.getOrElse(455) { 1f },
+                textureIntensity = arr.getOrElse(456) { 0f }.coerceIn(0f, 1f),
+                textureScale = arr.getOrElse(457) { 1f },
+            )
             return ShaderParams(
                 exposure     = arr[0],
                 contrast     = arr[1],
@@ -1166,8 +1199,8 @@ data class ShaderParams(
                 gamutOut     = arr[30].toInt(),
                 lutIntensity = arr[31].coerceIn(0f, 1f),
                 lutBwForce   = arr.getOrElse(450) { 0f } > 0.5f,
-                filmicLuma   = arr.getOrElse(451) { 0f }.coerceIn(0f, 1f),
-                oklabHlChroma = arr.getOrElse(452) { 0f }.coerceIn(0f, 1f),
+                filmicLuma   = arr.getOrElse(451) { 0f },
+                oklabHlChroma = arr.getOrElse(452) { 0f },
                 xmpEnabled   = arr[32] > 0.5f,
                 xmpExposure  = arr[33],
                 xmpContrast  = arr[34],
@@ -1394,6 +1427,12 @@ data class ShaderParams(
                 fxVintageStrength    = arr.getOrElse(369) { 0f }.coerceIn(0f, 1f),
                 fxVintageFade        = arr.getOrElse(370) { 0f }.coerceIn(0f, 1f),
                 fxVintageVig         = arr.getOrElse(371) { 0f }.coerceIn(0f, 1f),
+                vintage = VintageFx(
+                    mistIntensity = arr.getOrElse(454) { 0f }.coerceIn(0f, 1f),
+                    mistScale = arr.getOrElse(455) { 1f }.coerceAtLeast(1f),
+                    textureIntensity = arr.getOrElse(456) { 0f }.coerceIn(0f, 1f),
+                    textureScale = arr.getOrElse(457) { 1f }.coerceAtLeast(1f),
+                ),
                 fxGlowStrength       = arr.getOrElse(372) { 0f }.coerceIn(0f, 1f),
                 fxGlowSpread         = arr.getOrElse(373) { 0f }.coerceIn(0f, 1f),
                 fxGlowWarmth         = arr.getOrElse(374) { 0f }.coerceIn(-0.5f, 0.5f),
@@ -1487,9 +1526,10 @@ fun ShaderParams.withUpdate(slot: Int, value: Float): ShaderParams = when (slot)
     // [29] lutEnabled bool — skip
     // [30] gamutOut int — skip
     31   -> copy(lutIntensity         = value.coerceIn(0f, 1f))
-    450  -> copy(lutBwForce           = value > 0.5f)
-    451  -> copy(filmicLuma           = value.coerceIn(0f, 1f))
-    452  -> copy(oklabHlChroma        = value.coerceIn(0f, 1f))
+    454  -> copy(vintage = vintage.copy(mistIntensity = value.coerceIn(0f, 1f)))
+    455  -> copy(vintage = vintage.copy(mistScale = value.coerceAtLeast(1f)))
+    456  -> copy(vintage = vintage.copy(textureIntensity = value.coerceIn(0f, 1f)))
+    457  -> copy(vintage = vintage.copy(textureScale = value.coerceAtLeast(1f)))
     // [32] xmpEnabled bool — skip
     33   -> copy(xmpExposure          = value.coerceIn(-4f, 4f))
     34   -> copy(xmpContrast          = value.coerceIn(-1f, 1f))

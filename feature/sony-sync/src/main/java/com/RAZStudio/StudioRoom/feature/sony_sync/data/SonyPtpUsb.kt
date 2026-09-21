@@ -212,6 +212,86 @@ class SonyPtpUsb(private val log: (String) -> Unit = {}) {
     private var loggedMap = false
     private var prevProps: Map<Int, Long>? = null
 
+    // ── Device info (read-only firmware/version) ─────────────────────────────
+
+    /** A few read-only identity strings parsed from PTP GetDeviceInfo. */
+    data class DeviceInfo(
+        val manufacturer: String?,
+        val model: String?,
+        /** PTP "DeviceVersion" — Sony reports the camera firmware here (best-effort). */
+        val deviceVersion: String?,
+        val serialNumber: String?,
+    )
+
+    /**
+     * GetDeviceInfo (0x1001) — the STANDARD, read-only PTP identity op every
+     * still-image device answers. Safe: no firmware/service/updater mode, just a
+     * device→host data phase. Returns null if the camera doesn't answer.
+     *
+     * The DeviceInfo dataset layout (PTP spec, all little-endian):
+     *   u16 StandardVersion
+     *   u32 VendorExtensionID
+     *   u16 VendorExtensionVersion
+     *   str VendorExtensionDesc
+     *   u16 FunctionalMode
+     *   u16[] OperationsSupported
+     *   u16[] EventsSupported
+     *   u16[] DevicePropertiesSupported
+     *   u16[] CaptureFormats
+     *   u16[] ImageFormats
+     *   str Manufacturer
+     *   str Model
+     *   str DeviceVersion   ← Sony puts the firmware string here
+     *   str SerialNumber
+     * We only need the four trailing strings, but must walk the arrays to reach
+     * them. Parsing is fully bounds-checked; any malformed field yields null.
+     */
+    fun readDeviceInfo(): DeviceInfo? {
+        val data = readData(OP_GET_DEVICE_INFO, IntArray(0)) ?: return null
+        return runCatching { parseDeviceInfo(data) }
+            .onFailure { log("DeviceInfo parse failed: ${it.message}") }
+            .getOrNull()
+    }
+
+    private fun parseDeviceInfo(d: ByteArray): DeviceInfo {
+        var p = 0
+        fun need(n: Int) { if (p + n > d.size) throw IndexOutOfBoundsException("DeviceInfo truncated") }
+        fun u16(): Int { need(2); val v = readLe16(d, p); p += 2; return v }
+        fun u32(): Long { need(4); val v = readLe32(d, p); p += 4; return v }
+        // PTP string: u8 length (in UTF-16 code units, incl. NUL), then that many
+        // LE UTF-16 units. length 0 = empty string.
+        fun ptpStr(): String? {
+            need(1); val units = d[p].toInt() and 0xFF; p += 1
+            if (units == 0) return null
+            need(units * 2)
+            val sb = StringBuilder(units)
+            for (i in 0 until units) {
+                val ch = readLe16(d, p + i * 2)
+                if (ch != 0) sb.append(ch.toChar())
+            }
+            p += units * 2
+            return sb.toString().ifBlank { null }
+        }
+        // PTP array: u32 count, then count × u16 (we only need to skip them).
+        fun skipU16Array() { val n = u32(); need((n * 2).toInt()); p += (n * 2).toInt() }
+
+        u16()            // StandardVersion
+        u32()            // VendorExtensionID
+        u16()            // VendorExtensionVersion
+        ptpStr()         // VendorExtensionDesc
+        u16()            // FunctionalMode
+        skipU16Array()   // OperationsSupported
+        skipU16Array()   // EventsSupported
+        skipU16Array()   // DevicePropertiesSupported
+        skipU16Array()   // CaptureFormats
+        skipU16Array()   // ImageFormats
+        val manufacturer = ptpStr()
+        val model = ptpStr()
+        val deviceVersion = ptpStr()
+        val serialNumber = ptpStr()
+        return DeviceInfo(manufacturer, model, deviceVersion, serialNumber)
+    }
+
     // ── Writes (control) ─────────────────────────────────────────────────────
 
     /** Absolute set (DRO, ImageSize, WB, …) — SetControlDeviceA (0x9205). */
@@ -505,6 +585,7 @@ class SonyPtpUsb(private val log: (String) -> Unit = {}) {
         private const val RESP_OK = 0x2001
 
         // Operations
+        private const val OP_GET_DEVICE_INFO = 0x1001
         private const val OP_OPEN_SESSION = 0x1002
         private const val OP_GET_OBJECT_INFO = 0x1008
         private const val OP_GET_OBJECT = 0x1009

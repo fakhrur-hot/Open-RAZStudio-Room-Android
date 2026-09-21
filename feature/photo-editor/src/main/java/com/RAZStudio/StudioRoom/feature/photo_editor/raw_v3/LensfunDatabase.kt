@@ -13,18 +13,9 @@ import android.util.Log
 import java.io.File
 
 /**
- * Materialises the Lensfun database (XML files placed in assets/lensfun_db —
- * a snapshot of lensfun master's data/db) into filesDir so the native expat
- * loader can read it from a plain directory path.
- *
- * FOSS build note:
- * The Lensfun database is NOT bundled in this open-source repository. To
- * enable lens correction, a builder must supply their own copy: drop the
- * lensfun database XML files (data/db, the dot-xml files) into
- *   feature/photo-editor/src/main/assets/lensfun_db/
- * before building (see that folder's README). When the directory is absent
- * or empty, [ensureMaterialized] returns null and lens correction is simply
- * disabled — the app still builds and runs offline.
+ * Materialises the bundled Lensfun database (the XML files in
+ * assets/lensfun_db — a snapshot of lensfun master's data/db) into filesDir
+ * so the native expat loader can read it from a plain directory path.
  *
  * Copy happens once per install/update: a marker file records the asset
  * count, so shipping an updated database in a new APK re-materialises

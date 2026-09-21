@@ -52,6 +52,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.RAZStudio.StudioRoom.core.resources.R
+import com.RAZStudio.StudioRoom.core.ui.edition.EditionCapabilities
 import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskBrushMode
 import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.RawAction
 import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.UserMacro
@@ -64,6 +65,9 @@ internal const val TAB_MASKS_LOCAL   = 3  // "Gradient" tab — Gradients only (
 internal const val TAB_EFFECTS       = 4  // Ambiance, Bokeh, Bloom, Blur, Mist/Glow, Orton, Sharpen
 internal const val TAB_TEXTURE_GRAIN = 5  // Film Grain, Detail Grain, Haxademic Grain, CA, Dither
 internal const val TAB_ACTIONS       = 6  // 4 CPU action buttons + GPU/CPU card containers
+internal const val TAB_LUT1          = 11 // 3D LUT slot 1 ("LUT 1 Corr", applied once)
+internal const val TAB_LUT2          = 12 // 3D LUT slot 2 ("LUT 2 Color", applied once)
+internal const val TAB_LUT_ADJ       = 13 // LUT Adjustments (CLAHE/WB/skintone/dehaze trims)
 internal const val TAB_MASK_LAYERS   = 14 // Brush-mask painting + per-mask adjustments (split from Local)
 internal const val TAB_VIGNETTE_PANE = 15 // Vignette (split from Local; the old Local tab is now Gradient-only)
 
@@ -92,7 +96,7 @@ internal const val TAB_HEAL        = 10  // was old slot 10 — Heal moved to ex
  * Tab layout (tasks 9.1–9.4):
  *   0 TAB_TONE_COLOR    — Light (RawLightTab) + Tonemap (RawTonemapTab)
  *   1 TAB_COLOR_TOOLS   — Color (RawColorTab)
- *   2 TAB_CURVES_LUT    — Tone Curves (RawToneCurvesTab) only
+ *   2 TAB_CURVES_LUT    — Tone Curves (RawToneCurvesTab) + LUT (RawLutTab)
  *   3 TAB_MASKS_LOCAL   — "Gradient" tab: Gradient (RawGradientTab) only
  *  15 TAB_VIGNETTE_PANE — "Vignette" tab: Vignette (RawVignetteTab)
  *   4 TAB_EFFECTS       — Effects (RawEffectsTab)
@@ -131,13 +135,14 @@ internal fun RawAdjustmentPanel(
      * without losing the user's prior edit.
      */
     onRestoreAction: (originalIndex: Int, action: RawAction) -> Unit,
-    onDeleteAction: (String) -> Unit,
+    onDeleteAction: (id: String, keepStorage: Boolean) -> Unit,
     onEyeToggleAction: (String) -> Unit,
     onToggleLockAction: (String) -> Unit,
     presets: List<com.RAZStudio.StudioRoom.feature.photo_editor.raw.RawPresetsStorage.Preset>,
     onSavePreset: (String) -> Boolean,
     onLoadPreset: (Int) -> Unit,
     onDeletePreset: (Int) -> Unit,
+    onExportDebugMap: (Int) -> Unit = {},
     onExportToEditor: () -> Unit,
     onExportActions: () -> Unit,
     onImportActions: () -> Unit,
@@ -207,6 +212,10 @@ internal fun RawAdjustmentPanel(
     // Color-range ("Select Color") mask tool — forwarded to RawMaskTab.
     colorTolerance: Float = 50f,
     onColorToleranceChange: (Float) -> Unit = {},
+    colorRange: Float = 60f,
+    onColorRangeChange: (Float) -> Unit = {},
+    colorFeather: Float = 30f,
+    onColorFeatherChange: (Float) -> Unit = {},
     colorSampleArgb: Int = 0,
     onClearColorSamples: () -> Unit = {},
     chromaSubtractMode: Boolean = false,
@@ -241,6 +250,8 @@ internal fun RawAdjustmentPanel(
     includedMaskClasses: Set<com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass> = emptySet(),
     /** The "prime" mask class — the first one selected. Its button shows a filled star indicator. */
     primaryMaskClass: com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass? = null,
+    primaryIsLuma: Boolean = false,
+    primaryIsChroma: Boolean = false,
     /** Luma/Chroma Add+Remove — host implements clear-vs-carve (maskLumCombine). */
     onAddLuma: () -> Unit = {},
     onRemoveLuma: () -> Unit = {},
@@ -253,6 +264,8 @@ internal fun RawAdjustmentPanel(
     onTabSelected: (Int) -> Unit = {},
     isVignetteCenterMode: Boolean = false,
     onVignetteCenterModeChange: (Boolean) -> Unit = {},
+    isLensFlareMoveMode: Boolean = false,
+    onLensFlareMoveModeChange: (Boolean) -> Unit = {},
     /** When true, hide RAW-only tabs (currently just Light — depends on sensor
      *  data) AND swap the Colour tab's Kelvin readout for a relative
      *  Temperature slider (a developed file has no as-shot white balance). */
@@ -292,6 +305,14 @@ internal fun RawAdjustmentPanel(
 ) {
     var selectedTab by remember { mutableIntStateOf(TAB_ACTIONS) }
     var pendingTab  by remember { mutableStateOf<Int?>(null) }
+
+    // Tab scroll memory: each tab keeps its own scroll position so switching
+    // back doesn't reset to the top. Identity keys (Int) match the TAB_* constants.
+    val tabScrollStates = remember { mutableMapOf<Int, androidx.compose.foundation.ScrollState>() }
+    val currentScrollState = tabScrollStates.getOrPut(selectedTab) {
+        androidx.compose.foundation.ScrollState(initial = 0)
+    }
+
     // When the user taps an action card to re-edit it, that card is
     // deleted from the stack so the new Apply can replace it cleanly.
     // We hold onto the deleted RawAction here (with its original index)
@@ -308,12 +329,21 @@ internal fun RawAdjustmentPanel(
         TAB_TONE_COLOR    to "Tone",
         TAB_COLOR_TOOLS   to "Color",
         TAB_CURVES_LUT    to "Curves",
+        TAB_LUT1          to "LUT",
+        // LUT 2 (TAB_LUT2) hidden by request — single LUT slot. Its content
+        // case + the chain-bake path are kept so presets carrying a 2nd LUT
+        // still render, but it's no longer selectable from the strip.
+        TAB_LUT_ADJ       to "LUT Adj",
         TAB_VIGNETTE_PANE to "Vignette",
         TAB_MASKS_LOCAL   to "Gradient",
         TAB_MASK_LAYERS   to "Mask",
         TAB_EFFECTS       to "FX",
         TAB_TEXTURE_GRAIN to "Details",
     )
+
+    LaunchedEffect(Unit) {
+        if (!EditionCapabilities.isRawTabWired(selectedTab)) selectedTab = TAB_ACTIONS
+    }
 
     // TAB_LIGHT no longer has its own slot in the strip (it is merged into TAB_TONE_COLOR).
     // If an old stored tabIndex somehow lands us on TAB_LIGHT (legacy value = 1 = TAB_COLOR_TOOLS)
@@ -339,6 +369,7 @@ internal fun RawAdjustmentPanel(
         onTabSelected(selectedTab)
         // Vignette center mode only applies while the Vignette tab is open.
         if (selectedTab != TAB_VIGNETTE_PANE) onVignetteCenterModeChange(false)
+        if (selectedTab != TAB_EFFECTS) onLensFlareMoveModeChange(false)
     }
 
     // Legacy pending-tab tracking now applies ONLY to the Mask tab — it alone
@@ -364,7 +395,7 @@ internal fun RawAdjustmentPanel(
         val tab = when (tabIndex) {
             TAB_TONE_COLOR    -> "Tone"
             TAB_COLOR_TOOLS   -> "Color"
-            TAB_CURVES_LUT    -> "Curves"
+            TAB_CURVES_LUT    -> "LUT"
             TAB_VIGNETTE_PANE -> "Vignette"
             TAB_MASKS_LOCAL   -> "Gradient"
             TAB_MASK_LAYERS   -> "Mask"
@@ -479,6 +510,32 @@ internal fun RawAdjustmentPanel(
                         toneCurveLumaMode = m.toneCurveLumaMode,
                         filmCurve = m.filmCurve,
                     ))
+            }
+            TAB_LUT_ADJ -> {
+                // CLAHE UI hidden — still register cards if sidecar/preset sets them.
+                addF(m.claheShadowsBoost,    "CLAHE Shadows",    scale=100f, single=d.copy(claheShadowsBoost=m.claheShadowsBoost))
+                addF(m.claheHighlightsBoost, "CLAHE Highlights", scale=100f, single=d.copy(claheHighlightsBoost=m.claheHighlightsBoost))
+                addF(m.highlightTemperature, "Hi Temp",          scale=100f, single=d.copy(highlightTemperature=m.highlightTemperature))
+                addF(m.highlightTint,        "Hi Tint",          scale=100f, single=d.copy(highlightTint=m.highlightTint))
+                addF(m.shadowTemperature,    "Sh Temp",          scale=100f, single=d.copy(shadowTemperature=m.shadowTemperature))
+                addF(m.shadowTint,           "Sh Tint",          scale=100f, single=d.copy(shadowTint=m.shadowTint))
+                addF(m.colorDensity,  "Color Density", single=d.copy(colorDensity=m.colorDensity))
+                addF(m.skintoneWarm,  "Sk Warm",       single=d.copy(skintoneWarm=m.skintoneWarm))
+                addF(m.skintoneSmooth,"Sk Smooth",     single=d.copy(skintoneSmooth=m.skintoneSmooth))
+                addF(m.skintoneLuma,  "Sk Luma",       single=d.copy(skintoneLuma=m.skintoneLuma))
+                addF(m.dehaze,       "Dehaze",   single=d.copy(dehaze=m.dehaze))
+            }
+            TAB_LUT1, TAB_LUT2 -> {
+                // One card per LUT slot. The pending macro carries the in-flight
+                // slot edit (lutEdited + lutSlot); replay folds it into slot 1/2.
+                if (m.lutEdited) {
+                    val slot = m.lutSlot.coerceIn(1, 2)
+                    val nm = if (m.lutCubeUri.isEmpty()) "Off"
+                             else m.lutCubeUri.substringAfterLast('/').substringBeforeLast('.').take(16)
+                    add("LUT $slot · $nm ${(m.lutIntensity * 100).toInt()}%",
+                        d.copy(lutSlot = slot, lutCubeUri = m.lutCubeUri,
+                               lutIntensity = m.lutIntensity, lutEdited = true))
+                }
             }
             TAB_VIGNETTE_PANE -> {
                 // Vignette: register whenever amount, segmentation (Smart Vignette),
@@ -617,10 +674,17 @@ internal fun RawAdjustmentPanel(
                 if (m.lensFlare.brightness > 0f) add("Lens Flare", d.copy(lensFlare=m.lensFlare))
                 if (m.colorShift.redX != 0f || m.colorShift.greenX != 0f || m.colorShift.blueX != 0f)
                     add("Color Shift", d.copy(colorShift=m.colorShift))
-                // Mist UI hidden — still card legacy non-zero sidecars.
-                addF(m.fxMist,          "Mist",    single=d.copy(fxMist=m.fxMist,fxMistWarmth=m.fxMistWarmth))
-                addF(m.fxVintageStrength,"Vintage",single=d.copy(fxVintageStrength=m.fxVintageStrength,fxVintageFade=m.fxVintageFade))
+                                // Vintage Amount/Vig were missing from cards → live/export stayed 0 when
+                // mixed with other FX cards (safety net only fires on mismatch; empty
+                // Amount-only used full delta, but Amount+Bloom dropped Amount).
+                addF(m.fxVintageStrength, "Vintage Amount", single=d.copy(fxVintageStrength=m.fxVintageStrength))
                 addF(m.fxVintageFade,   "Tape Fade",  single=d.copy(fxVintageFade=m.fxVintageFade))
+                addF(m.fxVintageMistIntensity, "Mist Intensity", single=d.copy(fxVintageMistIntensity=m.fxVintageMistIntensity))
+                addF(m.fxVintageMistScale, "Mist Scale", default=1f, single=d.copy(fxVintageMistScale=m.fxVintageMistScale))
+                addF(m.fxVintageTextureIntensity, "Tex Intensity", single=d.copy(fxVintageTextureIntensity=m.fxVintageTextureIntensity))
+                addF(m.fxVintageTextureScale, "Tex Scale", default=1f, single=d.copy(fxVintageTextureScale=m.fxVintageTextureScale))
+                // Mist UI (wash) hidden — still card legacy non-zero sidecars.
+                addF(m.fxMist,          "Mist",    single=d.copy(fxMist=m.fxMist,fxMistWarmth=m.fxMistWarmth))
             }
             TAB_TEXTURE_GRAIN -> {
                 addF(m.ambiance,        "Ambiance",scale=100f, single=d.copy(ambiance=m.ambiance))
@@ -632,7 +696,7 @@ internal fun RawAdjustmentPanel(
                 addF(m.colorNR,         "Color NR",scale=100f, single=d.copy(colorNR=m.colorNR))
                 addF(m.blueNR,          "Blue NR", scale=100f, single=d.copy(blueNR=m.blueNR))
                 addF(m.redNR,           "Red NR",  scale=100f, single=d.copy(redNR=m.redNR))
-                addF(m.smartSharpness,  "Smart Sharp",scale=100f,single=d.copy(smartSharpness=m.smartSharpness))
+                addF(m.smartSharpness,  "Sharpness",scale=100f,single=d.copy(smartSharpness=m.smartSharpness))
                 addF(m.smoothBackground,"Smooth BG",  scale=100f,single=d.copy(smoothBackground=m.smoothBackground))
             }
         }
@@ -743,13 +807,14 @@ internal fun RawAdjustmentPanel(
             tabs.forEach { (tabIndex, title) ->
                 // Actions tab is always accessible; all others lock when another tab has a pending edit
                 val isLocked = pendingTab != null && pendingTab != tabIndex && tabIndex != TAB_ACTIONS
+                val unwired = !EditionCapabilities.isRawTabWired(tabIndex)
                 Tab(
                     selected = selectedTab == tabIndex,
-                    onClick  = { if (!isLocked) selectedTab = tabIndex },
-                    enabled  = !isLocked,
+                    onClick  = { if (!isLocked && !unwired) selectedTab = tabIndex },
+                    enabled  = !isLocked && !unwired,
                     text     = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(title)
+                            Text(title, modifier = if (unwired) Modifier.alpha(0.38f) else Modifier)
                             if (tabIndex in modifiedTabs) {
                                 Spacer(Modifier.size(4.dp))
                                 Box(
@@ -783,7 +848,7 @@ internal fun RawAdjustmentPanel(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(rememberScrollState()),
+                        .verticalScroll(currentScrollState),
                 ) {
                     // Embed the curves editor inline; it sizes itself to the available width.
                     RawToneCurvesTab(
@@ -808,9 +873,76 @@ internal fun RawAdjustmentPanel(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(rememberScrollState()),
+                        .verticalScroll(currentScrollState),
                 ) {
                     when (selectedTab) {
+                        // ── LUT 1 / LUT 2: one cube per slot, applied once ───────
+                        // RawLutTab is slot-agnostic (it edits "the active LUT" via
+                        // lutCubeUri/lutIntensity); we shim those to the slot's
+                        // committed value (or the in-flight edit while picking) and
+                        // remap writes back to the slot via lutSlot+lutEdited.
+                        TAB_LUT1, TAB_LUT2 -> {
+                            val slot = if (selectedTab == TAB_LUT2) 2 else 1
+                            val editingThisSlot = liveMacro.lutEdited && liveMacro.lutSlot == slot
+                            val slotUri = when {
+                                editingThisSlot -> liveMacro.lutCubeUri
+                                slot == 2       -> liveMacro.lut2CubeUri
+                                else            -> liveMacro.lut1CubeUri
+                            }
+                            val slotIntensity = when {
+                                editingThisSlot -> liveMacro.lutIntensity
+                                slot == 2       -> liveMacro.lut2Intensity
+                                else            -> liveMacro.lut1Intensity
+                            }
+                            RawLutTab(
+                                macro = liveMacro.copy(lutCubeUri = slotUri, lutIntensity = slotIntensity),
+                                onMacroChange = { edited ->
+                                    onLiveChange(
+                                        liveMacro.copy(
+                                            lutSlot      = slot,
+                                            lutEdited    = true,
+                                            lutCubeUri   = edited.lutCubeUri,
+                                            lutIntensity = edited.lutIntensity,
+                                        )
+                                    )
+                                },
+                                modifier         = contentModifier,
+                                subjectMaskReady = segmentationMasks != null,
+                                showPicker       = true,
+                                showFinishing    = false,
+                                onSaveEditAsLut  = onSaveEditAsLut,
+                            )
+                            // Reset = clear this slot. Goes through the same slot
+                            // shim as an edit: lutEdited + empty cube -> replaceTabCards
+                            // removes the slot's card (see RawEditorComponent).
+                            ResetPill(
+                                text = "Clear LUT $slot",
+                                onClick = {
+                                    onLiveChange(
+                                        liveMacro.copy(
+                                            lutSlot      = slot,
+                                            lutEdited    = true,
+                                            lutCubeUri   = "",
+                                            lutIntensity = 1f,
+                                        )
+                                    )
+                                },
+                                modifier = contentModifier,
+                            )
+                        }
+                        // ── LUT ADJ: the LUT-adjustment finishing trims (CLAHE,
+                        //    zone WB, skintone, bloom, dehaze) — moved out of the
+                        //    Curves tab into their own tab. ─────────────────────
+                        TAB_LUT_ADJ -> {
+                            RawLutTab(
+                                macro            = liveMacro,
+                                onMacroChange    = ::onLiveChange,
+                                modifier         = contentModifier,
+                                subjectMaskReady = segmentationMasks != null,
+                                showPicker       = false,
+                                showFinishing    = true,
+                            )
+                        }
                         // ── Tab 0: Tone & Color (Light + Tonemap) ────────────────
                         TAB_TONE_COLOR -> {
                             RawLightTab(
@@ -901,6 +1033,10 @@ internal fun RawAdjustmentPanel(
                                 onBrushFeather       = onBrushFeather,
                                 colorTolerance       = colorTolerance,
                                 onColorToleranceChange = onColorToleranceChange,
+                                colorRange           = colorRange,
+                                onColorRangeChange   = onColorRangeChange,
+                                colorFeather         = colorFeather,
+                                onColorFeatherChange = onColorFeatherChange,
                                 colorSampleArgb      = colorSampleArgb,
                                 onClearColorSamples  = onClearColorSamples,
                                 chromaSubtractMode   = chromaSubtractMode,
@@ -932,6 +1068,8 @@ internal fun RawAdjustmentPanel(
                                 onRemoveSky          = onRemoveSky,
                                 includedClasses      = includedMaskClasses,
                                 primaryMaskClass     = primaryMaskClass,
+                                primaryIsLuma        = primaryIsLuma,
+                                primaryIsChroma      = primaryIsChroma,
                                 onAddLuma            = onAddLuma,
                                 onRemoveLuma         = onRemoveLuma,
                                 onAddChroma          = onAddChroma,
@@ -950,6 +1088,8 @@ internal fun RawAdjustmentPanel(
                             subjectSegBusy = subjectSegBusy,
                             subjectDetected = subjectDetected,
                             imageLongSide = imageLongSide,
+                            isLensFlareMoveMode = isLensFlareMoveMode,
+                            onLensFlareMoveModeChange = onLensFlareMoveModeChange,
                             modifier      = contentModifier,
                         )
 
@@ -989,7 +1129,7 @@ internal fun RawAdjustmentPanel(
                                             val idx = actions.indexOfFirst { it.id == action.id }
                                             if (idx >= 0) {
                                                 loadedOriginal = LoadedOriginal(idx, action)
-                                                onDeleteAction(action.id)
+                                                onDeleteAction(action.id, true)
                                             }
                                             onLoadAction(action)
                                             pendingTab = action.tabIndex
@@ -1010,6 +1150,7 @@ internal fun RawAdjustmentPanel(
                                 onSavePreset   = onSavePreset,
                                 onLoadPreset   = onLoadPreset,
                                 onDeletePreset = onDeletePreset,
+                                onExportDebugMap = onExportDebugMap,
                                 modifier       = contentModifier,
                             )
                         }
@@ -1050,7 +1191,7 @@ internal fun RawAdjustmentPanel(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(horizontal = 16.dp, vertical = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     OutlinedButton(
@@ -1090,7 +1231,7 @@ private fun OneTimeOnlyBanner(tabName: String) {
             colors = androidx.compose.material3.CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
             ),
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(20.dp),
         ) {
             Column(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),

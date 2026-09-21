@@ -51,9 +51,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(NOT DEFINED RAZ_CPP_ROOT)
     set(RAZ_CPP_ROOT "${CMAKE_CURRENT_LIST_DIR}")
 endif()
-set(CPP_ROOT     "${RAZ_CPP_ROOT}")
-set(LIBRAW_PATH  "${CPP_ROOT}/../../../libraw-native")
-set(LIBXML2_PATH "${CPP_ROOT}/../../../libxml2-native")
+set(CPP_ROOT "${RAZ_CPP_ROOT}")
+if(NOT DEFINED RAZ_LIBRAW_PATH)
+    set(RAZ_LIBRAW_PATH "${CPP_ROOT}/../../../libraw-native")
+endif()
+if(NOT DEFINED RAZ_LIBXML2_PATH)
+    set(RAZ_LIBXML2_PATH "${CPP_ROOT}/../../../libxml2-native")
+endif()
+set(LIBRAW_PATH  "${RAZ_LIBRAW_PATH}")
+set(LIBXML2_PATH "${RAZ_LIBXML2_PATH}")
 
 # LibRaw source list, shared verbatim with the Android target.
 include("${CPP_ROOT}/libraw_sources.cmake")
@@ -73,6 +79,7 @@ set(RAZ_BATCH_SOURCES
         ${CPP_ROOT}/v3/raw_v3_highlight_recovery.cpp
         ${CPP_ROOT}/v3/raw_hdr_recovery.cpp
         ${CPP_ROOT}/v3/raw_shadow_recovery.cpp
+        ${CPP_ROOT}/v3/dng_gainmap.cpp
         ${CPP_ROOT}/v3/guided_filter.cpp
         ${CPP_ROOT}/v3/rayxie_defringe.cpp
         # LUT parsing. Only parseCubeFile() is needed here — the GL upload half
@@ -87,7 +94,7 @@ set(RAZ_BATCH_SOURCES
         # AI Enhance kernel — stage_a.cpp calls lmmse_enhance::enhanceFp32RGBA
         # directly, so it is part of the batch path even though it lives in
         # another Gradle module (the Android CMakeLists pulls it in the same way).
-        ${CPP_ROOT}/../../../../../feature/ai-enhance/src/main/cpp/lmmse_enhance.cpp
+        ${RAZ_AI_ENHANCE_SOURCE}
 )
 
 set(RAZ_DESKTOP_SOURCES ${CPP_ROOT}/desktop/razbatch_main.cpp)
@@ -111,7 +118,9 @@ endif()
 # RAZ_HAVE_ONNXRUNTIME gates a POST_BUILD DLL-copy step on that target, and a
 # variable used before it's set silently evaluates false in CMake (no error),
 # so ordering here is load-bearing, not cosmetic.
-if(DEFINED ENV{ONNXRUNTIME_ROOT})
+if(DEFINED RAZ_ONNXRUNTIME_ROOT)
+    set(ONNXRUNTIME_ROOT "${RAZ_ONNXRUNTIME_ROOT}")
+elseif(DEFINED ENV{ONNXRUNTIME_ROOT})
     set(ONNXRUNTIME_ROOT "$ENV{ONNXRUNTIME_ROOT}")
 else()
     # Fallback: try to find in Program Files or build directory
@@ -242,6 +251,7 @@ if(WIN32)
             ${CPP_ROOT}/v3/grading_uniforms.cpp
             ${CPP_ROOT}/v3/shader_params_from_array.cpp
             ${CPP_ROOT}/v3/shader_sources.cpp
+            ${CPP_ROOT}/v3/tiff_mmap_io.cpp
             ${CPP_ROOT}/v3/apply_macro.cpp
             ${CPP_ROOT}/v3/v3_debug_log.cpp
     )

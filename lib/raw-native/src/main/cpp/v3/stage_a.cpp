@@ -587,10 +587,25 @@ void neutralizeHighlights(__fp16* rgba, int width, int height, float strength) {
             float g0 = float(rgba[i * 4 + 1]);
             float b0 = float(rgba[i * 4 + 2]);
             // Hue term: normalise by luma so this fires the same way on a
-            // dim shadow-toned magenta pixel as a bright one — an absolute
-            // (R,B)-G difference would under-react on darker sky pixels.
-            const float magentaSignature = (std::min(r0, b0) - g0) / std::max(luma[i], 0.05f);
-            const float hueTerm = std::max(0.f, std::min(1.f, magentaSignature * 3.0f));
+            // dim shadow-tinted pixel as a bright one — an absolute channel
+            // difference would under-react on darker sky pixels.
+            //
+            // Detect chromatic highlight contamination in BOTH directions.
+            //   Magenta: R/B > G   (the original dual-blend LMMSE cast)
+            //   Green:   G > R/B   (rebuild-mode fringe on saturated warm
+            //                       highlights — was passing straight through
+            //                       because the old gate only tested magenta)
+            // The deadband avoids reacting to small channel imbalance / demosaic
+            // noise. A genuinely warm highlight (R > G > B) yields a negative
+            // greenSignature and is left untouched.
+            const float safeLuma = std::max(luma[i], 0.05f);
+            const float magentaSignature = (std::min(r0, b0) - g0) / safeLuma;
+            const float greenSignature   = (g0 - std::max(r0, b0)) / safeLuma;
+            const float magentaExcess = std::max(0.f, magentaSignature - 0.015f);
+            const float greenExcess   = std::max(0.f, greenSignature   - 0.015f);
+            const float magentaTerm   = std::max(0.f, std::min(1.f, magentaExcess * 3.5f));
+            const float greenTerm     = std::max(0.f, std::min(1.f, greenExcess   * 3.5f));
+            const float hueTerm = std::max(magentaTerm, greenTerm);
 
             float nbMax = maxc[i];
             float nbMin = luma[i];
@@ -1970,115 +1985,6 @@ StageAMetadata runStageA(
          W, H,
          (long long) std::chrono::duration_cast<std::chrono::milliseconds>(tDecode - t0).count());
 
-    // ── Lensfun lens correction (devignette + distortion + TCA) ──────────────
-    // Placement per RawTherapee (improccoordinator: demosaic → transform) and
-    // darktable: geometric corrections run on the demosaiced image, NOT on the
-    // Bayer mosaic — resampling CFA data would destroy the pattern. This is
-    // the earliest post-demosaic point: upright orientation, before CLAHE /
-    // enhancement, so every later stage (preview + export share this A.tif)
-    // sees corrected pixels. Vignetting is corrected in linear light inside
-    // lfa_correct_rgba_f16 (the buffer here is sRGB-encoded FP16).
-    //
-    // Camera + lens are matched from the RAW's own metadata with a STRICT
-    // matcher — if either side can't be confidently resolved, the import
-    // continues without correction (product rule: only auto-retrieved-complete
-    // configurations correct; nothing is ever guessed).
-    bool lensRanThisImport = false;
-    const char* lensSkipReason = "lens correction off";
-    if (!options.lensfunDbDir.empty()) {
-        lensSkipReason = "no confident camera+lens match";
-        const LfDatabase* lfaDbPtr = lfa_cached_database(options.lensfunDbDir.c_str());
-        const char* camMaker  = raw->imgdata.idata.make;
-        const char* camModel  = raw->imgdata.idata.model;
-        const char* lensMaker = raw->imgdata.lens.LensMake;
-        const char* lensModel = raw->imgdata.lens.Lens;
-        // Manual/adapted lenses report focal 0 in EXIF — the UI supplies the
-        // override; the math is impossible without a focal length.
-        const float focalMm   = options.lensfunFocalOverrideMm > 0.f
-                              ? options.lensfunFocalOverrideMm
-                              : raw->imgdata.other.focal_len;
-        const float aperture  = raw->imgdata.other.aperture;
-        // UI-confirmed overrides win over raw EXIF when provided.
-        const std::string ovCam  = options.lensfunCameraId;
-        const std::string ovLens = options.lensfunLensId;
-        LfaMatch m;
-        if (lfaDbPtr) {
-            m = lfa_match_strict(
-                *lfaDbPtr, camMaker,
-                !ovCam.empty()  ? ovCam.c_str()  : camModel,
-                lensMaker,
-                !ovLens.empty() ? ovLens.c_str() : lensModel);
-        }
-        if (m.ok()) {
-            auto tLf0 = std::chrono::steady_clock::now();
-            const bool applied = lfa_correct_rgba_f16(
-                rgbaF16.data(), W, H, m, focalMm, aperture);
-            lensRanThisImport = true;
-            auto tLf1 = std::chrono::steady_clock::now();
-            LOGI("runStageA: lensfun %s ('%s' + '%s') in %lld ms",
-                 applied ? "APPLIED" : "no-op (no usable calibration)",
-                 m.cam->model.c_str(), m.lens->model.c_str(),
-                 (long long) std::chrono::duration_cast<std::chrono::milliseconds>(tLf1 - tLf0).count());
-        } else {
-            LOGI("runStageA: lensfun SKIPPED — no confident match (cam='%s %s' lens='%s') "
-                 "— importing without correction",
-                 camMaker ? camMaker : "", camModel ? camModel : "",
-                 lensModel ? lensModel : "");
-        }
-    }
-
-    // ── Chromatic aberration (Rayxie) ────────────────────────────────────────
-    // ORDER (2026-09-04, owner decision): runs AFTER the Lensfun pass above.
-    // Lensfun TCA is the lens's CALIBRATED per-channel geometric warp and
-    // belongs with the distortion warp; Rayxie is an edge heuristic that
-    // should only see the residual (purple fringe, uncalibrated lenses) —
-    // same order as darktable (lens correction → defringe). Invoked through a
-    // hook because the implementation lives in raw_decoder.cpp, which the
-    // desktop razbatch target doesn't compile (see setCaHook in stage_a.h) —
-    // null hook on desktop simply means no CA, exactly as before.
-    bool rayxieClipApplied = false, rayxieDefringeApplied = false;
-    if (options.caCorrectionEnabled && g_caHook) {
-        const auto tCa0 = std::chrono::steady_clock::now();
-        g_caHook(rgbaF16.data(), (int)W, (int)H, 2000);
-        rayxieClipApplied = true;
-        const auto tCa1 = std::chrono::steady_clock::now();
-        LOGI("runStageA: rayxie CA applied in %lld ms",
-             (long long) std::chrono::duration_cast<std::chrono::milliseconds>(tCa1 - tCa0).count());
-    } else {
-        LOGI("runStageA: rayxie CA skipped (enabled=%d hook=%d)",
-             options.caCorrectionEnabled ? 1 : 0, g_caHook ? 1 : 0);
-    }
-
-    // Guided-filter defringe: a second, independent residual pass for what the
-    // span clip above cannot reach. Called DIRECTLY rather than through a hook
-    // because rayxie_defringe.cpp is in both the Android and the desktop target,
-    // so razbatch gets identical pixels. Runs before the Lensfun warp for the
-    // same reason the clip does — correct fringes before resampling smears them.
-    if (options.caGuidedStrength > 0.f) {
-        RayxieDefringeParams gp;
-        gp.strength = std::min(1.0f, options.caGuidedStrength);
-        const auto tG0 = std::chrono::steady_clock::now();
-        const bool did = rayxie_defringe_f16(rgbaF16.data(), (int)W, (int)H, gp);
-        rayxieDefringeApplied = did;
-        const auto tG1 = std::chrono::steady_clock::now();
-        LOGI("runStageA: guided defringe %s in %lld ms (strength %.2f)",
-             did ? "applied" : "no-op", (long long)
-             std::chrono::duration_cast<std::chrono::milliseconds>(tG1 - tG0).count(),
-             gp.strength);
-    }
-
-    // ── LENS-REPORT: one grep-able line per import ────────────────────────────
-    {
-        char lensLine[512];
-        if (lensRanThisImport) lfa_report_string(lensLine, sizeof lensLine);
-        else snprintf(lensLine, sizeof lensLine, "lens=NONE (%s)", lensSkipReason);
-        LOGI("LENS-REPORT [RAW %ux%u]: %s | rayxie-clip=%s guided-defringe=%s(%.2f) | order=profile->rayxie",
-             (unsigned)W, (unsigned)H, lensLine,
-             rayxieClipApplied ? "applied" : (options.caCorrectionEnabled ? "no-hook" : "off"),
-             rayxieDefringeApplied ? "applied" : "off",
-             options.caGuidedStrength);
-    }
-
     // ── Highlight desaturation ("Safe Recovery") ──────────────────────────────
     // Independent of the lensfun block above — fixes color-cast blotches in
     // blown highlights, not edge fringing. See StageAOptions comment.
@@ -2162,6 +2068,123 @@ StageAMetadata runStageA(
         LOGI("runStageA: ai-enhance applied (enabled=%d guided=%d window=%d noiseVar=%.6f usmAmt=%.2f)",
              int(options.enhanceEnabled), int(options.enhanceGuidedFilter),
              ep.windowSize, ep.noiseVariance, ep.usmAmount);
+    }
+
+    // ── Lensfun lens correction (devignette + distortion + TCA) ──────────────
+    // Placement per RawTherapee (improccoordinator: demosaic → transform) and
+    // darktable: geometric corrections run on the demosaiced image, NOT on the
+    // Bayer mosaic — resampling CFA data would destroy the pattern. This is
+    // a LATE optical/geometric correction: it runs AFTER the enhancement
+    // passes (Safe Recovery → CLAHE → LMMSE/USM), so its output is handed
+    // straight to the Rayxie residual-cleanup stages below and nothing
+    // downstream re-amplifies the fringes the warp leaves behind.
+    // Vignetting is corrected in linear light inside
+    // lfa_correct_rgba_f16 (the buffer here is sRGB-encoded FP16).
+    //
+    // Camera + lens are matched from the RAW's own metadata with a STRICT
+    // matcher — if either side can't be confidently resolved, the import
+    // continues without correction (product rule: only auto-retrieved-complete
+    // configurations correct; nothing is ever guessed).
+    bool lensRanThisImport = false;
+    const char* lensSkipReason = "lens correction off";
+    if (!options.lensfunDbDir.empty()) {
+        lensSkipReason = "no confident camera+lens match";
+        const LfDatabase* lfaDbPtr = lfa_cached_database(options.lensfunDbDir.c_str());
+        const char* camMaker  = raw->imgdata.idata.make;
+        const char* camModel  = raw->imgdata.idata.model;
+        const char* lensMaker = raw->imgdata.lens.LensMake;
+        const char* lensModel = raw->imgdata.lens.Lens;
+        // Manual/adapted lenses report focal 0 in EXIF — the UI supplies the
+        // override; the math is impossible without a focal length.
+        const float focalMm   = options.lensfunFocalOverrideMm > 0.f
+                              ? options.lensfunFocalOverrideMm
+                              : raw->imgdata.other.focal_len;
+        const float aperture  = raw->imgdata.other.aperture;
+        // UI-confirmed overrides win over raw EXIF when provided.
+        const std::string ovCam  = options.lensfunCameraId;
+        const std::string ovLens = options.lensfunLensId;
+        LfaMatch m;
+        if (lfaDbPtr) {
+            m = lfa_match_strict(
+                *lfaDbPtr, camMaker,
+                !ovCam.empty()  ? ovCam.c_str()  : camModel,
+                lensMaker,
+                !ovLens.empty() ? ovLens.c_str() : lensModel);
+        }
+        if (m.ok()) {
+            auto tLf0 = std::chrono::steady_clock::now();
+            const bool applied = lfa_correct_rgba_f16(
+                rgbaF16.data(), W, H, m, focalMm, aperture,
+                options.liftMap.empty() ? nullptr : options.liftMap.data(),
+                options.liftSide,
+                options.liftTau);
+            lensRanThisImport = true;
+            auto tLf1 = std::chrono::steady_clock::now();
+            LOGI("runStageA: lensfun %s ('%s' + '%s') in %lld ms",
+                 applied ? "APPLIED" : "no-op (no usable calibration)",
+                 m.cam->model.c_str(), m.lens->model.c_str(),
+                 (long long) std::chrono::duration_cast<std::chrono::milliseconds>(tLf1 - tLf0).count());
+        } else {
+            LOGI("runStageA: lensfun SKIPPED — no confident match (cam='%s %s' lens='%s') "
+                 "— importing without correction",
+                 camMaker ? camMaker : "", camModel ? camModel : "",
+                 lensModel ? lensModel : "");
+        }
+    }
+
+    // ── Chromatic aberration (Rayxie) ────────────────────────────────────────
+    // ORDER (2026-09-04, owner decision): runs AFTER the Lensfun pass above.
+    // Lensfun TCA is the lens's CALIBRATED per-channel geometric warp and
+    // belongs with the distortion warp; Rayxie is an edge heuristic that
+    // should only see the residual (purple fringe, uncalibrated lenses) —
+    // same order as darktable (lens correction → defringe). This is the FIRST
+    // residual-cleanup stage after the late Lensfun block, before the guided
+    // defringe below. Invoked through a
+    // hook because the implementation lives in raw_decoder.cpp, which the
+    // desktop razbatch target doesn't compile (see setCaHook in stage_a.h) —
+    // null hook on desktop simply means no CA, exactly as before.
+    bool rayxieClipApplied = false, rayxieDefringeApplied = false;
+    if (options.caCorrectionEnabled && g_caHook) {
+        const auto tCa0 = std::chrono::steady_clock::now();
+        g_caHook(rgbaF16.data(), (int)W, (int)H, 2000);
+        rayxieClipApplied = true;
+        const auto tCa1 = std::chrono::steady_clock::now();
+        LOGI("runStageA: rayxie CA applied in %lld ms",
+             (long long) std::chrono::duration_cast<std::chrono::milliseconds>(tCa1 - tCa0).count());
+    } else {
+        LOGI("runStageA: rayxie CA skipped (enabled=%d hook=%d)",
+             options.caCorrectionEnabled ? 1 : 0, g_caHook ? 1 : 0);
+    }
+
+    // Guided-filter defringe: a second, independent residual pass for what the
+    // span clip above cannot reach. Called DIRECTLY rather than through a hook
+    // because rayxie_defringe.cpp is in both the Android and the desktop target,
+    // so razbatch gets identical pixels. Runs AFTER the Lensfun warp, cleaning
+    // residual CA/fringe that the calibrated lensfun correction leaves behind —
+    // the final defringe pass before output.
+    if (options.caGuidedStrength > 0.f) {
+        RayxieDefringeParams gp;
+        gp.strength = std::min(1.0f, options.caGuidedStrength);
+        const auto tG0 = std::chrono::steady_clock::now();
+        const bool did = rayxie_defringe_f16(rgbaF16.data(), (int)W, (int)H, gp);
+        rayxieDefringeApplied = did;
+        const auto tG1 = std::chrono::steady_clock::now();
+        LOGI("runStageA: guided defringe %s in %lld ms (strength %.2f)",
+             did ? "applied" : "no-op", (long long)
+             std::chrono::duration_cast<std::chrono::milliseconds>(tG1 - tG0).count(),
+             gp.strength);
+    }
+
+    // ── LENS-REPORT: one grep-able line per import ────────────────────────────
+    {
+        char lensLine[512];
+        if (lensRanThisImport) lfa_report_string(lensLine, sizeof lensLine);
+        else snprintf(lensLine, sizeof lensLine, "lens=NONE (%s)", lensSkipReason);
+        LOGI("LENS-REPORT [RAW %ux%u]: %s | rayxie-clip=%s guided-defringe=%s(%.2f) | order=safe->clahe->lmmse->profile->rayxie->guided",
+             (unsigned)W, (unsigned)H, lensLine,
+             rayxieClipApplied ? "applied" : (options.caCorrectionEnabled ? "no-hook" : "off"),
+             rayxieDefringeApplied ? "applied" : "off",
+             options.caGuidedStrength);
     }
 
     auto tConv = std::chrono::steady_clock::now();

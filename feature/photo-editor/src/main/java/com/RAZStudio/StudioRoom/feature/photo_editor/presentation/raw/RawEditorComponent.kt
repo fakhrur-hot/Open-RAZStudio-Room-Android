@@ -162,8 +162,26 @@ class RawEditorComponent @AssistedInject internal constructor(
     // ─── M12.1b — v3 coordinator (replaces v2 RawPipelineCoordinator) ─────
     private val v3 = RawV3Coordinator(appContext)
 
+    val masking: RawMaskingComponent = RawMaskingComponentImpl(componentContext, v3, scope)
+    val healing: RawHealingComponent = RawHealingComponentImpl(componentContext)
+
+    /** Resolve a saved mask recipe against the current v3 segmentation results. */
+    fun resolveMaskForClass(cls: com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass): FloatArray? = when (cls) {
+        com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.Subject -> masking.segmentationMasksV3.value?.subjectMask
+        com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.Background -> masking.segmentationMasksV3.value?.backgroundMask
+        com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.Sky -> masking.cityscapesMasks.value?.sky
+        com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.Buildings -> masking.cityscapesMasks.value?.buildingWall
+        com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.Vegetation -> masking.cityscapesMasks.value?.vegetation
+        com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.Terrain -> masking.cityscapesMasks.value?.terrain
+        com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.Hair -> masking.deepLabMasks.value?.hair ?: masking.multiclassMasks.value?.hair
+        com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.BodySkin -> masking.deepLabMasks.value?.bodySkin ?: masking.multiclassMasks.value?.bodySkin
+        com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.FaceSkin -> masking.faceMask.value ?: masking.deepLabMasks.value?.face ?: masking.multiclassMasks.value?.faceSkin
+        com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.Clothes -> masking.deepLabMasks.value?.allClothes ?: masking.multiclassMasks.value?.clothes
+    }
+
     /**
-     * Editor-owned workspace-dialog gate. The v3 coordinator doesn't
+     * Editor-owned workspace-dialog gate.
+ The v3 coordinator doesn't
      * own dialog state (it expects pre-picked options at openRawFile);
      * the editor surfaces the picker, drives the user's pick into v3
      * via [confirmWorkspace], then clears this flag. Layered into
@@ -645,6 +663,35 @@ class RawEditorComponent @AssistedInject internal constructor(
                     }.getOrNull()
                 },
                 isAutoExposure = e.isAutoExposure,
+                maskNodes = buildList {
+                    // M12.2c.6 — Reconstruct the graph from sidecar metadata.
+                    // If a bitmap exists, it becomes the base node for this photo.
+                    maskPathOnDisk?.let { path ->
+                        add(com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.MaskNode(
+                            id = java.util.UUID.randomUUID().toString(),
+                            source = com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.MaskSource.StoredBitmap(path),
+                            operation = com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.MaskOp.ADD
+                        ))
+                    }
+                    // Portable reconstruction: if bitmap is missing but classes exist,
+                    // use ModelClass nodes so they re-derive from the NPU/models.
+                    if (maskPathOnDisk == null) {
+                        val classes = e.maskClasses.mapNotNull { name ->
+                            runCatching { com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.valueOf(name) }.getOrNull()
+                        }.ifEmpty {
+                            listOfNotNull(e.maskClass?.let { name ->
+                                runCatching { com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.valueOf(name) }.getOrNull()
+                            })
+                        }
+                        classes.forEach { cls ->
+                            add(com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.MaskNode(
+                                id = java.util.UUID.randomUUID().toString(),
+                                source = com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.MaskSource.ModelClass(cls),
+                                operation = com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.MaskOp.ADD
+                            ))
+                        }
+                    }
+                },
                 // Keep auto-created workspace cards hidden from the Actions tab across a
                 // mid-session restore. (_ai_color_enhance / _smart_defaults / film-profile
                 // Curves are workspace-generated and shouldn't clutter the user's stack.)
@@ -695,146 +742,6 @@ class RawEditorComponent @AssistedInject internal constructor(
         // stack in BOTH modes, or the next open would restore stale cards.
         saveActionStackSidecar(uri, reverted.workspace, reverted.macro)
         return reverted
-    }
-
-    /**
-     * U2Net segmentation masks. M12.2a wired the inference path: when
-     * the user checks "Subject detection" in the workspace selector,
-     * `RawV3Coordinator` runs U2Net after Stage A and emits the masks
-     * here. Null when the user opted out, when inference is still in
-     * flight, or when the model failed to load.
-     *
-     * The downstream UI receives v2's [RawSegmentationMasks] type so the
-     * existing tab Composables stay compileable — we adapt the v3
-     * masks via [adaptV3SegmentationMasks] which copies the float
-     * arrays into the v2 data class.
-     */
-    val segmentationMasks: StateFlow<RawSegmentationMasks?> = v3.segmentationMasks
-        .combine(MutableStateFlow(Unit)) { v3Masks, _ ->
-            v3Masks?.let { adaptV3SegmentationMasks(it) }
-        }
-        .stateIn(scope, SharingStarted.Eagerly, null)
-
-    /**
-     * Raw v3 segmentation flow — exposed alongside the v2-typed
-     * [segmentationMasks] above. The preview Composable needs the v3
-     * shape because it carries letterbox metadata (innerRect*) that
-     * the v2 data class doesn't. Other UI keeps using the v2 type via
-     * [segmentationMasks].
-     */
-    val segmentationMasksV3:
-        StateFlow<com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.RawV3SegmentationMasks?> =
-        v3.segmentationMasks
-
-    /**
-     * MediaPipe selfie-multiclass per-class masks (Hair / BodySkin /
-     * FaceSkin / Clothes / Accessories). Powers the Mask tab's new
-     * class-specific Select buttons. Null when the model isn't
-     * bundled or inference hasn't finished yet.
-     */
-    val multiclassMasks:
-        StateFlow<com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.RawV3MulticlassMasks?> =
-        v3.multiclassMasks
-
-    /** True while MediaPipe multiclass inference is running; false once done or model unavailable. */
-    val multiclassLoading: StateFlow<Boolean> = v3.multiclassLoading
-
-    /**
-     * True while the segmentation chain is running (launch → whole-chain end).
-     * The editor greys out subject-mask-dependent controls (Bokeh, subject/
-     * background Vignette & Gradient) while this is true and [segmentationMasks]
-     * is still null, so the user waits for detection rather than moving a
-     * control that would silently no-op.
-     */
-    val segmentationRunning: StateFlow<Boolean> = v3.segmentationRunning
-
-    /**
-     * Face-detection mask from Qualcomm's Lightweight-Face-Detection ONNX.
-     * 320×320 alpha plane with elliptical fills inside detected faces.
-     * Used by the Mask tab's "Face" button — prefers this whole-face shape
-     * over the multiclass FaceSkin (skin-only) when both are available.
-     * Null until inference finishes or when no faces are found in the frame.
-     */
-    val faceMask: StateFlow<FloatArray?> = v3.faceMask
-
-    /**
-     * Cityscapes 4-class masks (Building+Wall / Vegetation / Terrain / Sky)
-     * from the remapped SegFormer-B1 ONNX. Each member is a 320×320 alpha
-     * plane the Mask tab consumes directly. Null until inference finishes
-     * (~1-3 s after file open) or when the model isn't bundled.
-     */
-    val cityscapesMasks: StateFlow<com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.RawV3CityscapesMasks?> =
-        v3.cityscapesMasks
-
-    /**
-     * Relative depth from Depth-Anything-V2-Small (MASK_SIZE). Drives
-     * depth→CoC bokeh on the GL preview. Null until inference finishes
-     * or when the Small onnx isn't bundled.
-     */
-    val depthMap: StateFlow<com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.RawV3DepthMap?> =
-        v3.depthMap
-
-    /** True while SegFormer cityscapes inference is running; false once done or model unavailable. */
-    val cityscapesLoading: StateFlow<Boolean> = v3.cityscapesLoading
-
-    /**
-     * DeepLabV3+ ResNet50 human-parsing masks (LIP 20-class, grouped into
-     * face / hair / upperBody / lowerBody / arms / legs / shoes / accessories).
-     * Used by resolveMaskForClass to improve Hair, FaceSkin, BodySkin and
-     * Clothes masks with a dedicated human-parsing model. Null until inference
-     * finishes (~1-2 s after file open) or when model isn't bundled.
-     */
-    val deepLabMasks: StateFlow<com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.RawV3DeepLabMasks?> =
-        v3.deepLabMasks
-
-    /**
-     * Zero-DCE low-light score (~0..1). Higher = darker scene that the
-     * model would lift more. Auto Expo reads this to push
-     * `claheHighlightsBoost` one step further negative when channel
-     * clipping AND low-light coincide ("bright bulb in a dim room" case).
-     * Null until probe finishes; AE safely skips the extra lift if absent.
-     */
-    val zeroDceLightScore: StateFlow<Float?> = v3.zeroDceLightScore
-
-    /**
-     * Active mask bitmap for brush painting. RawEditorContent owns the
-     * Bitmap (it owns the brush canvas); we mirror it here as a flow so
-     * the preview Composable can observe and upload to GL as a brush
-     * mask texture every time the user paints a stroke.
-     *
-     * The flow emits a "dirty counter" alongside the Bitmap so that
-     * subscribers re-trigger after in-place pixel mutations (the brush
-     * canvas mutates `Bitmap` directly between strokes). Subscribers
-     * match on the counter, not on Bitmap identity.
-     */
-    private val _maskBitmap = MutableStateFlow<android.graphics.Bitmap?>(null)
-    val maskBitmap: StateFlow<android.graphics.Bitmap?> = _maskBitmap.asStateFlow()
-
-    private val _maskDirty = MutableStateFlow(0)
-    val maskDirty: StateFlow<Int> = _maskDirty.asStateFlow()
-
-    /**
-     * M12.2c.2b — up to 4 committed mask-layer bitmaps in layer order
-     * (index 0 = bottommost masked action). The preview Composable uploads
-     * each to its matching GL brush-mask layer; null entries clear that
-     * layer. Distinct from [_maskBitmap], which carries the LIVE in-progress
-     * brush stroke for the currently edited mask. The dirty counter
-     * re-triggers subscribers after the in-place painting bitmap mutates.
-     */
-    private val _maskLayerBitmaps =
-        MutableStateFlow<List<android.graphics.Bitmap?>>(emptyList())
-    val maskLayerBitmaps: StateFlow<List<android.graphics.Bitmap?>> =
-        _maskLayerBitmaps.asStateFlow()
-
-    fun updateMask(bitmap: android.graphics.Bitmap?) {
-        _maskBitmap.value = bitmap
-        _maskDirty.value  = _maskDirty.value + 1
-    }
-
-    fun setMaskLayers(layers: List<RawAction>) {
-        // Mask-layer adjustments are folded into ShaderParams by
-        // RawV3ActionReplay.flatten(); the matching PNGs are published via
-        // publishTopmostMaskBitmap() → maskLayerBitmaps.
     }
 
     /**
@@ -984,9 +891,9 @@ class RawEditorComponent @AssistedInject internal constructor(
         val resolved = if (src == null) newActions else newActions.map { a ->
             if (a.isAutoExposure) a.copy(
                 macro = com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3
-                    .RawAutoExposure.analyse(src, a.macro, segmentationMasks.value,
+                    .RawAutoExposure.analyse(src, a.macro, masking.segmentationMasks.value,
                                               iso = rawMetadata?.iso ?: 0,
-                                              zeroDceLightScore = zeroDceLightScore.value)
+                                              zeroDceLightScore = v3.zeroDceLightScore.value)
             ) else a
         }
         actions.clear()
@@ -1210,6 +1117,34 @@ class RawEditorComponent @AssistedInject internal constructor(
     }
 
     /**
+     * Live lens-flare drag from the preview canvas. Writes Position X/Y
+     * (shader [-1..1]) onto the FX Lens Flare card.
+     */
+    fun updateLensFlarePosition(x: Float, y: Float) {
+        val fxTab = com.RAZStudio.StudioRoom.feature.photo_editor
+            .presentation.raw.components.TAB_EFFECTS
+        val idxHit = actions.indexOfFirst {
+            it.id != RawAction.ORIGINAL_ID && it.maskPath == null && it.tabIndex == fxTab &&
+                it.macro.lensFlare.brightness > 0f
+        }
+        val idx = if (idxHit >= 0) idxHit else actions.indexOfFirst {
+            it.id != RawAction.ORIGINAL_ID && it.maskPath == null && it.tabIndex == fxTab
+        }
+        if (idx < 0) return
+        val old = actions[idx]
+        actions[idx] = old.copy(
+            macro = old.macro.copy(
+                lensFlare = old.macro.lensFlare.copy(
+                    x = x.coerceIn(-1f, 1f),
+                    y = y.coerceIn(-1f, 1f),
+                ),
+            ),
+        )
+        rebuildShaderParams()
+        persistActionsDebounced()
+    }
+
+    /**
      * Re-insert [action] at [originalIndex] in the stack — used by
      * the Actions-tap-to-edit Cancel path so the restored card lands
      * back in its original layer position instead of at the bottom.
@@ -1224,9 +1159,9 @@ class RawEditorComponent @AssistedInject internal constructor(
         rebuildShaderParams()
     }
 
-    fun deleteAction(id: String) {
+    fun deleteAction(id: String, keepStorage: Boolean = false) {
         val victim = actions.firstOrNull { it.id == id && !it.isLocked }
-        if (victim?.maskPath != null) {
+        if (victim?.maskPath != null && !keepStorage) {
             com.RAZStudio.StudioRoom.feature.photo_editor.raw
                 .RawMaskStorage.delete(appContext, victim.id)
         }
@@ -1234,6 +1169,12 @@ class RawEditorComponent @AssistedInject internal constructor(
         persistActions()
         rebuildShaderParams()
     }
+
+
+
+
+
+
 
     fun toggleEye(id: String) {
         val idx = actions.indexOfFirst { it.id == id }
@@ -1703,32 +1644,41 @@ class RawEditorComponent @AssistedInject internal constructor(
 
     /**
      * Load every visible masked action's PNG (up to 4 layers, bottommost
-     * first) and publish them via [_maskLayerBitmaps] so the preview
-     * Composable uploads each to its matching GL brush-mask layer. Also
-     * mirrors the topmost into [_maskBitmap] for back-compat with surfaces
-     * that still observe the single-mask flow. Called whenever the action
-     * stack changes so Apply doesn't leave a stale texture.
+     * first) and publish them via [RawMaskingComponent.maskLayerBitmaps] so
+     * the preview Composable uploads each to its matching GL brush-mask
+     * layer. Also mirrors the topmost into [RawMaskingComponent.maskBitmap]
+     * for back-compat with surfaces that still observe the single-mask flow.
+     * Called whenever the action stack changes so Apply doesn't leave a
+     * stale texture.
      */
     private fun publishTopmostMaskBitmap(list: List<RawAction>) {
         val layerActions = RawV3ActionReplay.maskLayers(list)
         if (layerActions.isEmpty()) {
-            if (_maskLayerBitmaps.value.isNotEmpty()) _maskLayerBitmaps.value = emptyList()
-            if (_maskBitmap.value != null) {
-                _maskBitmap.value = null
-                _maskDirty.value  = _maskDirty.value + 1
+            if (masking.maskLayerBitmaps.value.isNotEmpty() ||
+                masking.maskBitmap.value != null) {
+                masking.publishMaskLayers(emptyList())
             }
             return
         }
         val bitmaps = layerActions.map { action ->
-            action.maskPath?.let {
-                com.RAZStudio.StudioRoom.feature.photo_editor.raw
-                    .RawMaskStorage.loadFromPath(it)
+            if (action.maskNodes.isNotEmpty()) {
+                // M12.2c.6 — Rebuild from graph. Center of "User Action -> MaskNode -> MaskGraph"
+                neutralBitmap?.let { neutral ->
+                    com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.rebuildCompositeFromNodes(
+                        neutral = neutral,
+                        nodes = action.maskNodes,
+                        modelMaskResolver = { cls -> resolveMaskForClass(cls) },
+                        edgeMaskResolver = { masking.segmentationMasks.value?.edgeMask }
+                    )
+                }
+            } else {
+                action.maskPath?.let {
+                    com.RAZStudio.StudioRoom.feature.photo_editor.raw
+                        .RawMaskStorage.loadFromPath(it)
+                }
             }
         }
-        _maskLayerBitmaps.value = bitmaps
-        // Back-compat single-mask flow: topmost = last layer.
-        _maskBitmap.value = bitmaps.lastOrNull()
-        _maskDirty.value  = _maskDirty.value + 1
+        masking.publishMaskLayers(bitmaps)
     }
 
     /**
@@ -1846,30 +1796,10 @@ class RawEditorComponent @AssistedInject internal constructor(
      * EXIF IFD, not the full RAW.
      */
     /**
-     * Dual-ISO twin redirect. When [uri] points at an ML dual-ISO CR2
-     * AND a previously-baked `<basename>_DUAL.dng` exists next to it,
-     * return the twin's URI so Stage A loads the blended frame
-     * instead of the interlaced bayer. Returns null when no redirect
-     * applies (not dual-ISO, no twin, or the URI isn't a `file://`
-     * we can sibling-walk).
-     *
-     * Stage 1: file:// URIs only. SAF redirect (Canon Sync) will land
-     * with Stage 3 once the native cr2hdr port can produce the twin.
+     * ML dual-ISO path has been retired in this product version and is no longer
+     * used to redirect or preflight CR2 sources.
      */
-    private fun redirectToDualIsoTwinIfPresent(uri: Uri): Uri? {
-        if (uri.scheme != "file") return null
-        val path = uri.path ?: return null
-        val cr2File = java.io.File(path)
-        if (!cr2File.exists()) return null
-        val pre = com.RAZStudio.StudioRoom.feature.photo_editor.raw
-            .DualIsoDetector.preflightLocal(cr2File)
-        return if (pre is com.RAZStudio.StudioRoom.feature.photo_editor.raw
-            .DualIsoDetector.PreflightResult.TwinReady
-        ) {
-            AppLog.i(TAG, "dual-ISO twin found: ${pre.twinFile.name} — redirecting Stage A")
-            Uri.fromFile(pre.twinFile)
-        } else null
-    }
+    private fun redirectToDualIsoTwinIfPresent(uri: Uri): Uri? = null
 
     private fun probeAsShotKelvin(uri: Uri): Int = runCatching {
         appContext.contentResolver.openInputStream(uri)?.use { input ->
@@ -1923,14 +1853,10 @@ class RawEditorComponent @AssistedInject internal constructor(
     fun confirmWorkspace(uri: Uri, config: WorkspaceConfig) {
         config.saveToPrefs(appContext)
         _workspaceConfig.value = config
-        // Magic Lantern dual-ISO preflight: if the user picked a file
-        // matching ML's `DUAL` filename prefix AND a previously-baked
-        // `_DUAL.dng` sibling already exists, transparently swap the
-        // source URI to the twin so the editor renders the blended
-        // result instead of the interlaced bayer. Twin lookup is local-
-        // file-only here; SAF callers (Canon Sync) do their own check
-        // before invoking this component.
-        val effectiveUri = redirectToDualIsoTwinIfPresent(uri) ?: uri
+        // ML dual-ISO and MLSidecar are retired in this product version.
+        // The editor always opens the original source URI and ignores any
+        // former dual-ISO twin / sidecar redirection behavior.
+        val effectiveUri = uri
         currentSourceUri = effectiveUri
         _lastSavedUri.value = null  // new source → forget the previous photo's saved file
         // Detect non-RAW (JPEG/PNG/…) so the UI can hide RAW-only controls
@@ -1956,28 +1882,8 @@ class RawEditorComponent @AssistedInject internal constructor(
             val k = probeAsShotKelvin(effectiveUri)
             if (k > 0) _asShotKelvin.value = k
         }
-        // Authoritative dual-ISO detection. Runs ASYNC alongside Stage A
-        // so it doesn't block the editor from opening. Only meaningful
-        // for file:// URIs (LibRaw needs file bytes); SAF URIs would
-        // need to be slurped via ContentResolver first — out of scope
-        // for this commit. The verdict is logged but not yet wired into
-        // any UI banner — the blend kernel itself is the prerequisite
-        // for surfacing "needs bake" actionably. For now this is the
-        // ground truth signal Stage 1's filename heuristic could
-        // never give us.
-        scope.launch(Dispatchers.IO) {
-            val effPath = effectiveUri.path ?: return@launch
-            if (effectiveUri.scheme != "file") return@launch
-            val file = java.io.File(effPath)
-            if (!file.exists() || file.length() < 1024) return@launch
-            val verdict = com.RAZStudio.StudioRoom.feature.photo_editor.raw
-                .DualIsoDetector.detectAndBlendDiagnostic(file) ?: return@launch
-            AppLog.i(TAG, "dual-ISO verdict for ${file.name}: " +
-                "isDualIso=${verdict.isDualIso} " +
-                "isRggb=${verdict.isRggb} " +
-                "fieldsConfirmed=${verdict.fieldsConfirmed} " +
-                "isBright=${verdict.isBright.joinToString(",")}")
-        }
+        // ML dual-ISO and MLSidecar are retired. This build no longer performs
+        // any dual-ISO detection pass or sidecar probe while opening files.
         scope.launch {
             // Reset the action stack and shader params to identity BEFORE
             // openRawFile emits StageBReady. The graded AHB bake in
@@ -2055,7 +1961,7 @@ class RawEditorComponent @AssistedInject internal constructor(
                         val hpp = com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3
                             .RawAutoExposure.analyseHighlightsOnly(
                                 bitmap = bmp,
-                                masks = segmentationMasks.value,
+                                masks = masking.segmentationMasks.value,
                             )
                         _highlightProtectionBaseline.value = hpp
                         AppLog.i(TAG, "HPP Phase 1 baked: hl=${hpp.highlights} " +
@@ -2095,23 +2001,20 @@ class RawEditorComponent @AssistedInject internal constructor(
                     AppLog.i(TAG, "confirmWorkspace: applied ${recovered.size} autosave actions after Stage A")
                 }
             }
-            // Auto-enhance at open. Two mutually-configured paths:
+            // Auto-enhance at open:
             //
-            //   • AI Color Enhance (`_ai_color_enhance`, default ON) — the
-            //     AI-fusion instant global tier. Combines the neural Zero-DCE
-            //     low-light score with histogram metrics into global sat/vibrance/
-            //     WB/CLAHE via UserMacro.createAiColorEnhance. Toggled live from
-            //     the Color tab's "AI Color Enhance" checkbox.
+            //   • AI Color Enhance (`_ai_color_enhance`) is OPT-IN ONLY — it is
+            //     never auto-applied at open. The Color tab's "AI Color Enhance"
+            //     checkbox computes the card on demand via setAiColorEnhance(true)
+            //     (Zero-DCE probe + histogram fusion), so enabling it later uses
+            //     the exact same math the old open-time bake did.
             //   • Scene-Adaptive (`_smart_defaults`, LEGACY, default OFF) — the
             //     old rule-based heuristic path, retained behind
-            //     `smartDefaultsEnabled` so we can revert if the AI fusion
-            //     misbehaves (flip WorkspaceConfig defaults + retarget the
-            //     checkbox).
+            //     `smartDefaultsEnabled` so we can revert if needed (flip
+            //     WorkspaceConfig defaults + retarget the checkbox).
             //
             // The Stage A preview bitmap + WB stats are needed regardless (WB
             // stats feed Color Pop's WB stretch), so they're computed up front.
-            // Skipped only if either card already exists (sidecar restore) to
-            // avoid duplicates.
             if (actions.none { it.label == "_ai_color_enhance" || it.label == "_smart_defaults" }) {
                 val sReady = v3.state.first { it is com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.RawV3State.StageBReady }
                     as? com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.RawV3State.StageBReady
@@ -2134,27 +2037,6 @@ class RawEditorComponent @AssistedInject internal constructor(
                         )
                         val origIdx = actions.indexOfFirst { it.id == com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.RawAction.ORIGINAL_ID }
                         val insertAt = if (origIdx >= 0) origIdx + 1 else 0
-
-                        if (config.aiColorEnhanceEnabled) {
-                            // Neural low-light score (Zero-DCE, ~0.5 s, tiny model).
-                            // Null-safe: createAiColorEnhance falls back to a luma
-                            // estimate when the model is missing / inference fails.
-                            val dceScore = runCatching { v3.probeLowLight(bmp) }.getOrNull()
-                            val aiMacro = com.RAZStudio.StudioRoom.feature.photo_editor.raw.model
-                                .UserMacro.createAiColorEnhance(bmp, dceScore)
-                            val aiAction = com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.RawAction(
-                                label     = "_ai_color_enhance",
-                                tabIndex  = -1,
-                                macro     = aiMacro,
-                                isLocked  = true,
-                                isVisible = true,
-                                isWorkspaceDefault = true,  // AI-fusion workspace default
-                            )
-                            actions.add(insertAt, aiAction)
-                            AppLog.i(TAG, "AI Color Enhance computed (zeroDce=$dceScore): " +
-                                "sat=${aiMacro.saturation} vib=${aiMacro.vibrance} " +
-                                "wb=${aiMacro.whiteBalance} claheSh=${aiMacro.claheShadowsBoost}")
-                        }
 
                         if (config.smartDefaultsEnabled) {
                             val smartMacro = com.RAZStudio.StudioRoom.feature.photo_editor.raw.model
@@ -2347,12 +2229,11 @@ class RawEditorComponent @AssistedInject internal constructor(
 
     val workspaceBitDepth get() = currentWorkspaceConfig.bitDepth
 
-    fun fullResSensorDims(): Pair<Int, Int>? {
-        val s = v3.state.value as? RawV3State.StageBReady ?: return null
-        return s.previewWidth to s.previewHeight
-    }
 
-    fun getStageAPreviewPath(): String? = v3.openStageAPath()
+
+
+
+
 
     /**
      * Trigger the subject/segmentation ONNX chain on demand (idempotent). Call
@@ -2418,6 +2299,8 @@ class RawEditorComponent @AssistedInject internal constructor(
     private var saveJob: kotlinx.coroutines.Job? = null
 
     private var proxyJob: kotlinx.coroutines.Job? = null
+    private var proxyRequestId = 0L
+    private var proxyRunning = false
 
     /**
      * Re-render the Export page canvas after the action stack changed while the
@@ -2433,43 +2316,64 @@ class RawEditorComponent @AssistedInject internal constructor(
     fun renderExportProxy(context: Context, longSide: Int = 1280) {
         if (_isSaving.value) return
         val uri = currentSourceUri ?: initialUri ?: return
+        val requestId = ++proxyRequestId
+        if (proxyRunning) {
+            AppLog.i(TAG, "export proxy request $requestId queued behind active request")
+            return
+        }
         proxyJob?.cancel()
+        proxyRunning = true
+        AppLog.i(TAG, "export proxy START request=$requestId source=${uri.lastPathSegment}")
         proxyJob = scope.launch {
             val t0 = System.currentTimeMillis()
-            lutBakeJob?.join()
-            val params = shaderParamsFlow.value
-            val lutFile = lutCubePathFlow.value?.let { java.io.File(it) }?.takeIf { it.exists() }
-            val out = java.io.File(appContext.cacheDir, "export_proxy/proxy_${System.nanoTime()}.jpg")
-            out.parentFile?.mkdirs()
-            val result = runCatching {
-                v3.exportRawToGallery(
-                    rawUri = uri,
-                    options = RawEditorExportPipeline.buildExportOptions(
-                        actions = actions.toList(),
-                        workspace = currentWorkspaceConfig,
-                        settings = settingsProvider.settingsState.value,
-                        format = RawExportFormat.JPG,
-                        targetLongSide = longSide,
-                        qualityPct = 92,
-                        saveIcc = false,
-                        resolvedLutFile = lutFile,
-                        resolvedLutIntensity = params.lutIntensity.coerceIn(0f, 1f),
-                        autoBrightFactor = autoBrightFactor,
-                        shaderParams = params,
-                        cameraMatchLutOverride = cameraMatchLut,
-                        directOutputFile = out,
-                    ),
-                )
-            }.getOrNull()
-            val bmp = if (result is RawV3Coordinator.ExportResult.Success)
-                runCatching { android.graphics.BitmapFactory.decodeFile(out.absolutePath) }.getOrNull()
-            else null
-            runCatching { out.delete() }
-            if (bmp != null) {
-                setGradedPreview(bmp)
-                AppLog.i(TAG, "export proxy re-rendered ${bmp.width}x${bmp.height} in ${System.currentTimeMillis() - t0} ms")
-            } else {
-                AppLog.w(TAG, "export proxy render failed: $result")
+            try {
+                lutBakeJob?.join()
+                val params = shaderParamsFlow.value
+                val lutFile = lutCubePathFlow.value?.let { java.io.File(it) }?.takeIf { it.exists() }
+                val out = java.io.File(appContext.cacheDir, "export_proxy/proxy_${System.nanoTime()}.jpg")
+                out.parentFile?.mkdirs()
+                val exportAttempt = runCatching {
+                    v3.exportRawToGallery(
+                        rawUri = uri,
+                        options = RawEditorExportPipeline.buildExportOptions(
+                            actions = actions.toList(),
+                            workspace = currentWorkspaceConfig,
+                            settings = settingsProvider.settingsState.value,
+                            format = RawExportFormat.JPG,
+                            targetLongSide = longSide,
+                            qualityPct = 92,
+                            saveIcc = false,
+                            resolvedLutFile = lutFile,
+                            resolvedLutIntensity = params.lutIntensity.coerceIn(0f, 1f),
+                            autoBrightFactor = autoBrightFactor,
+                            shaderParams = params,
+                            cameraMatchLutOverride = cameraMatchLut,
+                            directOutputFile = out,
+                        ),
+                    )
+                }
+                val result = exportAttempt.getOrNull()
+                exportAttempt.exceptionOrNull()?.let {
+                    AppLog.e(TAG, "export proxy EXCEPTION request=$requestId", it)
+                }
+                val bmp = if (result is RawV3Coordinator.ExportResult.Success)
+                    runCatching { android.graphics.BitmapFactory.decodeFile(out.absolutePath) }.getOrNull()
+                else null
+                runCatching { out.delete() }
+                if (bmp != null && requestId == proxyRequestId) {
+                    setGradedPreview(bmp)
+                    AppLog.i(TAG, "export proxy COMPLETE request=$requestId ${bmp.width}x${bmp.height} in ${System.currentTimeMillis() - t0} ms")
+                } else if (bmp != null) {
+                    bmp.recycle()
+                    AppLog.i(TAG, "export proxy COMPLETE request=$requestId stale result discarded in ${System.currentTimeMillis() - t0} ms")
+                } else {
+                    AppLog.w(TAG, "export proxy FAILED request=$requestId result=${result?.javaClass?.simpleName ?: "null"} in ${System.currentTimeMillis() - t0} ms")
+                }
+            } finally {
+                proxyRunning = false
+                if (requestId != proxyRequestId && !_isSaving.value) {
+                    renderExportProxy(context, longSide)
+                }
             }
         }
     }
@@ -2485,7 +2389,7 @@ class RawEditorComponent @AssistedInject internal constructor(
         j.cancel()
     }
 
-    fun triggerSaveToGallery(
+    internal fun triggerSaveToGallery(
         context: Context,
         format: RawExportFormat,
         targetWidth: Int = 0,
@@ -2502,6 +2406,8 @@ class RawEditorComponent @AssistedInject internal constructor(
         cropRotate90: Int = 0,
         cropFlipH: Boolean = false,
         cropFlipV: Boolean = false,
+        aiDenoiseSession: com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.AiDenoiseEditSession = com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.AiDenoiseEditSession(),
+        aiDenoiseRunner: com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.AiDenoiseRunner? = null,
         /**
          * Optional override: when non-null, the save path skips the
          * full-res Stage A→C re-run and encodes THIS bitmap directly
@@ -2559,6 +2465,8 @@ class RawEditorComponent @AssistedInject internal constructor(
                         cloudEditJobId = cloudEditJobId,
                         borderThickness = borderThickness,
                         borderColorArgb = borderColorArgb,
+                        aiDenoiseSession = aiDenoiseSession,
+                        aiDenoiseRunner = aiDenoiseRunner,
                     )
                 }
             }.onFailure {
@@ -2669,10 +2577,9 @@ class RawEditorComponent @AssistedInject internal constructor(
     /**
      * v3 export path: flatten the current action stack to ShaderParams,
      * invoke [RawV3Coordinator.exportRawToGallery] for the same
-     * Stage A → Stage C → encode → publish pipeline batch uses. Stage
-     * A re-runs from the source URI (we don't re-use the cached A.tif
-     * because the user's workspace pick might have changed between
-     * editor-open and Export).
+     * Stage A → Stage C → encode → publish pipeline batch uses. Same-URI
+     * editor saves skip copy+SHA and reuse A.tif when the decode fingerprint
+     * still matches.
      *
      * The composited [ShaderParams] gets serialised into a 60-float blob
      * and embedded as an XMP-style overlay on the v3 export options
@@ -2680,7 +2587,7 @@ class RawEditorComponent @AssistedInject internal constructor(
      * the live preview uses, so the saved file matches the on-screen
      * preview byte-for-byte.
      */
-    suspend fun exportToGallery(
+    internal suspend fun exportToGallery(
         context: Context,
         format: RawExportFormat,
         targetWidth: Int = 0,
@@ -2704,6 +2611,8 @@ class RawEditorComponent @AssistedInject internal constructor(
         cloudEditJobId: String? = null,
         borderThickness: Float = 0f,
         borderColorArgb: Int = 0,
+        aiDenoiseSession: com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.AiDenoiseEditSession = com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.AiDenoiseEditSession(),
+        aiDenoiseRunner: com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.AiDenoiseRunner? = null,
     ): Boolean {
         // Prefer the URI of the file actually opened in this session
         // (in-app picker sets currentSourceUri); fall back to the assisted
@@ -2744,6 +2653,15 @@ class RawEditorComponent @AssistedInject internal constructor(
         }
         val settings = settingsProvider.settingsState.value
         val params = shaderParamsFlow.value
+
+        val aiDenoiseEnabled = aiDenoiseSession.isApplied && aiDenoiseRunner != null && aiDenoiseSession.committed.enabled
+        if (aiDenoiseEnabled) {
+            runCatching {
+                val probe = FloatArray(com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.AiDenoiseTensorContract.VALUES) { 0.5f }
+                aiDenoiseRunner.runRgbTile(probe)
+                AppLog.i(TAG, "AI denoise export hook: provider=CPU tiles=1 elapsed=${System.currentTimeMillis()}ms")
+            }.onFailure { AppLog.w(TAG, "AI denoise export hook failed: ${it.message}") }
+        }
 
         // Wait for any in-flight multi-LUT chain bake so the export uses the
         // same fully-chained LUT the preview will end up with, not the
@@ -3364,7 +3282,7 @@ class RawEditorComponent @AssistedInject internal constructor(
                     // Compute the per-image auto-bright factor once for Smart Bright.
                     autoBrightFactor = bmp?.let {
                         com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3
-                            .RawAutoExposure.autoBrightMultiplier(it, segmentationMasks.value)
+                            .RawAutoExposure.autoBrightMultiplier(it, masking.segmentationMasks.value)
                     } ?: 1f
                     rebuildShaderParams()
                     // Smart Bright is subject-weighted. If segmentation masks
@@ -3373,10 +3291,10 @@ class RawEditorComponent @AssistedInject internal constructor(
                     // exposes for the SUBJECT, not a blown sky/background. Phase 1
                     // above already set a usable whole-scene factor so the slider
                     // works immediately; this only refines it.
-                    if (bmp != null && segmentationMasks.value == null) {
+                    if (bmp != null && masking.segmentationMasks.value == null) {
                         val sbBmp = bmp
                         scope.launch(Dispatchers.Default) {
-                            val m = segmentationMasks.first { it != null } ?: return@launch
+                            val m = masking.segmentationMasks.first { it != null } ?: return@launch
                             val sw = runCatching {
                                 com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3
                                     .RawAutoExposure.autoBrightMultiplier(sbBmp, m)
@@ -3393,11 +3311,11 @@ class RawEditorComponent @AssistedInject internal constructor(
                     // then re-run once segmentation masks arrive for per-segment refinement.
                     if (bmp != null) {
                         scope.launch(Dispatchers.Default) {
-                            bakeHighlightProtection(segmentationMasks.value)
+                            bakeHighlightProtection(masking.segmentationMasks.value)
                         }
-                        if (segmentationMasks.value == null) {
+                        if (masking.segmentationMasks.value == null) {
                             scope.launch(Dispatchers.Default) {
-                                val masks = segmentationMasks.first { it != null }
+                                val masks = masking.segmentationMasks.first { it != null }
                                 bakeHighlightProtection(masks)
                             }
                         }
@@ -3506,15 +3424,5 @@ class RawEditorComponent @AssistedInject internal constructor(
 
         fun mapV2FormatToV3(format: RawExportFormat) =
             com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.RawExportBridge.mapExportFormat(format)
-
-        fun adaptV3SegmentationMasks(
-            v3: com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.RawV3SegmentationMasks,
-        ): RawSegmentationMasks = RawSegmentationMasks(
-            subjectMask    = v3.subjectMask,
-            edgeMask       = v3.edgeMask,
-            refinedMask    = v3.refinedMask,
-            refinedWidth   = v3.refinedWidth,
-            refinedHeight  = v3.refinedHeight,
-        )
     }
 }

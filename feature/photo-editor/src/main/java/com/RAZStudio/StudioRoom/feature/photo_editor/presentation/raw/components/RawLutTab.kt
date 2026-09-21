@@ -84,6 +84,8 @@ import com.RAZStudio.StudioRoom.core.resources.icons.Star
 import com.RAZStudio.StudioRoom.core.ui.widget.enhanced.EnhancedAlertDialog
 import com.RAZStudio.StudioRoom.core.ui.widget.enhanced.EnhancedButton
 import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.components.lut.LutEntry
+import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.components.lut.RazClassicLook
+import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.components.lut.RAZ_LOOKS_CATEGORY
 import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.components.lut.USER_CUSTOM_CATEGORY
 import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.components.lut.LutCategory
 import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.components.lut.LutPickDefaults
@@ -123,6 +125,9 @@ internal fun RawLutTab(
     val scope = rememberCoroutineScope()
     val repo = rememberLocalLutRepository()
     val context = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(Unit) {
+        com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.VintageFxAssets.ensureLoaded(context)
+    }
     var categories by remember { mutableStateOf<List<LutCategory>>(emptyList()) }
     LaunchedEffect(repo) { categories = repo.getCategories() }
     val expandedCategories = remember { mutableStateMapOf<String, Boolean>() }
@@ -246,6 +251,7 @@ internal fun RawLutTab(
     fun entryKey(categoryName: String, entry: LutEntry) = "$categoryName/${entry.name}"
 
     fun isEntrySelected(entry: LutEntry): Boolean {
+        if (RazClassicLook.isSentinel(entry)) return RazClassicLook.isApplied(macro)
         if (macro.lutCubeUri.isEmpty()) return false
         val assetFile = entry.assetPath?.substringAfterLast('/')
         val customFile = entry.filePath?.takeIf { it.isNotEmpty() }?.substringAfterLast('/')
@@ -269,6 +275,16 @@ internal fun RawLutTab(
         // Selecting any catalogued preset clears a pending (unsaved) pick.
         pendingPickedPath = null
         pendingPickedName = ""
+        if (RazClassicLook.isSentinel(entry)) {
+            com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.VintageFxAssets.ensureLoaded(context)
+            onMacroChange(
+                RazClassicLook.apply(
+                    macro,
+                    com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.VintageFxAssets.hasMist,
+                )
+            )
+            return
+        }
         scope.launch {
             isResolving = true
             val path = when {
@@ -615,7 +631,7 @@ internal fun RawLutTab(
         )
                         Spacer(Modifier.height(8.dp))
                         RawSliderRow(
-                            label = "Hi. temp",
+                            label = "Highlights temp",
                             value = macro.highlightTemperature,
                             valueRange = -1f..1f,
                             step = 0.01f,
@@ -624,7 +640,7 @@ internal fun RawLutTab(
                         )
                         Spacer(Modifier.height(4.dp))
                         RawSliderRow(
-                            label = "Hi. tint",
+                            label = "Highlights tint",
                             value = macro.highlightTint,
                             valueRange = -1f..1f,
                             step = 0.01f,
@@ -633,7 +649,7 @@ internal fun RawLutTab(
                         )
                         Spacer(Modifier.height(4.dp))
                         RawSliderRow(
-                            label = "Sh. temp",
+                            label = "Shadows temp",
                             value = macro.shadowTemperature,
                             valueRange = -1f..1f,
                             step = 0.01f,
@@ -642,7 +658,7 @@ internal fun RawLutTab(
                         )
                         Spacer(Modifier.height(4.dp))
                         RawSliderRow(
-                            label = "Sh. tint",
+                            label = "Shadows tint",
                             value = macro.shadowTint,
                             valueRange = -1f..1f,
                             step = 0.01f,
@@ -653,7 +669,7 @@ internal fun RawLutTab(
                         // Bipolar creative overlay on the always-on headroom map:
                         // negative = Reinhard blend, positive = highlight vibrancy boost.
                         RawSliderRow(
-                            label = "HL protect / vibrancy",
+                            label = "Vibrancy",
                             value = macro.lutHighlightVibrancy,
                             valueRange = -1f..1f,
                             step = 0.01f,
@@ -682,7 +698,7 @@ internal fun RawLutTab(
                         // Skin Tone — HSV detection at ~20° peach I-line hue.
                         // UserMacro stores UI values; ActionReplay divides by 100.
                         RawSliderRow(
-                            label = "Sk. Warm",
+                            label = "Skin warm",
                             value = macro.skintoneWarm,
                             valueRange = -50f..50f,
                             step = 1f,
@@ -691,7 +707,7 @@ internal fun RawLutTab(
                         )
                         Spacer(Modifier.height(4.dp))
                         RawSliderRow(
-                            label = "Sk. Smooth",
+                            label = "Skin smooth",
                             value = macro.skintoneSmooth,
                             valueRange = 0f..100f,
                             step = 1f,
@@ -700,7 +716,7 @@ internal fun RawLutTab(
                         )
                         Spacer(Modifier.height(4.dp))
                         RawSliderRow(
-                            label = "Sk. Luma",
+                            label = "Skin luma",
                             value = macro.skintoneLuma,
                             valueRange = -50f..50f,
                             step = 1f,
@@ -726,7 +742,7 @@ internal fun RawLutTab(
 
         Spacer(Modifier.height(6.dp))
 
-        TabResetButton(RawTabId.LutAdj, macro, onMacroChange, label = "LUT Adjustments")
+        TabResetButton(RawTabId.LutAdj, macro, onMacroChange, label = "LUT Adj")
       }  // ── end showFinishing (LUT Adjustments, flat inline) ──
 
       if (showPicker) {
@@ -758,7 +774,8 @@ internal fun RawLutTab(
 
         categories.forEach { category ->
             val isUserCustom = category.categoryName == USER_CUSTOM_CATEGORY
-            val isExpanded = expandedCategories[category.categoryName] ?: false
+            val isRazLooks = category.categoryName == RAZ_LOOKS_CATEGORY
+            val isExpanded = expandedCategories[category.categoryName] ?: isRazLooks
             val showIntensityHere = !anyFavoriteSelected &&
                 category.entries.any { isEntrySelected(it) }
 
@@ -771,7 +788,7 @@ internal fun RawLutTab(
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.weight(1f),
-                    color = if (isUserCustom)
+                    color = if (isUserCustom || isRazLooks)
                         MaterialTheme.colorScheme.primary
                     else
                         MaterialTheme.colorScheme.onSurface,
@@ -1324,7 +1341,7 @@ private fun LutApproximableSyncPanel(
             )
             Spacer(Modifier.height(4.dp))
             RawSliderRow(
-                label = "Film Rolloff",
+                label = "Rolloff",
                 value = macro.filmRolloff,
                 valueRange = 0f..1f,
                 step = 0.01f,

@@ -62,8 +62,12 @@ android {
 
     androidResources {
         generateLocaleConfig = true
-        // Exclude bulky editable source assets from the packaged APK; the app
-        // reads the compact binary form at runtime.
+        // Ship only the compact binary .smcube LUTs. The canonical human-editable
+        // .cube stay in feature/photo-editor/src/main/assets/luts/ (in the repo)
+        // but are converted to .smcube at build time (convertLutsToSmcube) and the
+        // source .cube are excluded here — saves ~200 MB of APK. Native
+        // parseCubeFile reads .smcube by magic. (LUTs already stored as .smcube are
+        // unaffected; user-imported .cube live in filesDir, not assets.)
         ignoreAssetsPatterns.add("*.cube")
     }
 
@@ -95,8 +99,6 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
-            resValue("string", "app_launcher_name", "Open RAZStudio Room DEBUG")
-            resValue("string", "file_provider", "com.RAZStudio.StudioRoom.fileprovider.debug")
         }
         release {
             isMinifyEnabled = true
@@ -105,8 +107,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            resValue("string", "app_launcher_name", "Open RAZStudio Room")
-            resValue("string", "file_provider", "com.RAZStudio.StudioRoom.fileprovider")
             // Sign with the release keystore when keystore.properties is present;
             // otherwise leave unsigned (build still succeeds for CI / other devs).
             if (signingReady) {
@@ -136,8 +136,6 @@ android {
             // initWith(release) already carried proguard-android-optimize.txt +
             // proguard-rules.pro — only APPEND the hardened-only rules.
             proguardFiles("proguard-hardened.pro")
-            resValue("string", "app_launcher_name", "Open RAZStudio Room SECURE")
-            resValue("string", "file_provider", "com.RAZStudio.StudioRoom.fileprovider.hardened")
             if (signingReady) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -198,6 +196,7 @@ base {
 
 aboutLibraries {
     export.excludeFields.addAll("generated")
+    export.outputFile.set(layout.buildDirectory.file("generated/aboutLibraries/aboutlibraries.json"))
 }
 
 dependencies {

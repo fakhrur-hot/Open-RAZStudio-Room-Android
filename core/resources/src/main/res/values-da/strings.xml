@@ -340,7 +340,7 @@
     <string name="suffix">Suffiks</string>
     <string name="free">Gratis</string>
     <string name="presets_sub" formatted="false">Hvis du har valgt forudindstilling 125, vil billedet blive gemt som 125 % stÃ¸rrelse af det originale billede. Hvis du vÃ¦lger forudindstilling 50, vil billedet blive gemt med 50 % stÃ¸rrelse</string>
-    <string name="presets_sub_bytes">Forudindstilling her bestemmer % af filstÃ¸rrelsen. Hvis du vÃ¦lger 50% pÃ¥ 5mb billede, vil du fÃ¥ 2,5mb billede efter lagring</string>
+    <string name="presets_sub_bytes" formatted="false">Forudindstilling her bestemmer % af filstÃ¸rrelsen. Hvis du vÃ¦lger 50% pÃ¥ 5mb billede, vil du fÃ¥ 2,5mb billede efter lagring</string>
     <string name="randomize_filename_sub">Hvis det er aktiveret, vil outputfilnavnet vÃ¦re helt tilfÃ¦ldigt</string>
     <string name="tg_chat_sub">Diskuter appen og fÃ¥ feedback fra andre brugere. Du kan ogsÃ¥ fÃ¥ betaopdateringer og indsigt her.</string>
     <string name="restore">Gendan</string>

@@ -209,6 +209,17 @@ class RawBatchProcessor @Inject constructor(
         // already contains a baked AE action, skip re-analysis in the coordinator
         // (same as RawEditorComponent.exportToGallery).
         val hasBakedAe = actions.any { it.isAutoExposure }
+        
+        // As requested: Just note what mask type is selected for batch processing
+        // without dynamically injecting the bitmaps for preset cards.
+        val selectedMaskTypes = actions
+            .filter { it.isVisible && it.maskClass != null }
+            .map { it.maskClass?.name }
+            .distinct()
+        if (selectedMaskTypes.isNotEmpty()) {
+            android.util.Log.i("RawBatchProcessor", "Preset mask types selected (masks will apply globally in batch): $selectedMaskTypes")
+        }
+
         // Auto Expose on Open is available in BOTH routes (matches the workspace
         // selector: Route A / Camera Color Profile exposes ONLY this; Route B adds
         // Reconstruct + Enhance, forced off above for Route A). So honour the

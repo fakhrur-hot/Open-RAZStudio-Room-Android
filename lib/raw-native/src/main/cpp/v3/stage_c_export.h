@@ -73,6 +73,12 @@ struct StageCOptions {
     const float* attenMask = nullptr;
     int          attenMaskSize = 0;   // width
     int          attenMaskH = 0;      // height; 0 = square
+    // Depth	o CoC for Stage C selective bokeh (mirrors GL unit-10 .g + focus).
+    // null / 0 size = depth-off path (subject+atten gate only, still disc-blur).
+    const float* depthMap = nullptr; // [0,1] row-major
+    int          depthMapW = 0;
+    int          depthMapH = 0;
+    float        focusDepth = 0.5f;  // subject-median depth plane
     // M12.2c.2b — Up to 4 brush-mask layers ([0,1] alpha, row-major). Each
     // layer carries its own adjustments via the ShaderParams blob ([134..140]
     // for layer 0, [157..177] for layers 1..3). Layers with data=nullptr are

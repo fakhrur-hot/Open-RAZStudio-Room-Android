@@ -92,16 +92,10 @@ object MLExtendedIntelligence {
             )
         }
 
-        // 3. Dual-ISO Detection — sidecar dualIso block wins over MakerNote tag
-        //    (the current Stage A result carries no MakerNote tag field, so
-        //    the EXIF-only path always reports "not dual-ISO" today).
-        val dualIso = sidecar?.dualIso?.let {
-            safe("DualIsoDetect.fromSidecar") { MLDualIsoDetect.fromSidecar(it.isoBase, it.isoAlternate) }
-        } ?: safe("DualIsoDetect") { MLDualIsoDetect.detect(stageA.cameraMake, stageA.cameraModel, stageA.iso, null) }
-        dualIso?.let {
-            diag[0] = it.recoveryGain.clampTo(0f, 3f)
-            diag[1] = it.blendFactor.clampTo(0f, 1f)
-        }
+        // 3. ML Dual-ISO is retired in this product version and never activates.
+        // Sidecar and MakerNote dual-ISO values are intentionally ignored so the
+        // editor stays on the single-ISO path.
+        // No dual-ISO diagnostics are emitted.
 
         // 4. Focus Depth — no focus-distance fields on StageAResult today;
         //    pass 0/0 so the module's own "insufficient data" path (rather
@@ -140,29 +134,8 @@ object MLExtendedIntelligence {
         //    Integration Contract, these are the fallback values written when
         //    the firmware couldn't compute real ETTR metadata). Accepting them
         //    blindly causes max highlight recovery on every photo.
-        val sidecarEttrValid = sidecar?.ettr?.let { ettr ->
-            // Reject if ALL of: sceneDR at floor (<=4), headroom at zero,
-            // and no channel clip data — the degenerate "empty" state.
-            !(ettr.sceneDR <= 4f && ettr.highlightHeadroom <= 0f &&
-                ettr.channelClip.all { it <= 0f })
-        } ?: false
-        val histStats = if (sidecarEttrValid) {
-            sidecar!!.ettr!!.let {
-                StageAHistogramStats(
-                    sceneDynamicRange = it.sceneDR,
-                    highlightHeadroom = it.highlightHeadroom,
-                    redClipPercent = it.channelClip.getOrElse(0) { 0f },
-                    greenClipPercent = it.channelClip.getOrElse(1) { 0f },
-                    blueClipPercent = it.channelClip.getOrElse(2) { 0f },
-                )
-            }
-        } else {
-            if (sidecar?.ettr != null) {
-                AppLog.w(TAG, "applyExtendedDefaults: sidecar ettr block rejected as degenerate " +
-                    "(sceneDR=${sidecar.ettr!!.sceneDR} headroom=${sidecar.ettr!!.highlightHeadroom})")
-            }
-            stageAHistogramStats
-        }
+        val sidecarEttrValid = false
+        val histStats = stageAHistogramStats
         histStats?.let { stats ->
             diag[2] = stats.sceneDynamicRange.clampTo(4f, 14f)
             diag[3] = stats.highlightHeadroom.clampTo(0f, 3f)

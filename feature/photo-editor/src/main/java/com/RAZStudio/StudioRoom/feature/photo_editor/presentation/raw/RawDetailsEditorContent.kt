@@ -101,7 +101,7 @@ fun RawDetailsEditorContent(component: RawDetailsEditorComponent) {
     val params by shadow.shaderParamsFlow.collectAsState()
     val lutPath by shadow.lutCubePathFlow.collectAsState()
     val toneCurveLut by shadow.toneCurveLutFlow.collectAsState()
-    val subjectMask by shadow.segmentationMasksV3.collectAsState()
+    val subjectMask by shadow.masking.segmentationMasksV3.collectAsState()
     val isPreviewReady by shadow.fullResReady.collectAsState()
 
     var canvasFraction by remember { mutableFloatStateOf(0.55f) }
@@ -202,10 +202,10 @@ fun RawDetailsEditorContent(component: RawDetailsEditorComponent) {
 
             if (isLandscape) {
                 Row(modifier = Modifier.fillMaxSize()) {
-                    canvasContent(
+                    panelContent(
                         Modifier
                             .fillMaxHeight()
-                            .weight(canvasFraction),
+                            .weight(1f - canvasFraction),
                     )
                     if (isPreviewReady) {
                         Box(
@@ -216,7 +216,7 @@ fun RawDetailsEditorContent(component: RawDetailsEditorComponent) {
                                 .draggable(
                                     orientation = Orientation.Horizontal,
                                     state = rememberDraggableState { delta ->
-                                        canvasFraction = (canvasFraction + delta / totalWidthPx)
+                                        canvasFraction = (canvasFraction - delta / totalWidthPx)
                                             .coerceIn(0.25f, 0.75f)
                                     },
                                 ),
@@ -237,10 +237,10 @@ fun RawDetailsEditorContent(component: RawDetailsEditorComponent) {
                             }
                         }
                     }
-                    panelContent(
+                    canvasContent(
                         Modifier
                             .fillMaxHeight()
-                            .weight(1f - canvasFraction),
+                            .weight(canvasFraction),
                     )
                 }
             } else {

@@ -12,10 +12,51 @@
 #include <algorithm>
 #include <android/log.h>
 #include <cmath>
+#include <cstring>
+#include <mutex>
+#include <vector>
 
 #define LOG_TAG_AM "RawV3.ApplyMacro"
 
 namespace raw_v3 {
+
+namespace {
+std::mutex gVintageBakeMu;
+VintageFxBake gVintageBake;
+}  // namespace
+
+VintageFxBake& vintageFxBake() { return gVintageBake; }
+
+void setVintageFxBake(bool film, const uint8_t* bytes, int nbytes, int width, int height) {
+    if (!bytes || width <= 0 || height <= 0 || nbytes <= 0) return;
+    const size_t n = size_t(width) * size_t(height);
+    VintageOverlayBake overlay;
+    overlay.w = width;
+    overlay.h = height;
+    overlay.rgba.resize(n * 4);
+    if (nbytes >= int(n * 4)) {
+        std::memcpy(overlay.rgba.data(), bytes, n * 4);
+    } else if (nbytes >= int(n * 3)) {
+        for (size_t i = 0; i < n; ++i) {
+            overlay.rgba[i * 4 + 0] = bytes[i * 3 + 0];
+            overlay.rgba[i * 4 + 1] = bytes[i * 3 + 1];
+            overlay.rgba[i * 4 + 2] = bytes[i * 3 + 2];
+            overlay.rgba[i * 4 + 3] = 255;
+        }
+    } else if (nbytes >= int(n)) {
+        for (size_t i = 0; i < n; ++i) {
+            overlay.rgba[i * 4 + 0] = bytes[i];
+            overlay.rgba[i * 4 + 1] = bytes[i];
+            overlay.rgba[i * 4 + 2] = bytes[i];
+            overlay.rgba[i * 4 + 3] = 255;
+        }
+    } else {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(gVintageBakeMu);
+    if (film) gVintageBake.film = std::move(overlay);
+    else      gVintageBake.mist = std::move(overlay);
+}
 
 namespace {
 
@@ -907,26 +948,71 @@ inline void applyHaxVignetteP(float& r, float& g, float& b,
 }
 
 // Vintage — clean tonal vintage look (desaturate + mild cast + gentle channel
-// shift + faded blacks + corner vignette). CPU mirror of applyVintage in
-// shader_sources.cpp. The old AnalogTape line artifacts (scanlines, hum bands,
-// bottom tracking stripe) were REMOVED at the user's request — no streak lines.
+// shift + faded blacks). CPU mirror of applyVintage in
+// shader_sources.cpp, including baked mist/film overlays.
+inline void sampleOverlayRgba(const VintageOverlayBake& o, float u, float v,
+                              float& sr, float& sg, float& sb) {
+    sr = sg = sb = 0.f;
+    if (o.empty()) return;
+    if (u < 0.f) u = 0.f; else if (u > 1.f) u = 1.f;
+    if (v < 0.f) v = 0.f; else if (v > 1.f) v = 1.f;
+    const float fx = u * float(o.w - 1);
+    const float fy = v * float(o.h - 1);
+    const int x0 = int(fx);
+    const int y0 = int(fy);
+    const int x1 = (x0 + 1 < o.w) ? x0 + 1 : x0;
+    const int y1 = (y0 + 1 < o.h) ? y0 + 1 : y0;
+    const float tx = fx - float(x0);
+    const float ty = fy - float(y0);
+    auto at = [&](int x, int y, int c) -> float {
+        return o.rgba[(size_t(y) * size_t(o.w) + size_t(x)) * 4 + size_t(c)] * (1.f / 255.f);
+    };
+    const float r00 = at(x0, y0, 0), g00 = at(x0, y0, 1), b00 = at(x0, y0, 2);
+    const float r10 = at(x1, y0, 0), g10 = at(x1, y0, 1), b10 = at(x1, y0, 2);
+    const float r01 = at(x0, y1, 0), g01 = at(x0, y1, 1), b01 = at(x0, y1, 2);
+    const float r11 = at(x1, y1, 0), g11 = at(x1, y1, 1), b11 = at(x1, y1, 2);
+    const float r0 = r00 + (r10 - r00) * tx, g0 = g00 + (g10 - g00) * tx, b0 = b00 + (b10 - b00) * tx;
+    const float r1 = r01 + (r11 - r01) * tx, g1 = g01 + (g11 - g01) * tx, b1 = b01 + (b11 - b01) * tx;
+    sr = r0 + (r1 - r0) * ty;
+    sg = g0 + (g1 - g0) * ty;
+    sb = b0 + (b1 - b0) * ty;
+}
+
 inline void applyVintageP(float& r, float& g, float& b,
                           float u, float v,
-                          float strength, float fade, float vig) {
-    if (strength == 0.f) return;
-    float k = strength;
-    float Y = r * 0.299f + g * 0.587f + b * 0.114f;
-    r += (Y - r) * 0.35f * k;  g += (Y - g) * 0.35f * k;  b += (Y - b) * 0.35f * k;
-    r += 0.020f * k;  g += -0.012f * k;  b += 0.028f * k;   // mild warm/cool cast
-    r += 0.020f * k;  b += -0.015f * k;                     // gentle channel shift
-    float w2 = fade * strength * 0.6f;                      // fade / lift blacks
-    r += (0.12f - r) * w2;  g += (0.12f - g) * w2;  b += (0.12f - b) * w2;
-    float dx = (u - 0.5f) * 2.f;
-    float dy = (v - 0.5f) * 2.f;
-    float rr = dx * dx + dy * dy;
-    float vigMask = smoothstep01(0.5f, 1.8f, rr) * vig * strength;
-    float mul = 1.f - vigMask * 0.6f;
-    r *= mul; g *= mul; b *= mul;
+                          float strength, float fade, float vig,
+                          float mistInt, float mistScale,
+                          float texInt, float texScale,
+                          float mistWarmth) {
+    if (strength == 0.f && mistInt <= 0.f && texInt <= 0.f) return;
+    if (strength != 0.f) {
+        float k = strength;
+        float Y = r * 0.299f + g * 0.587f + b * 0.114f;
+        r += (Y - r) * 0.35f * k;  g += (Y - g) * 0.35f * k;  b += (Y - b) * 0.35f * k;
+        r += 0.020f * k;  g += -0.012f * k;  b += 0.028f * k;   // mild warm/cool cast
+        r += 0.020f * k;  b += -0.015f * k;                     // gentle channel shift
+        float w2 = fade * strength * 0.6f;                      // fade / lift blacks
+        r += (0.12f - r) * w2;  g += (0.12f - g) * w2;  b += (0.12f - b) * w2;
+    }
+    const VintageFxBake& bake = vintageFxBake();
+    if (mistInt > 0.f && !bake.mist.empty()) {
+        const float sc = mistScale < 1.f ? 1.f : mistScale;
+        const float mu = (u - 0.5f) / sc + 0.5f;
+        const float mv = (v - 0.5f) / sc + 0.5f;
+        float sr, sg, sb;
+        sampleOverlayRgba(bake.mist, mu, mv, sr, sg, sb);
+        sr *= (1.f + mistWarmth * 0.55f);
+        sb *= (1.f - mistWarmth * 0.55f);
+        r += sr * mistInt; g += sg * mistInt; b += sb * mistInt;
+    }
+    if (texInt > 0.f && !bake.film.empty()) {
+        const float sc = texScale < 1.f ? 1.f : texScale;
+        const float tu = (u - 0.5f) / sc + 0.5f;
+        const float tv = (v - 0.5f) / sc + 0.5f;
+        float sr, sg, sb;
+        sampleOverlayRgba(bake.film, tu, tv, sr, sg, sb);
+        r += sr * texInt; g += sg * texInt; b += sb * texInt;
+    }
     if (r < 0.f) r = 0.f; else if (r > 4.f) r = 4.f;
     if (g < 0.f) g = 0.f; else if (g > 4.f) g = 4.f;
     if (b < 0.f) b = 0.f; else if (b > 4.f) b = 4.f;
@@ -1651,6 +1737,10 @@ ApplyMacroParams ApplyMacroParams::fromFloatArray(const float* arr, int count) {
     p.fxVintageStrength  = getOr(369, 0.f);
     p.fxVintageFade      = getOr(370, 0.f);
     p.fxVintageVig       = getOr(371, 0.f);
+    p.fxVintageMistIntensity = getOr(454, 0.f);
+    p.fxVintageMistScale     = getOr(455, 1.f);
+    p.fxVintageTextureIntensity = getOr(456, 0.f);
+    p.fxVintageTextureScale  = getOr(457, 1.f);
     p.fxGlowStrength     = getOr(372, 0.f);
     p.fxGlowSpread       = getOr(373, 0.f);
     p.fxGlowWarmth       = getOr(374, 0.f);
@@ -2536,9 +2626,12 @@ static void applyMacroPixelImpl(float* io, float u, float v,
     if (p.fxBlurStyle > 0.5f && blurBuf != nullptr && blurW > 0 && blurH > 0) {
         applyFxBlurP(r, g, b, blurBuf, blurW, blurH, p, mask, u, v);
     }
-    applyMistP(r, g, b, p.fxMist, p.fxMistWarmth);
+    applyMistP(r, g, b, p.fxMist, 0.f);
     applyVintageP(r, g, b, u, v,
-                  p.fxVintageStrength, p.fxVintageFade, p.fxVintageVig);
+                  p.fxVintageStrength, p.fxVintageFade, p.fxVintageVig,
+                  p.fxVintageMistIntensity, p.fxVintageMistScale,
+                  p.fxVintageTextureIntensity, p.fxVintageTextureScale,
+                  p.fxMistWarmth);
     // GLSL gates on uFxVintageVig > 0.0 (not 0.5) — see shader_sources.cpp.
     if (p.fxVintageVig > 0.f) {
         applyHaxVignetteP(r, g, b, u, v, p.fxVintageVig);

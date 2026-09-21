@@ -407,7 +407,9 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeSt
         jfloat   adjustMaximumThr,
         jboolean isLinearRaw,
         jstring jLensfunDbDir,
-        jfloat  lensfunFocalOverrideMm) {
+        jfloat  lensfunFocalOverrideMm,
+        jfloatArray jLiftMap,
+        jfloat  jLiftTau) {
 
     raw_v3::StageAOptions opts;
     opts.demosaicAlgorithm      = int(demosaicAlgorithm);
@@ -439,6 +441,16 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeSt
     opts.lensfunLensId          = jstrOrEmpty(env, jLensfunLensId);
     opts.lensfunDbDir           = jstrOrEmpty(env, jLensfunDbDir);
     opts.lensfunFocalOverrideMm = float(lensfunFocalOverrideMm);
+    // Zero-DCE adaptive devignetting: square row-major lift map (empty = static).
+    if (jLiftMap != nullptr) {
+        jsize n = env->GetArrayLength(jLiftMap);
+        if (n > 0) {
+            opts.liftMap.resize((size_t)n);
+            env->GetFloatArrayRegion(jLiftMap, 0, n, opts.liftMap.data());
+            opts.liftSide = (int)std::sqrt((double)n);
+        }
+    }
+    opts.liftTau = jLiftTau > 0.f ? jLiftTau : 0.7f;
     opts.blackLevelDelta        = float(blackLevelDelta);
     opts.whiteLevelDelta        = float(whiteLevelDelta);
     opts.clipThreshold          = float(clipThreshold);
@@ -1207,18 +1219,35 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_n
     return reinterpret_cast<jlong>(r);
 }
 
+JNIEXPORT jlong JNICALL
+Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_nativeGetEglDisplay(
+        JNIEnv*, jobject, jlong handle) {
+    if (!handle) return 0;
+    auto* r = reinterpret_cast<raw_v3::GlesRenderer*>(handle);
+    return reinterpret_cast<jlong>(r->getEglDisplay());
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_nativeBindTextureToMask(
+        JNIEnv*, jobject, jlong handle, jint layer, jint textureId) {
+    if (!handle) return JNI_FALSE;
+    auto* r = reinterpret_cast<raw_v3::GlesRenderer*>(handle);
+    return r->bindTextureToMask(int(layer), static_cast<GLuint>(textureId)) ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT void JNICALL
 Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_nativeUpdateAhb(
         JNIEnv* env, jobject /*thiz*/,
         jlong   handle,
-        jobject jHardwareBuffer) {
+        jobject jHardwareBuffer,
+        jint    fenceFd) {
     if (!handle) return;
     AHardwareBuffer* ahb = AHardwareBuffer_fromHardwareBuffer(env, jHardwareBuffer);
     if (!ahb) {
         LOGE("nativeUpdateAhb: AHardwareBuffer_fromHardwareBuffer returned null");
         return;
     }
-    reinterpret_cast<raw_v3::GlesRenderer*>(handle)->updateAhb(ahb);
+    reinterpret_cast<raw_v3::GlesRenderer*>(handle)->updateAhb(ahb, int(fenceFd));
 }
 
 JNIEXPORT jboolean JNICALL
@@ -1265,7 +1294,6 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_n
 // M12.2c.1 — upload U2Net subject mask. `jMask` is a row-major byte[]
 // of length width*height where each byte encodes the subject probability
 // (255 = certain subject). Renderer keeps a 320×320 GL_R8 texture bound
-// to unit 2 for the fragment shader to sample as `uSubjectMask`.
 JNIEXPORT jboolean JNICALL
 Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_nativeUploadSubjectMask(
         JNIEnv* env, jobject /*thiz*/,
@@ -1282,6 +1310,19 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_n
         reinterpret_cast<const uint8_t*>(bytes), int(width), int(height));
     env->ReleaseByteArrayElements(jMask, bytes, JNI_ABORT);
     return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_nativeUploadSubjectMaskAhb(
+        JNIEnv* env, jobject /*thiz*/,
+        jlong       handle,
+        jobject     jAhb,
+        jint        fenceFd) {
+    if (!handle || !jAhb) return JNI_FALSE;
+    AHardwareBuffer* ahb = AHardwareBuffer_fromHardwareBuffer(env, jAhb);
+    if (!ahb) return JNI_FALSE;
+    return reinterpret_cast<raw_v3::GlesRenderer*>(handle)->uploadSubjectMask(ahb, int(fenceFd))
+           ? JNI_TRUE : JNI_FALSE;
 }
 
 // Bokeh attenuation upload — see GlesRenderer::uploadBokehAttenuation.
@@ -1304,6 +1345,19 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_n
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_nativeUploadBokehAttenuationAhb(
+        JNIEnv* env, jobject /*thiz*/,
+        jlong       handle,
+        jobject     jAhb,
+        jint        fenceFd) {
+    if (!handle || !jAhb) return JNI_FALSE;
+    AHardwareBuffer* ahb = AHardwareBuffer_fromHardwareBuffer(env, jAhb);
+    if (!ahb) return JNI_FALSE;
+    return reinterpret_cast<raw_v3::GlesRenderer*>(handle)->uploadBokehAttenuation(ahb, int(fenceFd))
+           ? JNI_TRUE : JNI_FALSE;
+}
+
 // Depth map → unit-10 RG8 .g + focus plane for CoC bokeh.
 JNIEXPORT jboolean JNICALL
 Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_nativeUploadDepthMap(
@@ -1324,6 +1378,20 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_n
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_nativeUploadDepthMapAhb(
+        JNIEnv* env, jobject /*thiz*/,
+        jlong       handle,
+        jobject     jAhb,
+        jfloat      focusDepth,
+        jint        fenceFd) {
+    if (!handle || !jAhb) return JNI_FALSE;
+    AHardwareBuffer* ahb = AHardwareBuffer_fromHardwareBuffer(env, jAhb);
+    if (!ahb) return JNI_FALSE;
+    return reinterpret_cast<raw_v3::GlesRenderer*>(handle)->uploadDepthMap(ahb, float(focusDepth), int(fenceFd))
+           ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT void JNICALL
 Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_nativeClearDepthMap(
         JNIEnv* /*env*/, jobject /*thiz*/,
@@ -1331,7 +1399,6 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_n
     if (!handle) return;
     reinterpret_cast<raw_v3::GlesRenderer*>(handle)->clearDepthMap();
 }
-
 
 JNIEXPORT void JNICALL
 Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_nativeClearSubjectMask(
@@ -1397,6 +1464,20 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_n
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_nativeUploadBrushMaskAhb(
+        JNIEnv* env, jobject /*thiz*/,
+        jlong       handle,
+        jint        layer,
+        jobject     jAhb,
+        jint        fenceFd) {
+    if (!handle || !jAhb) return JNI_FALSE;
+    AHardwareBuffer* ahb = AHardwareBuffer_fromHardwareBuffer(env, jAhb);
+    if (!ahb) return JNI_FALSE;
+    return reinterpret_cast<raw_v3::GlesRenderer*>(handle)->uploadBrushMask(int(layer), ahb, int(fenceFd))
+           ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT void JNICALL
 Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_nativeClearBrushMask(
         JNIEnv* /*env*/, jobject /*thiz*/,
@@ -1423,6 +1504,19 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_n
         reinterpret_cast<const uint8_t*>(bytes), int(width), int(height));
     env->ReleaseByteArrayElements(jMask, bytes, JNI_ABORT);
     return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_nativeUploadSobelEdgeMaskAhb(
+        JNIEnv* env, jobject /*thiz*/,
+        jlong       handle,
+        jobject     jAhb,
+        jint        fenceFd) {
+    if (!handle || !jAhb) return JNI_FALSE;
+    AHardwareBuffer* ahb = AHardwareBuffer_fromHardwareBuffer(env, jAhb);
+    if (!ahb) return JNI_FALSE;
+    return reinterpret_cast<raw_v3::GlesRenderer*>(handle)->uploadSobelEdgeMask(ahb, int(fenceFd))
+           ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL
@@ -1457,6 +1551,50 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_n
         JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
     if (!handle) return;
     reinterpret_cast<raw_v3::GlesRenderer*>(handle)->clearToneCurve();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_nativeUploadVintageMist(
+        JNIEnv* env, jobject /*thiz*/,
+        jlong handle, jbyteArray jBytes, jint width, jint height) {
+    if (!handle || !jBytes || width <= 0 || height <= 0) return JNI_FALSE;
+    const jsize n = env->GetArrayLength(jBytes);
+    if (n <= 0) return JNI_FALSE;
+    jbyte* bytes = env->GetByteArrayElements(jBytes, nullptr);
+    if (!bytes) return JNI_FALSE;
+    bool ok = reinterpret_cast<raw_v3::GlesRenderer*>(handle)->uploadVintageMist(
+        reinterpret_cast<const uint8_t*>(bytes), int(n), int(width), int(height));
+    env->ReleaseByteArrayElements(jBytes, bytes, JNI_ABORT);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3GlSurfaceView_nativeUploadVintageFilm(
+        JNIEnv* env, jobject /*thiz*/,
+        jlong handle, jbyteArray jBytes, jint width, jint height) {
+    if (!handle || !jBytes || width <= 0 || height <= 0) return JNI_FALSE;
+    const jsize n = env->GetArrayLength(jBytes);
+    if (n <= 0) return JNI_FALSE;
+    jbyte* bytes = env->GetByteArrayElements(jBytes, nullptr);
+    if (!bytes) return JNI_FALSE;
+    bool ok = reinterpret_cast<raw_v3::GlesRenderer*>(handle)->uploadVintageFilm(
+        reinterpret_cast<const uint8_t*>(bytes), int(n), int(width), int(height));
+    env->ReleaseByteArrayElements(jBytes, bytes, JNI_ABORT);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeBakeVintageOverlay(
+        JNIEnv* env, jobject /*thiz*/,
+        jboolean film, jbyteArray jBytes, jint width, jint height) {
+    if (!jBytes || width <= 0 || height <= 0) return;
+    const jsize n = env->GetArrayLength(jBytes);
+    if (n <= 0) return;
+    jbyte* bytes = env->GetByteArrayElements(jBytes, nullptr);
+    if (!bytes) return;
+    raw_v3::setVintageFxBake(film == JNI_TRUE,
+        reinterpret_cast<const uint8_t*>(bytes), int(n), int(width), int(height));
+    env->ReleaseByteArrayElements(jBytes, bytes, JNI_ABORT);
 }
 
 // Mask tab "Show" overlay toggle: tint the masked region so it's visible.
@@ -1708,6 +1846,10 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeSt
         jfloatArray jAttenMask,
         jint    jAttenMaskSize,
         jint    jAttenMaskH,
+        jfloatArray jDepthMap,
+        jint    jDepthMapW,
+        jint    jDepthMapH,
+        jfloat  jFocusDepth,
         jfloatArray jMaskLayers,
         jint    jMaskLayerW,
         jint    jMaskLayerH,
@@ -1777,6 +1919,18 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeSt
     // float[] — layer i starts at offset i·(W·H). We point each
     // opt.maskLayerData[i] into that buffer so Stage C applies the same
     // per-layer mask compositing as the GL preview.
+
+    jfloat* depthArr = nullptr;
+    if (jDepthMap && jDepthMapW > 0 && jDepthMapH > 0) {
+        const jsize dn = env->GetArrayLength(jDepthMap);
+        if (dn >= jsize(jDepthMapW) * jsize(jDepthMapH)) {
+            depthArr = env->GetFloatArrayElements(jDepthMap, nullptr);
+            opt.depthMap = depthArr;
+            opt.depthMapW = int(jDepthMapW);
+            opt.depthMapH = int(jDepthMapH);
+            opt.focusDepth = float(jFocusDepth);
+        }
+    }
     jfloat* maskLayersArr = nullptr;
     if (jMaskLayers && jMaskLayerCount > 0 && jMaskLayerW > 0 && jMaskLayerH > 0) {
         const jsize have = env->GetArrayLength(jMaskLayers);
@@ -1813,6 +1967,7 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeSt
     if (lutArr)        env->ReleaseFloatArrayElements(jLutData, lutArr, JNI_ABORT);
     if (maskArr)       env->ReleaseFloatArrayElements(jSubjectMask, maskArr, JNI_ABORT);
     if (attenArr)      env->ReleaseFloatArrayElements(jAttenMask, attenArr, JNI_ABORT);
+    if (depthArr)      env->ReleaseFloatArrayElements(jDepthMap, depthArr, JNI_ABORT);
     if (maskLayersArr) env->ReleaseFloatArrayElements(jMaskLayers, maskLayersArr, JNI_ABORT);
     if (toneCurveArr)  env->ReleaseByteArrayElements(jToneCurveLut, toneCurveArr, JNI_ABORT);
     if (iccArr)        env->ReleaseByteArrayElements(jIccProfile, iccArr, JNI_ABORT);

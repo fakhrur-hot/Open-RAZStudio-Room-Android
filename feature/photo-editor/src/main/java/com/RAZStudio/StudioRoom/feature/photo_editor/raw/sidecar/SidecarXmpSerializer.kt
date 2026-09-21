@@ -214,6 +214,7 @@ object SidecarXmpSerializer {
         put("lensfunCameraId", ws.lensfunCameraId)
         put("lensfunLensId", ws.lensfunLensId)
         put("lensfunFocalOverrideMm", ws.lensfunFocalOverrideMm.toDouble())
+        put("liftTau", ws.liftTau.toDouble())
         put("lensfunMatchConfidence", ws.lensfunMatchConfidence)
         put("lensfunAdaptedMode", ws.lensfunAdaptedMode)
         put("wbSourceOrdinal", ws.wbSourceOrdinal)
@@ -272,6 +273,7 @@ object SidecarXmpSerializer {
             lensfunCameraId = obj.optString("lensfunCameraId", d.lensfunCameraId),
             lensfunLensId = obj.optString("lensfunLensId", d.lensfunLensId),
             lensfunFocalOverrideMm = obj.optFloat("lensfunFocalOverrideMm", d.lensfunFocalOverrideMm),
+            liftTau = obj.optFloat("liftTau", d.liftTau),
             lensfunMatchConfidence = obj.optInt("lensfunMatchConfidence", d.lensfunMatchConfidence),
             lensfunAdaptedMode = obj.optBoolean("lensfunAdaptedMode", d.lensfunAdaptedMode),
             wbSourceOrdinal = obj.optInt("wbSourceOrdinal", d.wbSourceOrdinal),
@@ -448,6 +450,10 @@ object SidecarXmpSerializer {
         put("fxVintageStrength", m.fxVintageStrength.toDouble())
         put("fxVintageFade",     m.fxVintageFade.toDouble())
         put("fxVintageVig",      m.fxVintageVig.toDouble())
+        put("fxVintageMistIntensity", m.fxVintageMistIntensity.toDouble())
+        put("fxVintageMistScale",     m.fxVintageMistScale.toDouble())
+        put("fxVintageTextureIntensity", m.fxVintageTextureIntensity.toDouble())
+        put("fxVintageTextureScale",     m.fxVintageTextureScale.toDouble())
         put("fxGlowStrength",   m.fxGlowStrength.toDouble())
         put("fxGlowSpread",     m.fxGlowSpread.toDouble())
         put("fxGlowWarmth",     m.fxGlowWarmth.toDouble())
@@ -800,6 +806,10 @@ object SidecarXmpSerializer {
             fxVintageStrength   = obj.optFloat("fxVintageStrength",   d.fxVintageStrength),
             fxVintageFade       = obj.optFloat("fxVintageFade",       d.fxVintageFade),
             fxVintageVig        = obj.optFloat("fxVintageVig",        d.fxVintageVig),
+            fxVintageMistIntensity = obj.optFloat("fxVintageMistIntensity", d.fxVintageMistIntensity),
+            fxVintageMistScale     = obj.optFloat("fxVintageMistScale",     d.fxVintageMistScale),
+            fxVintageTextureIntensity = obj.optFloat("fxVintageTextureIntensity", d.fxVintageTextureIntensity),
+            fxVintageTextureScale     = obj.optFloat("fxVintageTextureScale",     d.fxVintageTextureScale),
             fxGlowStrength      = obj.optFloat("fxGlowStrength",      d.fxGlowStrength),
             fxGlowSpread        = obj.optFloat("fxGlowSpread",        d.fxGlowSpread),
             fxGlowWarmth        = obj.optFloat("fxGlowWarmth",        d.fxGlowWarmth),

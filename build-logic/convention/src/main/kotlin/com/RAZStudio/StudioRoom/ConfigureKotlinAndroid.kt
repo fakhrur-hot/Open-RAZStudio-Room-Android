@@ -98,6 +98,7 @@ val Project.javaVersion: JavaVersion
  * Configure base Kotlin options
  */
 private inline fun <reified T : KotlinBaseExtension> Project.configureKotlin() = configure<T> {
+    jvmToolchain(javaVersion.majorVersion.toInt())
     val args = listOf(
         "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
         "-opt-in=androidx.compose.material3.ExperimentalMaterial3ExpressiveApi",
@@ -109,7 +110,6 @@ private inline fun <reified T : KotlinBaseExtension> Project.configureKotlin() =
         "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
         "-opt-in=kotlinx.coroutines.FlowPreview",
         "-opt-in=androidx.compose.material.ExperimentalMaterialApi",
-        "-opt-in=com.arkivanov.decompose.ExperimentalDecomposeApi",
         "-opt-in=coil3.annotation.ExperimentalCoilApi",
         "-opt-in=coil3.annotation.DelicateCoilApi",
         "-opt-in=kotlin.contracts.ExperimentalContracts",

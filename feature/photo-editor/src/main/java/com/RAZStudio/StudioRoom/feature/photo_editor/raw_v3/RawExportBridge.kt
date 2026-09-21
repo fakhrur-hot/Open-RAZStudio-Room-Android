@@ -35,6 +35,7 @@ object RawExportBridge {
             lensfunCameraId         = lensfunCameraId,
             lensfunLensId           = lensfunLensId,
             lensfunFocalOverrideMm  = lensfunFocalOverrideMm,
+            liftTau                 = liftTau,
             wbSource                = wb,
             exposureShift           = exposureShiftEv,
             fbddNoise               = fbddNoise,

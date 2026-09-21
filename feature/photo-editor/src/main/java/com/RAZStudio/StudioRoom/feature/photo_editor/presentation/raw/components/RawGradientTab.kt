@@ -388,7 +388,7 @@ private fun GradientSideSection(
             }
             if (subjectSegBusy) {
                 Text(
-                    text = "Detecting subject… Subject/Background unlock when ready.",
+                    text = "Detecting subject…",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp),

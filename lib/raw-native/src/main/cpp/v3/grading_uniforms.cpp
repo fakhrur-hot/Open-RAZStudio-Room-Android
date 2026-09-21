@@ -232,6 +232,10 @@ void pushGradingUniforms(unsigned int prog,
     glUniform1f(L("uFxVintageStrength"), params.fxVintageStrength);
     glUniform1f(L("uFxVintageFade"),     params.fxVintageFade);
     glUniform1f(L("uFxVintageVig"),      params.fxVintageVig);
+    glUniform1f(L("uFxVintageMistIntensity"), params.fxVintageMistIntensity);
+    glUniform1f(L("uFxVintageMistScale"),     params.fxVintageMistScale);
+    glUniform1f(L("uFxVintageTextureIntensity"), params.fxVintageTextureIntensity);
+    glUniform1f(L("uFxVintageTextureScale"),  params.fxVintageTextureScale);
     glUniform1f(L("uFxGlowStrength"),    params.fxGlowStrength);
     glUniform1f(L("uFxGlowSpread"),      params.fxGlowSpread);
     glUniform1f(L("uFxGlowWarmth"),      params.fxGlowWarmth);

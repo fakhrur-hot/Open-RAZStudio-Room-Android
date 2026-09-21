@@ -47,6 +47,7 @@ add_library(raw_decoder SHARED
         v3/film_sim.cpp
         v3/v3_debug_log.cpp
         v3/v3_jni.cpp
+        v3/raw_v3_jni.cpp
         # ── ai-enhance: shared LMMSE+USM math (FP16 overload used by Stage A) ─
         ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../feature/ai-enhance/src/main/cpp/lmmse_enhance.cpp
         ${LIBRAW_PATH}/src/libraw_c_api.cpp
@@ -206,12 +207,7 @@ target_link_options(raw_decoder PRIVATE
     $<$<CONFIG:Release>:-Wl,--gc-sections -Wl,--exclude-libs,ALL>
 )
 
-# ── Rayxie vertical pass disabled ─────────────────────────────────────────────
-# Verified adb 2026-05-25: V pass on 5496×3669 timed out the 60s watchdog while
-# the H pass on the same image completed in 26 ms — same algorithm, just
-# column-major instead of row-major. Tiled gather/scatter (64-col chunks into
-# L2-friendly contiguous scratch) didn't fix it. Skipping V matches Darktable's
-# RCD-CA which also applies horizontal only. CA in real lenses is overwhelmingly
-# horizontal (sagittal dispersion); the rare residual vertical fringe is not
-# worth the watchdog kill.
-target_compile_definitions(raw_decoder PRIVATE RAYXIE_SKIP_VERTICAL)
+
+# ── Rayxie vertical pass enabled ──────────────────────────────────────────────
+# Optimized tiled median pass in rayxie_defringe.cpp prevents watchdog timeout.
+

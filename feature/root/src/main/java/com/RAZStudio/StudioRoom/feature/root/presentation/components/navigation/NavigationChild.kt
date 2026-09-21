@@ -248,4 +248,9 @@ internal sealed interface NavigationChild {
         override fun Content() = CanonBatchDownloadContent(component)
     }
 
+    object Unavailable : NavigationChild {
+        @Composable
+        override fun Content() = Unit
+    }
+
 }

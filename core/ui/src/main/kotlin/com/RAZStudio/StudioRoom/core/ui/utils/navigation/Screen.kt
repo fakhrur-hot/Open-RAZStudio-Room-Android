@@ -284,6 +284,30 @@ sealed class Screen(
         subtitle = R.string.canon_batch_download_sub
     )
 
+    /**
+     * LUT Creator — build a color `.cube` LUT from 2–5 before/after photo
+     * pairs. Fits the color transform between each original and its edit and
+     * saves the result into the User's Lut library. Reachable from the home
+     * page next to Canon Sync.
+     */
+    @Serializable
+    data object LutCreator : Screen(
+        id = 75,
+        title = R.string.lut_creator,
+        subtitle = R.string.lut_creator_sub
+    )
+
+    /**
+     * Short Video Editor — clip trimming, merging, GPU filters, and BiRefNet
+     * subject isolation with optical flow tracking across frames.
+     */
+    @Serializable
+    data object VideoEditor : Screen(
+        id = 80,
+        title = R.string.video_editor,
+        subtitle = R.string.video_editor_sub
+    )
+
     @Serializable
     data class ResizeAndConvert(
         val uris: List<Uri>? = null

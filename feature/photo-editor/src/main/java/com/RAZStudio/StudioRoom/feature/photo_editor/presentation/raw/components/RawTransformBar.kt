@@ -49,6 +49,7 @@ private const val SHOW_ONLINE_AI_EDIT_BUTTON = false
 
 @Composable
 internal fun RawExportTransformBar(
+    hasAiDenoise: Boolean,
     hasWatermark: Boolean,
     hasCrop: Boolean,
     hasHeal: Boolean,
@@ -58,6 +59,7 @@ internal fun RawExportTransformBar(
     onHeal: () -> Unit,
     onBorder: () -> Unit,
     onWatermark: () -> Unit,
+    onAiDenoise: () -> Unit,
     onOnlineAiEdit: () -> Unit,
     onReset: () -> Unit,
 ) {
@@ -75,6 +77,20 @@ internal fun RawExportTransformBar(
             Icon(
                 imageVector = Icons.Rounded.CropSmall,
                 contentDescription = "Crop",
+                modifier = Modifier.height(20.dp),
+            )
+        }
+        Spacer(Modifier.width(4.dp))
+        EnhancedIconButton(
+            containerColor = if (hasAiDenoise) MaterialTheme.colorScheme.tertiaryContainer
+                             else MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = if (hasAiDenoise) MaterialTheme.colorScheme.onTertiaryContainer
+                           else MaterialTheme.colorScheme.onSecondaryContainer,
+            onClick = onAiDenoise,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.AutoAwesome,
+                contentDescription = "AI Denoise",
                 modifier = Modifier.height(20.dp),
             )
         }

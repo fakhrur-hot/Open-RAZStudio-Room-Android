@@ -15,7 +15,7 @@
   ~ You should have received a copy of the Apache License
   ~ along with this program.  If not, see <http://www.apache.org/licenses/LICENSE-2.0>.
   --><resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
-    <string name="app_name" translatable="false">Open RAZStudio Room</string>
+    <string name="app_name" translatable="false">RAZStudio</string>
     <string name="video_editor">Short Video Editor</string>
     <string name="video_editor_sub">Trim, merge, apply filters &amp; isolate subjects across clips</string>
     <string name="add_clip">Add Video Clip</string>
@@ -23,7 +23,7 @@
     <string name="subject_isolation">BiRefNet Subject Isolation</string>
     <string name="export_video">Export Combined Video</string>
     <string name="optical_flow_tracking">Optical Flow Tracking</string>
-    <string name="app_launcher_name" translatable="false">StudioRoom</string>
+    <string name="app_launcher_name" translatable="false">RAZStudio</string>
     <string name="file_provider" translatable="false">com.RAZStudio.StudioRoom.fileprovider</string>
     <string name="smth_went_wrong">Something went wrong: %1$s</string>
     <string name="size">Size %1$s</string>
@@ -69,7 +69,7 @@
     <string name="photo_editor_sub">Modify, resize and edit one image</string>
     <string name="raw_editor">RAWEditor</string>
     <string name="raw_8bit_editor">8-bit Workspace</string>
-    <string name="raw_8bit_editor_sub">Segmented-CLAHE tonemap to 8-bit, then edit</string>
+    <string name="raw_8bit_editor_sub">8-bit workspace</string>
     <string name="canon_sync">Canon Sync</string>
     <string name="canon_sync_sub">Pull RAW/JPEG from a Canon EOS over Wi-Fi</string>
     <string name="canon_remote_shoot">Live Remote Shooting</string>
@@ -404,6 +404,7 @@ Free space after: %3$s</string>
     <string name="gallery_color_green">Green</string>
     <string name="gallery_color_blue">Blue</string>
     <string name="gallery_color_purple">Purple</string>
+    <string name="edition_not_in_release">Not in release</string>
     <string name="lut_creator">LUT Creator</string>
     <string name="lut_creator_sub">Build a color LUT from pairs, match a photo, or extract a look from a reference</string>
     <string name="lut_creator_tab_pairs">Before / After</string>
@@ -436,13 +437,13 @@ Free space after: %3$s</string>
     <string name="raw_editor_start_page">RAWEditor Start Page</string>
     <string name="raw_single_editor">Single RAWEditor</string>
     <string name="raw_batch_processing_button">Batch Processing</string>
-    <string name="raw_editor_sub">Edit RAW files with wide-gamut pipeline</string>
-    <string name="raw_tab_light">RAW Light</string>
+    <string name="raw_editor_sub">Edit RAW photos</string>
+    <string name="raw_tab_light">Light</string>
     <string name="raw_tab_color">Color</string>
     <string name="raw_tab_detail">Detail</string>
     <string name="raw_exposure">Exposure</string>
     <string name="raw_highlights">Highlights</string>
-    <string name="raw_highlights_recovery">Highlights Recovery</string>
+    <string name="raw_highlights_recovery">Recovery</string>
     <string name="raw_fill_light">Fill Light</string>
     <string name="raw_shadows">Shadows</string>
     <string name="raw_whites">Whites</string>
@@ -450,7 +451,7 @@ Free space after: %3$s</string>
     <string name="raw_color_shift_red">Red shift</string>
     <string name="raw_color_shift_green">Green shift</string>
     <string name="raw_color_shift_blue">Blue shift</string>
-    <string name="raw_color_shift_hint">Horizontal RGB split (per-channel degree)</string>
+    <string name="raw_color_shift_hint">RGB split</string>
     <string name="raw_bloom_warmth">Warmth</string>
     <string name="raw_bloom_tightness">Tightness</string>
     <string name="raw_bloom_halation">Halation</string>
@@ -473,23 +474,30 @@ Free space after: %3$s</string>
     <string name="raw_vignette_feather">Feather</string>
     <string name="raw_vignette_effect">Effect</string>
     <string name="raw_vignette_effect_all">All</string>
-    <string name="raw_vignette_effect_highlights">Highlights only</string>
-    <string name="raw_vignette_effect_shadows">Shadows only</string>
+    <string name="raw_vignette_effect_highlights">Highlights</string>
+    <string name="raw_vignette_effect_shadows">Shadows</string>
     <string name="raw_vignette_center">Move center</string>
     <string name="raw_vignette_center_hint">Tap to enable drag on canvas</string>
-    <string name="raw_vignette_center_hint_active">Tap and drag on image to reposition</string>
+    <string name="raw_vignette_center_hint_active">Drag on the photo</string>
+    <string name="raw_flare_move">Move flare</string>
+    <string name="raw_flare_move_hint">Tap to enable drag on canvas</string>
+    <string name="raw_flare_move_hint_active">Drag on the photo</string>
     <string name="raw_tab_actions">Actions</string>
     <string name="raw_tab_tone_curves">Tone Curves</string>
     <string name="raw_tab_tonemap">Tonemap</string>
     <string name="raw_tab_demosaicing">Demosaicing</string>
     <string name="raw_demosaic_header">Algorithm</string>
-    <string name="raw_demosaic_note">Applies to full-resolution export only. Preview always uses fast bilinear decode.</string>
+    <string name="raw_demosaic_note">Export only. Preview stays fast.</string>
     <string name="raw_demosaic">RAW Demosaic</string>
     <string name="raw_demosaic_sub">Demosaicing algorithm for full-resolution RAW processing</string>
     <string name="raw_editing">RAW Editing</string>
     <string name="letterboxing">Letterboxing</string>
     <string name="letterbox_color">Letterbox Color</string>
     <string name="letterbox_color_sub">Background color shown behind the photo on the editor canvas</string>
+    <string name="letterbox_preset_white">White</string>
+    <string name="letterbox_preset_black">Black</string>
+    <string name="letterbox_preset_gray">Gray</string>
+    <string name="letterbox_preset_chrome">Chrome</string>
     <string name="raw_tab_details">Details</string>
     <string name="raw_tab_lut">LUT</string>
     <string name="raw_tab_vignette">Vignette</string>
@@ -497,14 +505,14 @@ Free space after: %3$s</string>
     <string name="raw_tab_mask">Mask</string>
     <string name="raw_mask_selection">Selection</string>
     <string name="raw_mask_invert">Invert</string>
-    <string name="raw_mask_subject">Select Subject</string>
-<string name="raw_mask_background">Select Background</string>
+    <string name="raw_mask_subject">Subject</string>
+    <string name="raw_mask_background">Background</string>
     <string name="raw_mask_remove_subject">Remove Subject</string>
     <string name="raw_mask_remove_background">Remove Background</string>
     <string name="raw_mask_clarity">Clarity</string>
     <string name="raw_mask_sharpness">Sharpness</string>
     <string name="raw_mask_brush">Brush</string>
-    <string name="raw_mask_draw">Show and Draw</string>
+    <string name="raw_mask_draw">Draw</string>
     <string name="raw_mask_erase">Erase</string>
     <string name="raw_mask_brush_size">Size</string>
     <string name="raw_mask_brush_intensity">Intensity</string>
@@ -520,15 +528,15 @@ Free space after: %3$s</string>
     <string name="raw_mask_snap_off">Soft Edges</string>
     <string name="raw_mask_sharp_edges">Sharp Edges</string>
     <string name="raw_light_auto">Auto</string>
-    <string name="raw_light_normalize_3dlut">Normalize for 3Dlut</string>
+    <string name="raw_light_normalize_3dlut">Normalize LUT</string>
     <string name="raw_tonemap_import_xmp">Import XMP</string>
-    <string name="raw_hsl_header">HSL â€” Per-hue</string>
+    <string name="raw_hsl_header">HSL</string>
     <string name="raw_hsl_placeholder">Individual hue controls coming soon</string>
     <string name="raw_lut_none">No LUT selected</string>
 <!-- The picker behind this button accepts .cube, .3dl, Adobe .xmp presets,
          .lrtemplate, and HaldCLUT images (PNG/JPEG/TIFF) â€” not only .cube, so
          the label must not say ".cube" (renamed 2026-08-29 per owner request). -->
-    <string name="raw_lut_pick">Import LUT / XMP</string>
+    <string name="raw_lut_pick">Import</string>
     <string name="raw_lut_search_toggle">Search LUTs</string>
     <string name="raw_lut_search_hint">Search LUTsâ€¦</string>
     <string name="raw_lut_search_clear">Clear search</string>
@@ -711,6 +719,7 @@ Free space after: %3$s</string>
     <string name="original">Original</string>
     <string name="folder">Output folder</string>
     <string name="default_folder" translatable="false">Pictures/RAZStudio</string>
+    <string name="default_output_folder">Default Output Folder</string>
     <string name="def">Default</string>
     <string name="custom">Custom</string>
     <string name="unspecified">Unspecified</string>

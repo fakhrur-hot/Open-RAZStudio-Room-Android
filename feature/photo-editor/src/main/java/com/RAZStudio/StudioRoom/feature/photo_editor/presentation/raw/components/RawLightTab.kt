@@ -111,7 +111,7 @@ internal fun RawLightTab(
                 )
                 when {
                     aeLocked -> Text(
-                        text = "Locked by Auto Expose on Open",
+                        text = "Locked",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

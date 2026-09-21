@@ -69,7 +69,7 @@ interface SettingsInteractor : SimpleSettingsInteractor {
 
     suspend fun setNightMode(nightMode: NightMode)
 
-    suspend fun setSaveFolderUri(uri: String?)
+    override suspend fun setSaveFolderUri(uri: String?)
 
     suspend fun setColorTuples(colorTuples: String)
 

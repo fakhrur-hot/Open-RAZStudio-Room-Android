@@ -17,6 +17,9 @@
 
 package com.RAZStudio.StudioRoom.feature.photo_editor.raw.model
 
+import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.MaskNode
+
+
 /**
  * A saved edit action in the RAW editor action stack.
  *
@@ -70,6 +73,14 @@ data class RawAction(
      * backward compat with older sidecars that only carried one).
      */
     val maskClasses: List<MaskClass> = emptyList(),
+    /**
+     * M12.2c.6 — Full operational graph for this mask instance. Storing
+     * the nodes (brush paths, model planes, color recipes) allows the
+     * "Undo" history to be restored when switching back to this layer,
+     * ensuring session-persistent non-destructive editing per layer.
+     * Not serialized to XMP (too large); kept in-memory for the session.
+     */
+    val maskNodes: List<MaskNode> = emptyList(),
     /**
      * True when this action was produced by the Light-tab Auto button.
      * The stored [macro] is a snapshot of the values Auto computed for

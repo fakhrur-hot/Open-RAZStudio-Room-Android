@@ -187,7 +187,7 @@ class SonySyncComponent @AssistedInject internal constructor(
                     importFromUsb()
                 } catch (e: Exception) {
                     log("USB error: ${e.message}")
-                    _result.value = SonyResult.Failed(e.message ?: "USB import failed.")
+                    _result.value = SonyResult.Failed("Couldn't read the camera over USB.")
                 } finally {
                     _running.value = false
                 }
@@ -204,7 +204,7 @@ class SonySyncComponent @AssistedInject internal constructor(
                     log("Not on a camera Wi-Fi. Join the camera's network " +
                         "(DIRECT-…:ILCE-7M2) from the camera's Send-to-Smartphone / " +
                         "Ctrl-with-Smartphone screen, then try again.")
-                    _result.value = SonyResult.Failed("Not connected to the camera's Wi-Fi.")
+                    _result.value = SonyResult.Failed("Join the camera's Wi-Fi first.")
                     _step.value = SonyConnectionStep.Idle
                     return@launch
                 }
@@ -298,7 +298,7 @@ class SonySyncComponent @AssistedInject internal constructor(
                     // Close the push session even with nothing to pull, or the
                     // camera keeps spinning.
                     dlnaCd?.let { api.xTransferEnd(it, 0) }
-                    _result.value = SonyResult.Failed("Connected, but the camera sent no photos to pull.")
+                    _result.value = SonyResult.Failed("No photos to download.")
                     _step.value = SonyConnectionStep.Connected
                     return@launch
                 }
@@ -309,7 +309,7 @@ class SonySyncComponent @AssistedInject internal constructor(
                     log("Set a Default Output folder in Settings first — that's where " +
                         "downloaded photos are saved.")
                     dlnaCd?.let { api.xTransferEnd(it, 0) }
-                    _result.value = SonyResult.Failed("No output folder set — pick one in Settings.")
+                    _result.value = SonyResult.Failed("No output folder set in Settings.")
                     _step.value = SonyConnectionStep.Connected
                     return@launch
                 }
@@ -352,11 +352,11 @@ class SonySyncComponent @AssistedInject internal constructor(
                         onNavigate(Screen.ImagePreview(savedUris.toList()))
                     }
                 } else {
-                    _result.value = SonyResult.Failed("Nothing was saved (all transfers failed).")
+                    _result.value = SonyResult.Failed("Download failed.")
                 }
             } catch (e: Exception) {
                 log("Error: ${e.message}")
-                _result.value = SonyResult.Failed(e.message ?: "Unknown error.")
+                _result.value = SonyResult.Failed("Something went wrong.")
             } finally {
                 runCatching { multicastLock?.release() }
                 connector.release()
@@ -377,27 +377,25 @@ class SonySyncComponent @AssistedInject internal constructor(
         try {
             val detected = importer.detect()
             if (detected == null) {
-                _result.value = SonyResult.Failed(
-                    "No USB camera detected. Connect via OTG in Mass Storage mode.")
+                _result.value = SonyResult.Failed("No camera found. Connect it by USB.")
                 _step.value = SonyConnectionStep.Idle
                 return
             }
             log("Selected: ${detected.displayName} — ${detected.modeLabel}")
             if (!detected.isMassStorage) {
-                _result.value = SonyResult.Failed(
-                    "Camera is in ${detected.modeLabel}. Set USB Connection = Mass Storage.")
+                _result.value = SonyResult.Failed("Set the camera's USB mode to Mass Storage.")
                 _step.value = SonyConnectionStep.Connected
                 return
             }
             if (!importer.ensurePermission(detected.device)) {
-                _result.value = SonyResult.Failed("USB permission denied.")
+                _result.value = SonyResult.Failed("USB access was denied.")
                 _step.value = SonyConnectionStep.Connected
                 return
             }
             _step.value = SonyConnectionStep.Connected
             val images = importer.openAndListImages(detected.device)
             if (images.isEmpty()) {
-                _result.value = SonyResult.Failed("No photos found on the camera card.")
+                _result.value = SonyResult.Failed("No photos on the camera.")
                 return
             }
             val dir = resolveOutputDir()
@@ -434,7 +432,7 @@ class SonySyncComponent @AssistedInject internal constructor(
                     onNavigate(Screen.ImagePreview(savedUris.toList()))
                 }
             } else {
-                _result.value = SonyResult.Failed("Nothing was saved (all copies failed).")
+                _result.value = SonyResult.Failed("Copy failed.")
             }
         } finally {
             importer.close()

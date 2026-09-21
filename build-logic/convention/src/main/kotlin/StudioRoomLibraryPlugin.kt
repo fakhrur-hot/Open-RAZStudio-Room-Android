@@ -20,6 +20,7 @@ import com.RAZStudio.StudioRoom.configureDetekt
 import com.RAZStudio.StudioRoom.configureKotlinAndroid
 import com.RAZStudio.StudioRoom.implementation
 import com.RAZStudio.StudioRoom.libs
+import com.RAZStudio.StudioRoom.shouldApplyDetekt
 import io.gitlab.arturbosch.detekt.extensions.DetektExtension
 import org.gradle.api.Plugin
 import org.gradle.api.Project
@@ -35,10 +36,14 @@ class StudioRoomLibraryPlugin : Plugin<Project> {
                 apply("com.android.library")
                 apply("kotlin-parcelize")
                 apply("kotlinx-serialization")
-                apply(libs.detekt.gradle.get().group)
+                if (shouldApplyDetekt()) {
+                    apply(libs.detekt.gradle.get().group)
+                }
             }
 
-            configureDetekt(extensions.getByType<DetektExtension>())
+            if (shouldApplyDetekt()) {
+                configureDetekt(extensions.getByType<DetektExtension>())
+            }
 
             extensions.configure<LibraryExtension> {
                 configureKotlinAndroid(this)

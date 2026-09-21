@@ -15,32 +15,32 @@
  * along with this program.  If not, see <http://www.apache.org/licenses/LICENSE-2.0>.
  */
 
-import com.RAZStudio.StudioRoom.implementation
-
-/*
- * StudioRoom is an image editor for android
- * Copyright (c) 2026 RAZStudio (Fakhrurraze)
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * You should have received a copy of the Apache License
- * along with this program.  If not, see <http://www.apache.org/licenses/LICENSE-2.0>.
- */
-
 plugins {
     alias(libs.plugins.image.toolbox.library)
     alias(libs.plugins.image.toolbox.hilt)
     alias(libs.plugins.image.toolbox.compose)
 }
 
-android.namespace = "com.RAZStudio.StudioRoom.core.ui"
+android {
+    namespace = "com.RAZStudio.StudioRoom.core.ui"
+    buildFeatures.buildConfig = true
+    defaultConfig {
+        buildConfigField("boolean", "EDITION_PRIVATE_TRIAL", "false")
+        buildConfigField("boolean", "FEATURE_OPEN_ALLOWLIST_ONLY", "true")
+        buildConfigField("boolean", "FEATURE_LUT_CREATOR", "false")
+        buildConfigField("boolean", "FEATURE_VIDEO_EDITOR", "false")
+    }
+    buildTypes {
+        release {
+            buildConfigField("boolean", "FEATURE_LUT_CREATOR", "false")
+            buildConfigField("boolean", "FEATURE_VIDEO_EDITOR", "false")
+        }
+        debug {
+            buildConfigField("boolean", "FEATURE_LUT_CREATOR", "false")
+            buildConfigField("boolean", "FEATURE_VIDEO_EDITOR", "false")
+        }
+    }
+}
 dependencies {
     api(projects.core.resources)
     api(projects.core.domain)

@@ -56,4 +56,34 @@ void buildBlendMask(const float* luminance,
                     float* contrastThreshold,
                     bool autoContrast);
 
+/**
+ * Extended Debug Statistics for Multi-Factor Confidence & Weight Tuning.
+ */
+struct DualBlendDebugStats {
+    float avgAmazeWeight;
+    float avgVngWeight;
+    float highlightAmazeWeight;
+    float shadowAmazeWeight;
+    float clippedRegionAmazeWeight;
+    float avgEdgeConfidence;
+    float avgTextureConfidence;
+    float avgNoiseConfidence;
+    float avgHighlightConfidence;
+    int clippedPixels;
+};
+
+/**
+ * Compute and retrieve extended debug statistics for the last built blend mask.
+ */
+const DualBlendDebugStats& getLastDualBlendDebugStats();
+
+/**
+ * Debug export helpers (e.g. for saving intermediate confidence planes to PNG/disk during tuning).
+ */
+void saveBlendMapPng(const char* filepath, const float* blend, int W, int H);
+void saveEdgeConfidencePng(const char* filepath, int W, int H);
+void saveTextureConfidencePng(const char* filepath, int W, int H);
+void saveHighlightConfidencePng(const char* filepath, int W, int H);
+void saveNoiseConfidencePng(const char* filepath, int W, int H);
+
 }  // namespace raw_v3

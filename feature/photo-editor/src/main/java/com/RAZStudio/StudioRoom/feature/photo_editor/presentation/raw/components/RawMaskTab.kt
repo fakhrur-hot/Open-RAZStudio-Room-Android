@@ -291,6 +291,10 @@ internal fun RawMaskTab(
     // colorSampleArgb = last sampled colour (0 = none, drives the swatch).
     colorTolerance: Float = 50f,
     onColorToleranceChange: (Float) -> Unit = {},
+    colorRange: Float = 60f,
+    onColorRangeChange: (Float) -> Unit = {},
+    colorFeather: Float = 30f,
+    onColorFeatherChange: (Float) -> Unit = {},
     colorSampleArgb: Int = 0,
     onClearColorSamples: () -> Unit = {},
     /** When true, ColorSelect taps carve keyed colour out of the current mask. */
@@ -363,6 +367,8 @@ internal fun RawMaskTab(
     includedClasses: Set<MaskClass> = emptySet(),
     /** The prime mask class — first one selected. Shows a star indicator on its button. */
     primaryMaskClass: MaskClass? = null,
+    primaryIsLuma: Boolean = false,
+    primaryIsChroma: Boolean = false,
     /**
      * Luma / Chroma Add+Remove. Host owns clear-vs-carve semantics so a
      * bitmap/object base can be carved by a range tool and vice versa
@@ -469,19 +475,24 @@ internal fun RawMaskTab(
 
         // ── Luminance-range controls — only while the Luma tool is active ───
         AnimatedVisibility(
-            visible = showOverlay && brushMode == MaskBrushMode.LumaSelect,
+            visible = showOverlay && (brushMode == MaskBrushMode.LumaSelect || primaryIsLuma),
             enter   = expandVertically(),
             exit    = shrinkVertically(),
         ) {
             Column {
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text  = "Set the tone range below. Feather keeps the edit halo-free.",
+                    text = if (macro.maskLumCombine == 2)
+                        "Exclude this tone band from the current selection."
+                    else if (macro.maskLumCombine == 3)
+                        "Union this tone band with the current selection."
+                    else
+                        "Tone range. Feather keeps the edit halo-free.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 RawSliderRow(
-                    label         = "Target",
+                    label         = "Level",
                     value         = macro.maskLumTarget * 100f,
                     valueRange    = 0f..100f,
                     onValueChange = { onMacroChange(macro.copy(maskLumTarget = it / 100f)) },
@@ -506,14 +517,13 @@ internal fun RawMaskTab(
 
         // ── Color-range controls — only while the Color tool is active ──────
         AnimatedVisibility(
-            visible = showOverlay && brushMode == MaskBrushMode.ColorSelect,
+            visible = showOverlay && (brushMode == MaskBrushMode.ColorSelect || primaryIsChroma),
             enter   = expandVertically(),
             exit    = shrinkVertically(),
         ) {
             Column {
                 Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Sampled-colour swatch (empty outline until the first tap).
                     Box(
                         modifier = Modifier
                             .size(24.dp)
@@ -544,6 +554,20 @@ internal fun RawMaskTab(
                         }
                     }
                 }
+                RawSliderRow(
+                    label         = "Range",
+                    value         = colorRange,
+                    valueRange    = 0f..100f,
+                    onValueChange = onColorRangeChange,
+                    displayValue  = colorRange.roundToInt().toString(),
+                )
+                RawSliderRow(
+                    label         = "Feather",
+                    value         = colorFeather,
+                    valueRange    = 0f..100f,
+                    onValueChange = onColorFeatherChange,
+                    displayValue  = colorFeather.roundToInt().toString(),
+                )
                 RawSliderRow(
                     label         = "Refine",
                     value         = colorTolerance,
@@ -682,31 +706,36 @@ internal fun RawMaskTab(
                 }
                 DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                     // ── Range selection: Luma + Chroma ──
-                    // Same Add/Remove contract as object rows: first selection is
-                    // the base; Remove on another row carves from that base
-                    // (host sets maskLumCombine 1=luma−bitmap, 2=bitmap−luma).
-                    // Do NOT wipe the other category on Add — that was the
-                    // cross-category carve isolation bug.
+                    // Same Add/Remove as object rows. Add = union; Remove = exclude.
+                    // Sliders appear immediately (no extra enable button).
                     MaskMenuRow(
                         label = "Luma", icon = Icons.Rounded.Contrast,
                         included = lumaActive, addEnabled = !lumaActive,
                         onAdd = {
+                            expanded = false
                             onShowOverlayChange(true)
                             onAddLuma()
                         },
                         // Enabled whenever ANY base exists so Luma can carve a
                         // subject/brush/chroma selection (not only undo itself).
-                        onRemove = onRemoveLuma,
+                        onRemove = {
+                            expanded = false
+                            onRemoveLuma()
+                        },
                         removeEnabled = anyMaskActive,
                     )
                     MaskMenuRow(
                         label = "Chroma", icon = Icons.Rounded.Palette,
                         included = chromaActive, addEnabled = !chromaActive,
                         onAdd = {
+                            expanded = false
                             onShowOverlayChange(true)
                             onAddChroma()
                         },
-                        onRemove = onRemoveChroma,
+                        onRemove = {
+                            expanded = false
+                            onRemoveChroma()
+                        },
                         removeEnabled = anyMaskActive,
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
@@ -728,7 +757,14 @@ internal fun RawMaskTab(
                             MaskMenuRow(
                                 label = t.label, icon = t.icon,
                                 included = t.cls in includedClasses, addEnabled = true,
-                                onAdd = t.onAdd, onRemove = t.onRemove,
+                                onAdd = {
+                                    expanded = false
+                                    t.onAdd()
+                                },
+                                onRemove = {
+                                    expanded = false
+                                    t.onRemove()
+                                },
                                 // Any base mask present → allow subtracting this
                                 // object's region from it (not just undoing an add).
                                 removeEnabled = anyMaskActive,

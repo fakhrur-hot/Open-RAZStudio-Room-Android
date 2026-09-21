@@ -306,7 +306,11 @@ internal class AndroidSettingsManager @Inject constructor(
     }
 
     override suspend fun setSaveFolderUri(uri: String?) = edit {
-        it[SAVE_FOLDER_URI] = uri ?: ""
+        if (uri.isNullOrBlank()) {
+            it.remove(SAVE_FOLDER_URI)
+        } else {
+            it[SAVE_FOLDER_URI] = uri
+        }
     }
 
     override suspend fun setColorTuples(colorTuples: String) = edit {

@@ -27,6 +27,15 @@ import org.gradle.kotlin.dsl.the
 val Project.libs
     get(): LibrariesForLibs = the<LibrariesForLibs>()
 
+/** Detekt 1.23 still calls deprecated ReportingExtension.file() on apply. */
+fun Project.shouldApplyDetekt(): Boolean {
+    val fromProperty = providers.gradleProperty("enableDetekt").orNull.toBoolean()
+    val fromTask = gradle.startParameter.taskNames.any { name ->
+        name.contains("detekt", ignoreCase = true)
+    }
+    return fromProperty || fromTask
+}
+
 val Project.projects
     get(): Projects = object : Projects, ProjectHolder {
         override fun project(path: String): Project = this@projects.project(path)

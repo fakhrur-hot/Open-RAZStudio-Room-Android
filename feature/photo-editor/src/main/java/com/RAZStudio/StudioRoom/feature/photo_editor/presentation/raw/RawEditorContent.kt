@@ -50,6 +50,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -111,8 +112,12 @@ import com.RAZStudio.StudioRoom.core.resources.icons.Bookmark
 import com.RAZStudio.StudioRoom.core.resources.icons.History
 import com.RAZStudio.StudioRoom.core.resources.icons.Info
 import com.RAZStudio.StudioRoom.core.ui.widget.buttons.CompareButton
+import com.RAZStudio.StudioRoom.core.ui.widget.enhanced.EnhancedFloatingActionButton
+import com.RAZStudio.StudioRoom.core.resources.icons.IosShare
 import com.RAZStudio.StudioRoom.feature.compare.presentation.components.CompareSheet
 import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components.RawAdjustmentPanel
+import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components.RawEditorPanel
+import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components.RawTabletInspector
 import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components.CinematicBloomProcessor
 import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components.RawProgressCard
 import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components.WorkspaceSelectorSheet
@@ -270,6 +275,7 @@ fun RawEditorContent(component: RawEditorComponent) {
     }
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val isTablet = configuration.smallestScreenWidthDp >= 600
     val context = LocalContext.current
     val scope   = rememberCoroutineScope()
     val rawImportSuccessMsg = stringResource(com.RAZStudio.StudioRoom.core.resources.R.string.raw_import_success)
@@ -277,6 +283,7 @@ fun RawEditorContent(component: RawEditorComponent) {
     val rawExportActionsSavedMsg = stringResource(com.RAZStudio.StudioRoom.core.resources.R.string.raw_export_actions_saved)
 
     var showExitConfirmDialog by remember { mutableStateOf(false) }
+    val exportHandler = remember { mutableStateOf<(() -> Unit)?>(null) }
     // Preset menu (top-app-bar overflow → Save / Apply preset).
     var showPresetMenu by remember { mutableStateOf(false) }
     var showPresetExportDialog by remember { mutableStateOf(false) }
@@ -341,6 +348,12 @@ fun RawEditorContent(component: RawEditorComponent) {
     // because the manual AI Expose toggle is opt-in (user triggers it explicitly).
     var lightAeActive by remember { mutableStateOf(false) }
 
+    val sceneAutoEnhanceEnabled by remember(actions) {
+        derivedStateOf {
+            actions.any { it.label == "_ai_color_enhance" && it.isVisible }
+        }
+    }
+
     // Baseline: fold deltas of NON-MASK visible user cards oldest-to-newest.
     // Mask actions own their own bitmap + adjustments and are applied as
     // separate post-baseline render passes (see RawPipelineCoordinator).
@@ -366,6 +379,10 @@ fun RawEditorContent(component: RawEditorComponent) {
 
     var isToneCurvesTab         by remember { mutableStateOf(false) }
     var isMaskTab               by remember { mutableStateOf(false) }
+    // Vignette center-placement mode: armed by the Vignette tab's center
+    // button; while true the canvas drag moves the vignette focus point.
+    var isVignetteCenterMode    by remember { mutableStateOf(false) }
+    var isLensFlareMoveMode     by remember { mutableStateOf(false) }
     // Live graded-frame luma histogram (256 buckets) for the Tone Curves
     // graph backdrop. Captured from the GL renderer when the tab opens — the
     // surface still holds the last graded frame even though rendering pauses
@@ -378,101 +395,171 @@ fun RawEditorContent(component: RawEditorComponent) {
     val glViewForHistogram = remember {
         mutableStateOf<com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.RawV3GlSurfaceView?>(null)
     }
-    var isVignetteCenterMode    by remember { mutableStateOf(false) }
-    // Set tracking which segmentation classes are currently part of the mask.
-    // Drives the blue-state of each Mask-tab split-button's left half.
-    // Select-callbacks add to the set, Remove-callbacks drop their entry,
-    // Clear/Invert/maskBitmap=null empties the set.
-    var includedMaskClasses by remember { mutableStateOf(emptySet<MaskClass>()) }
-    // The "prime" mask class — the first one selected. It owns the mask base
-    // (replace semantics). All subsequent selects are additive on top.
-    // Pressing the red side of the prime clears the entire mask and resets this.
-    var primaryMaskClass by remember { mutableStateOf<MaskClass?>(null) }
-    // Range-tool primes (mutually exclusive with primaryMaskClass). Needed so
-    // Remove on Luma/Chroma clears when they ARE the base, but carves when a
-    // bitmap/object base exists (maskLumCombine=2 / subtractive chroma).
-    var primaryIsLuma by remember { mutableStateOf(false) }
-    var primaryIsChroma by remember { mutableStateOf(false) }
-    // When true, ColorSelect taps SUBTRACT the keyed colour from the current
-    // bitmap (chroma carve). When false, taps replace/union as usual.
-    var chromaSubtractMode by remember { mutableStateOf(false) }
-    // Heal-tab state. `healActive` is the explicit toggle (mirrors
-    // vignette's "Move center" button) that suspends pinch/pan/zoom on
-    // the canvas so a tap can be routed to the heal pipeline without
-    // racing with gesture handlers.
-    var healRadiusPx     by remember { mutableFloatStateOf(60f) }
-    var healActive       by remember { mutableStateOf(false) }
-    var isHealing        by remember { mutableStateOf(false) }
-    var healCount        by remember { mutableIntStateOf(0) }
-    // Cumulative healed bitmap. Initialised on the first tap from a GL
-    // snapshot, then re-inpainted in place by every subsequent tap.
-    // Displayed as an overlay on top of the GL surface so the user
-    // sees the healing immediately. Stays as long as the eventual
-    // RawAction.Heal card exists in Actions.
-    var healedOverlay    by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-    // Stack of pre-tap overlay snapshots. Each tap pushes the
-    // overlay-before-this-tap (or null if there was none) onto the
-    // stack BEFORE the new healed bitmap replaces it. Undo pops the
-    // top entry and restores it as the live overlay, recycling the
-    // current one. Cleared on Apply/Cancel.
-    val healUndoStack = remember {
-        mutableListOf<android.graphics.Bitmap?>()
-    }
-    // Snapshot of [healedOverlay] taken when the Heal tab is entered, so
-    // Cancel can revert to whatever overlay state was committed before
-    // this editing session (or null for a fresh session). Apply consumes
-    // the snapshot (clears it) so the just-committed heal becomes the
-    // new baseline for future Heal tab visits.
-    var healedOverlayPreEdit by remember {
-        mutableStateOf<android.graphics.Bitmap?>(null)
-    }
-    // True once at least one heal tap has been applied since the Heal
-    // tab was entered. Drives the Cancel/Apply bar visibility and the
-    // committed-action label. Cleared by both Apply and Cancel.
-    var healDirty by remember { mutableStateOf(false) }
-    // Snapshot of [healCount] when the Heal tab was entered. Cancel
-    // restores it; Apply consumes it (becomes the new baseline).
-    var healCountPreEdit by remember { mutableIntStateOf(0) }
+    // ─── Masking state from sub-component ────────────────────────────
+    val includedMaskClasses by component.masking.includedMaskClasses.collectAsState()
+    val primaryMaskClass by component.masking.primaryMaskClass.collectAsState()
+    val primaryIsLuma by component.masking.primaryIsLuma.collectAsState()
+    val primaryIsChroma by component.masking.primaryIsChroma.collectAsState()
+    val chromaSubtractMode by component.masking.chromaSubtractMode.collectAsState()
+    val maskColorSamples by component.masking.maskColorSamples.collectAsState()
+    val maskColorRange by component.masking.maskColorRange.collectAsState()
+    val maskColorFeather by component.masking.maskColorFeather.collectAsState()
+    val maskColorTolerance by component.masking.maskColorTolerance.collectAsState()
+
+    // ─── Healing state from sub-component ────────────────────────────
+    val healRadiusPx by component.healing.healRadiusPx.collectAsState()
+    val healActive by component.healing.healActive.collectAsState()
+    val isHealing by component.healing.isHealing.collectAsState()
+    val healCount by component.healing.healCount.collectAsState()
+    val healedOverlay by component.healing.healedOverlay.collectAsState()
+    val healDirty by component.healing.healDirty.collectAsState()
+
     val healScope = androidx.compose.runtime.rememberCoroutineScope()
     var canvasFraction    by remember { mutableFloatStateOf(0.55f) }
-    // Tracks whether the user has manually dragged the canvas/panel
-    // splitter handle. Once true, the auto-fit-to-image-aspect effect
-    // stops adjusting `canvasFraction` so the user's preferred split
-    // is preserved across orientation / photo changes within this
-    // editor session. Resets to false on new photo open.
     var canvasFractionUserOverridden by remember { mutableStateOf(false) }
     var isComparing       by remember { mutableStateOf(false) }
     var showCompareSheet  by remember { mutableStateOf(false) }
     var canvasScale     by remember { mutableFloatStateOf(1f) }
     var canvasOffset    by remember { mutableStateOf(Offset.Zero) }
-    val pendingExport        = false  // export now navigates to RawExportScreen inline
-    var isMaskModeActive     by remember { mutableStateOf(false) }
-    // True when the user entered the Mask tab fresh (not by tapping
-    // a committed mask card). Suppresses committed mask layers from
-    // the GL renderer so the canvas appears clean while creating a
-    // new mask. Set by the fresh-tab-entry clear; cleared by Apply,
-    // Cancel, or loading a card for re-editing.
-    var isFreshMaskSession   by remember { mutableStateOf(false) }
-    var maskBitmap           by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-    // Declared here (rather than near its fillFromXxx() call sites further
-    // down) so the isMaskEdit-pending check earlier in composition order can
-    // read it. See that check for why isActive matters, not just non-null.
+    val pendingExport        = false
+
+    // ─── Masking state from sub-component ────────────────────────────
+    val isMaskModeActive by component.masking.isMaskModeActive.collectAsState()
+    val maskBitmap by component.masking.maskBitmap.collectAsState()
     var maskJob: kotlinx.coroutines.Job? by remember { mutableStateOf(null) }
-    var maskDirty            by remember { mutableIntStateOf(0) }
-    var brushSize            by remember { mutableFloatStateOf(30f) }
-    var brushIntensity       by remember { mutableFloatStateOf(0.8f) }
-    var brushFeather         by remember { mutableFloatStateOf(0.3f) }
-    var brushMode            by remember { mutableStateOf(MaskBrushMode.Draw) }
+    val maskDirty by component.masking.maskDirty.collectAsState()
+    val brushSize by component.masking.brushSize.collectAsState()
+    val brushIntensity by component.masking.brushIntensity.collectAsState()
+    val brushFeather by component.masking.brushFeather.collectAsState()
+    val brushMode by component.masking.brushMode.collectAsState()
+    val sharpSpread by component.masking.sharpSpread.collectAsState()
+
+    // ─── Operational mask graph ──────────────────────────────────────
+    // Every mask-producing gesture (model fill, subtract, colour pick,
+    // brush stroke) pushes a lightweight MaskNode descriptor; undo/redo/
+    // toggle re-evaluate the composite bitmap from the graph and publish
+    // it through the single updateMask flow (see MaskGraph.kt). History
+    // therefore costs KBs per step, not full-res bitmaps.
+    var maskRebuildJob: kotlinx.coroutines.Job? by remember { mutableStateOf(null) }
+    component.masking.setMaskGraphRebuildListener { nodes ->
+        maskRebuildJob?.cancel()
+        maskRebuildJob = scope.launch(Dispatchers.Default) {
+            if (nodes.isEmpty()) {
+                component.masking.updateMask(null)
+                return@launch
+            }
+            val neutral = component.neutralBitmap ?: return@launch
+            val composite = rebuildCompositeFromNodes(
+                neutral = neutral,
+                nodes = nodes,
+                modelMaskResolver = { cls -> component.resolveMaskForClass(cls) },
+                edgeMaskResolver = { component.masking.segmentationMasks.value?.edgeMask }
+            )
+            component.masking.updateMask(composite)
+        }
+    }
+
+    // Wrapper setters for legacy compatibility
+    fun setIsMaskModeActive(v: Boolean) = component.masking.setIsMaskModeActive(v)
+    fun setBrushMode(v: MaskBrushMode) = component.masking.setBrushMode(v)
+    fun setBrushSize(v: Float) = component.masking.setBrushSize(v)
+    fun setBrushIntensity(v: Float) = component.masking.setBrushIntensity(v)
+    fun setBrushFeather(v: Float) = component.masking.setBrushFeather(v)
+    fun setHealRadius(v: Float) = component.healing.setHealRadius(v)
+    fun setHealActive(v: Boolean) = component.healing.setHealActive(v)
+    fun setSharpSpread(v: Float) = component.masking.setSharpSpread(v)
+    fun setIncludedMaskClasses(v: Set<MaskClass>) = component.masking.setIncludedMaskClasses(v)
+    fun setPrimaryMaskClass(v: MaskClass?) = component.masking.setPrimaryMaskClass(v)
+    fun setPrimaryIsLuma(v: Boolean) = component.masking.setPrimaryIsLuma(v)
+    fun setPrimaryIsChroma(v: Boolean) = component.masking.setPrimaryIsChroma(v)
+    fun setChromaSubtractMode(v: Boolean) = component.masking.setChromaSubtractMode(v)
+    fun setMaskColorSamples(v: List<Int>) = component.masking.setMaskColorSamples(v)
+    fun setMaskColorRange(v: Float) = component.masking.setMaskColorRange(v)
+    fun setMaskColorFeather(v: Float) = component.masking.setMaskColorFeather(v)
+    fun setMaskColorTolerance(v: Float) = component.masking.setMaskColorTolerance(v)
+
+    fun bakeInvertedLuminance(target: Float, spread: Float, feather: Float) {
+        val neutral = component.neutralBitmap ?: return
+        maskJob?.cancel()
+        maskJob = scope.launch(Dispatchers.Default) {
+            val longSide = maxOf(neutral.width, neutral.height)
+            val scale = if (longSide > 900) 900f / longSide else 1f
+            val small = if (scale < 1f) android.graphics.Bitmap.createScaledBitmap(
+                neutral, (neutral.width * scale).toInt().coerceAtLeast(1),
+                (neutral.height * scale).toInt().coerceAtLeast(1), true,
+            ) else neutral
+            val width = small.width
+            val height = small.height
+            val source = IntArray(width * height)
+            small.getPixels(source, 0, width, 0, 0, width, height)
+            if (small !== neutral) small.recycle()
+            val pixels = IntArray(source.size)
+            val inner = spread
+            val outer = spread + feather.coerceAtLeast(1e-4f)
+            for (i in source.indices) {
+                if ((i and 0xFFFF) == 0) kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                val color = source[i]
+                val r = ((color ushr 16) and 0xFF) / 255f
+                val g = ((color ushr 8) and 0xFF) / 255f
+                val b = (color and 0xFF) / 255f
+                val luminance = r * 0.299f + g * 0.587f + b * 0.114f
+                val distance = kotlin.math.abs(luminance - target)
+                val t = ((distance - inner) / (outer - inner)).coerceIn(0f, 1f)
+                val inBand = 1f - t * t * (3f - 2f * t)
+                pixels[i] = (((1f - inBand) * 255f).toInt() shl 24) or 0x00FFFFFF
+            }
+            val bitmap = android.graphics.Bitmap.createBitmap(
+                pixels, width, height, android.graphics.Bitmap.Config.ARGB_8888,
+            )
+            withContext(Dispatchers.Main) {
+                deltaMacro = deltaMacro.copy(
+                    maskLumTarget = 0f, maskLumSpread = 0f,
+                    maskLumFeather = 0f, maskLumCombine = 0,
+                )
+                setPrimaryIsLuma(false)
+                setBrushMode(MaskBrushMode.None)
+                setIsMaskModeActive(true)
+                component.masking.updateMask(bitmap)
+            }
+        }
+    }
+
+    fun invertMask() {
+        maskJob?.cancel()
+        maskJob = scope.launch(Dispatchers.Default) {
+            val source = maskBitmap ?: component.neutralBitmap?.let {
+                android.graphics.Bitmap.createBitmap(
+                    it.width, it.height, android.graphics.Bitmap.Config.ARGB_8888,
+                )
+            } ?: return@launch
+            val pixels = IntArray(source.width * source.height)
+            source.getPixels(pixels, 0, source.width, 0, 0, source.width, source.height)
+            for (i in pixels.indices) {
+                val alpha = (pixels[i] ushr 24) and 0xFF
+                pixels[i] = ((255 - alpha) shl 24) or 0x00FFFFFF
+            }
+            val bitmap = android.graphics.Bitmap.createBitmap(
+                pixels, source.width, source.height, android.graphics.Bitmap.Config.ARGB_8888,
+            )
+            if (source !== maskBitmap) source.recycle()
+            withContext(Dispatchers.Main) {
+                setIsMaskModeActive(true)
+                component.masking.updateMask(bitmap)
+            }
+        }
+    }
+
     // Color-range mask ("Select Color"): sampled ARGB colours (each canvas tap
     // in ColorSelect mode appends one) + the Refine tolerance [0..100]. The mask
     // is (re)built from ALL samples whenever a tap or the slider changes.
-    var maskColorSamples     by remember { mutableStateOf<List<Int>>(emptyList()) }
-    var maskColorTolerance   by remember { mutableFloatStateOf(50f) }
+    // maskColorSamples / maskColorTolerance live in component.masking (single
+    // source of truth, collected above) — mutate via setMaskColorSamples /
+    // setMaskColorTolerance.
     // M12.2c.5 — Sharp Edges momentary fill. The slider controls the
     // mask spread (dilation positive, erosion negative) in [-1, +1].
     // The button writes a fresh edge-snapped + spread bitmap into
-    // maskBitmap on press; it never latches state.
-    var sharpSpread          by remember { mutableFloatStateOf(0f) }
+    // maskBitmap on press; it never latches state. Held in
+    // component.masking — mutate via setSharpSpread.
     // Luminance Range picker: when true, tapping the canvas samples the luma
     // at that pixel (from the neutral Stage A thumbnail) and centers the mask
     // layer's luminance band on it. Mirrors the Vignette center-point mode.
@@ -496,6 +583,7 @@ fun RawEditorContent(component: RawEditorComponent) {
     // Prefer this over the Stage-A embedded thumbnail while GL reboots so
     // resume does not flash the "earliest" ungraded look.
     var pauseGradedBackdrop by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var livePreviewRendered by remember { mutableStateOf(false) }
     // Stage B bake tracking — verify harness (and any future "snapshot the
     // current preview" consumer) awaits requested == baked so it doesn't
     // capture a stale AHB while the user is mid-bake.
@@ -584,31 +672,31 @@ fun RawEditorContent(component: RawEditorComponent) {
     val fullResOutputPath    by component.fullResOutputPathFlow.collectAsState()
     val fullResProcessing    by component.fullResProcessing.collectAsState()
     val embeddedFallback     by component.embeddedFallbackBitmap.collectAsState()
-    val segmentationMasks    by component.segmentationMasks.collectAsState()
+    val segmentationMasks    by component.masking.segmentationMasks.collectAsState()
     // Subject-mask-dependent controls (Bokeh, subject/background Vignette &
     // Gradient) grey out while segmentation is running and no subject mask is
     // ready yet. Enabled once masks arrive OR the chain ends (so a detection
     // failure re-enables them to their prior no-op rather than trapping them).
-    val segmentationRunning  by component.segmentationRunning.collectAsState()
+    val segmentationRunning  by component.masking.segmentationRunning.collectAsState()
     val subjectMaskReady     = segmentationMasks != null
     val subjectSegBusy       = segmentationRunning && !subjectMaskReady
     // v3 variant carries the raw FloatArray + innerRect needed by
     // HealMaskBuilder. The v2 adapter (above) drops innerRect.
-    val segmentationMasksV3OuterScope by component.segmentationMasksV3.collectAsState()
+    val segmentationMasksV3OuterScope by component.masking.segmentationMasksV3.collectAsState()
     // MediaPipe multiclass per-class masks. Drives the new Mask-tab
     // class-specific Select buttons (Hair / Body / Face / Clothes).
-    val multiclassMasks by component.multiclassMasks.collectAsState()
-    val multiclassLoadingState by component.multiclassLoading.collectAsState()
+    val multiclassMasks by component.masking.multiclassMasks.collectAsState()
+    val multiclassLoadingState by component.masking.multiclassLoading.collectAsState()
     // Face-detection mask (Qualcomm ONNX, whole-face elliptical fill).
     // Preferred over multiclass FaceSkin for the "Face" button so a tap
     // covers the entire face shape rather than just the skin region.
-    val faceMask by component.faceMask.collectAsState()
+    val faceMask by component.masking.faceMask.collectAsState()
     // Cityscapes 4-class masks (SegFormer-B1 ONNX) — landscape mask source.
-    val cityscapesMasks by component.cityscapesMasks.collectAsState()
-    val cityscapesLoadingState by component.cityscapesLoading.collectAsState()
+    val cityscapesMasks by component.masking.cityscapesMasks.collectAsState()
+    val cityscapesLoadingState by component.masking.cityscapesLoading.collectAsState()
     // DeepLabV3+ human-parsing masks (LIP 20-class, 45 MB ONNX).
     // Used alongside selfie_multiclass to improve Hair / Face / BodySkin / Clothes.
-    val deepLabMasks by component.deepLabMasks.collectAsState()
+    val deepLabMasks by component.masking.deepLabMasks.collectAsState()
     val idleFullResBitmap    by component.idleFullResBitmap.collectAsState()
     val exifInfo             by component.exif.collectAsState()
     // v2-integration §2.1 — toolbar info-button visibility state. The sheet itself
@@ -711,7 +799,33 @@ fun RawEditorContent(component: RawEditorComponent) {
     // is applied after the baseline render in [RawPipelineCoordinator]'s slider-
     // render loop and at every full-res render entry point.
     LaunchedEffect(maskLayers) {
-        component.setMaskLayers(maskLayers)
+        component.masking.setMaskLayers(maskLayers)
+    }
+
+    // Multi-pick color range: update the last node when sliders move.
+    // Syncs the graph with the current UI slider values (tolerance, range, feather).
+    LaunchedEffect(maskColorSamples, maskColorTolerance, maskColorRange, maskColorFeather) {
+        val nodes = component.masking.maskNodes.value
+        if (nodes.isEmpty() || maskColorSamples.isEmpty()) return@LaunchedEffect
+        val last = nodes.last()
+        if (last.source is MaskSource.ColorRange) {
+            // Replace the last node with updated parameters.
+            val updatedNodes = nodes.dropLast(1) + last.copy(
+                source = MaskSource.ColorRange(
+                    samples = maskColorSamples,
+                    tolerance = maskColorTolerance,
+                    range = maskColorRange,
+                    feather = maskColorFeather
+                )
+            )
+            component.masking.restoreMaskState(
+                nodes = updatedNodes,
+                primary = primaryMaskClass,
+                included = includedMaskClasses,
+                isLuma = primaryIsLuma,
+                isChroma = primaryIsChroma
+            )
+        }
     }
 
     // Show pipeline errors as snackbar
@@ -738,66 +852,7 @@ fun RawEditorContent(component: RawEditorComponent) {
     // Edge-snap pushes pixels at high Sobel gradients toward 0/1 so
     // hair / feather boundaries follow real image edges instead of
     // U2Net's smoothed silhouette.
-    fun fillFromSegmentationSharp(
-        subject: FloatArray,
-        edges:   FloatArray,
-        spread:  Float,
-    ) {
-        val neutral = component.neutralBitmap ?: return
-        maskJob?.cancel()
-        maskJob = scope.launch(Dispatchers.Default) {
-            val bW = neutral.width; val bH = neutral.height
-            val mSize = 320
-            val pixels = IntArray(bW * bH)
-            // Threshold shifts with spread. Lower threshold = more
-            // permissive = bigger subject region (dilation).
-            val threshold = (0.5f - spread * 0.4f).coerceIn(0.05f, 0.95f)
-            val snapStrength = 0.6f
-            val snapThreshold = 0.20f
-            for (y in 0 until bH) {
-                if ((y and 0x1F) == 0) kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                for (x in 0 until bW) {
-                    val mx = x.toFloat() / (bW - 1).coerceAtLeast(1) * (mSize - 1)
-                    val my = y.toFloat() / (bH - 1).coerceAtLeast(1) * (mSize - 1)
-                    val x0 = mx.toInt().coerceIn(0, mSize - 2)
-                    val y0 = my.toInt().coerceIn(0, mSize - 2)
-                    val dx = mx - x0; val dy = my - y0
-                    val p = subject[y0 * mSize + x0]         * (1 - dx) * (1 - dy) +
-                            subject[y0 * mSize + x0 + 1]     * dx       * (1 - dy) +
-                            subject[(y0 + 1) * mSize + x0]   * (1 - dx) * dy       +
-                            subject[(y0 + 1) * mSize + x0 + 1] * dx     * dy
-                    val edge = edges[y0 * mSize + x0]         * (1 - dx) * (1 - dy) +
-                               edges[y0 * mSize + x0 + 1]     * dx       * (1 - dy) +
-                               edges[(y0 + 1) * mSize + x0]   * (1 - dx) * dy       +
-                               edges[(y0 + 1) * mSize + x0 + 1] * dx     * dy
-                    // Edge-snap: push toward whichever side of the
-                    // threshold the soft probability already favours.
-                    var v = p
-                    if (edge > snapThreshold) {
-                        val push = edge * snapStrength
-                        v = if (p > threshold) (p + push).coerceAtMost(1f)
-                            else (p - push).coerceAtLeast(0f)
-                    }
-                    // Binarize with smoothstep at the spread-shifted
-                    // threshold so we keep a 1-2 px anti-aliased edge.
-                    val lo = (threshold - 0.05f).coerceAtLeast(0f)
-                    val hi = (threshold + 0.05f).coerceAtMost(1f)
-                    val t  = ((v - lo) / (hi - lo)).coerceIn(0f, 1f)
-                    val sm = t * t * (3f - 2f * t)
-                    val a = (sm * 255f).toInt().coerceIn(0, 255)
-                    pixels[y * bW + x] = (a shl 24) or 0x00FFFFFF
-                }
-            }
-            val bmp = android.graphics.Bitmap.createBitmap(bW, bH, android.graphics.Bitmap.Config.ARGB_8888)
-            bmp.setPixels(pixels, 0, bW, 0, 0, bW, bH)
-            withContext(Dispatchers.Main) {
-                maskBitmap = bmp
-                maskDirty++
-                isMaskModeActive = true
-                component.updateMask(bmp)
-            }
-        }
-    }
+
 
     /**
      * Synthesize a face-region mask from the MediaPipe multiclass + U²Net
@@ -818,415 +873,9 @@ fun RawEditorContent(component: RawEditorComponent) {
      * Output: 320×320 row-major [0..1]. Pass-through (returns null) when
      * the required multiclass mask isn't ready.
      */
-    fun synthesizeFaceFromContext(
-        multiclass: com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.RawV3MulticlassMasks?,
-        subject: FloatArray?,
-    ): FloatArray? {
-        if (multiclass == null) return null
-        val side = 320
-        if (multiclass.faceSkin.size != side * side) return null
-        val out = FloatArray(side * side)
-        // Vertical search window for context — 8 to 40 rows around each
-        // candidate cell. ~12% of the 320 grid height, matches an adult-
-        // head proportion in a head-and-shoulders crop.
-        val winNear = 4
-        val winFar  = 48
-        for (y in 0 until side) {
-            // Pre-compute the row bounds for above/below scans this row.
-            val aboveLo = (y - winFar).coerceAtLeast(0)
-            val aboveHi = (y - winNear).coerceAtLeast(0)
-            val belowLo = (y + winNear).coerceAtMost(side - 1)
-            val belowHi = (y + winFar).coerceAtMost(side - 1)
-            for (x in 0 until side) {
-                val i = y * side + x
-                // 1. Skin requirement — face skin OR body skin (face skin
-                //    misses when the face is small / partly occluded).
-                val skin = maxOf(multiclass.faceSkin[i], multiclass.bodySkin[i])
-                if (skin < 0.20f) continue
-                // 2. Subject gate — must be in the foreground.
-                if (subject != null && subject.size == out.size && subject[i] < 0.20f) continue
-                // 3. Hair-above scan: max hair confidence in the column
-                //    above this cell, within the window.
-                var hairAbove = 0f
-                for (yy in aboveLo..aboveHi) {
-                    val v = multiclass.hair[yy * side + x]
-                    if (v > hairAbove) hairAbove = v
-                }
-                if (hairAbove < 0.25f) continue
-                // 4. Clothes-below scan: max clothes confidence in the
-                //    column below this cell.
-                var clothesBelow = 0f
-                for (yy in belowLo..belowHi) {
-                    val v = multiclass.clothes[yy * side + x]
-                    if (v > clothesBelow) clothesBelow = v
-                }
-                if (clothesBelow < 0.25f) continue
-                // Face confidence = product of the four signals, clamped.
-                // Multiplicative because we want ALL signals strong; one
-                // weak link should kill the cell (typical for triangulation
-                // heuristics — additive lets one channel dominate).
-                val v = (skin * hairAbove * clothesBelow).coerceIn(0f, 1f)
-                out[i] = v
-            }
-        }
-        return out
-    }
 
-    /**
-     * Return a copy of [classMask] with one or more [competing] planes
-     * subtracted. Each competitor contributes its own (1 - mask[i]) factor
-     * multiplicatively:
-     *   out[i] = classMask[i] * Π_k (1 - competing[k][i])
-     *
-     * Used by the Cityscapes 4-class fills to enforce these exclusions
-     * (in addition to subject subtraction):
-     *   • Sky    excludes Subject + Building + Plants
-     *   • Plants excludes Subject + Terrain
-     *   • Building excludes Subject + Terrain
-     *   • Terrain excludes Subject
-     * Without this, SegFormer's soft confidences at class boundaries
-     * cause overlap — Sky leaking into building roofs, Plants spreading
-     * into Terrain grass, etc.
-     *
-     * Pass-through when [classMask] has no valid competitors (length
-     * mismatch or all null) so the call is safe before inference finishes.
-     */
-    /**
-     * Dilate a square 320×320 mask by [radius] pixels using a separable max
-     * filter. Used to grow the U²Net subject before subtracting from
-     * Cityscapes Buildings: tables, bags, cups held near the subject sit
-     * inside the dilated region and get excluded, even though they aren't
-     * classified as "subject" by U²Net.
-     */
-    fun dilateMask(mask: FloatArray, side: Int = 320, radius: Int = 4): FloatArray {
-        if (radius <= 0 || mask.size != side * side) return mask
-        val tmp = FloatArray(side * side)
-        for (y in 0 until side) {
-            val row = y * side
-            for (x in 0 until side) {
-                var m = 0f
-                val xMin = (x - radius).coerceAtLeast(0)
-                val xMax = (x + radius).coerceAtMost(side - 1)
-                for (xx in xMin..xMax) {
-                    val v = mask[row + xx]
-                    if (v > m) m = v
-                }
-                tmp[row + x] = m
-            }
-        }
-        val out = FloatArray(side * side)
-        for (x in 0 until side) {
-            for (y in 0 until side) {
-                var m = 0f
-                val yMin = (y - radius).coerceAtLeast(0)
-                val yMax = (y + radius).coerceAtMost(side - 1)
-                for (yy in yMin..yMax) {
-                    val v = tmp[yy * side + x]
-                    if (v > m) m = v
-                }
-                out[y * side + x] = m
-            }
-        }
-        return out
-    }
 
-    /**
-     * Subtract competitor masks from `classMask`, with a per-competitor
-     * confidence boost. The boost lets soft-edge masks fully suppress
-     * regions where they have only partial confidence — useful when a
-     * cross-vendor mask (U²Net subject, MediaPipe clothes/face) needs to
-     * fully clear a region even at silhouette feather.
-     *
-     * Pass `boost = 3f` (default) for cross-vendor / soft masks. Pass
-     * `boost = 1f` for same-vendor subtractions (e.g. Cityscapes Sky
-     * minus Cityscapes Building) where the source softmax is already
-     * sharp and a boost would over-erode legitimate class pixels.
-     */
-    fun subtractMasks(
-        classMask: FloatArray,
-        vararg competing: FloatArray?,
-        boost: Float = 3f,
-    ): FloatArray {
-        val valid = competing.filterNotNull().filter { it.size == classMask.size }
-        if (valid.isEmpty()) return classMask
-        val out = FloatArray(classMask.size)
-        for (i in classMask.indices) {
-            var v = classMask[i]
-            for (c in valid) {
-                val sup = (c[i] * boost).coerceIn(0f, 1f)
-                v *= (1f - sup)
-            }
-            out[i] = v
-        }
-        return out
-    }
 
-    /**
-     * Convert a 320² float probability mask to a full-preview-resolution
-     * alpha bitmap, with optional edge-snap to the source photo's
-     * luminance edges.
-     *
-     * Without [edges], a coarse 320² Cityscapes/MediaPipe mask bilinearly
-     * upsamples into 8–15 px fuzzy boundaries — visible as wide gaps
-     * around fine foliage / hair / wire-edge subjects (the "tree + sky"
-     * problem). With [edges] provided, the soft probability snaps toward
-     * 0 or 1 on the side of the threshold that the Sobel mask says is
-     * structurally certain, then smoothstep-binarises so the alpha edge
-     * locks onto real photo content rather than the model's coarse
-     * silhouette.
-     *
-     * The output alpha is also smoothstep-binarised across a 0.05-wide
-     * band so we keep a 1-2 px anti-aliased edge for compositing.
-     *
-     * Both Sobel snap and binarisation are skipped when [edges] is null,
-     * preserving backward compatibility with single-mask call sites that
-     * have no edge data.
-     */
-    fun fillFromSegmentation(
-        floatMask: FloatArray,
-        edges: FloatArray? = null,
-        threshold: Float = 0.50f,
-        snapStrength: Float = 0.60f,
-        snapThreshold: Float = 0.20f,
-        // When true, OR-blends on top of the existing mask (additive).
-        // When false (default), replaces the mask entirely.
-        additive: Boolean = false,
-    ) {
-        val neutral = component.neutralBitmap ?: return
-        // Starting a fresh object-class selection clears any active range mask
-        // (Luma/Chroma). Compositing onto an existing base (additive) keeps
-        // luma/chroma so cross-category carve/union stays intact.
-        if (!additive) {
-            maskColorSamples = emptyList()
-            chromaSubtractMode = false
-            deltaMacro = deltaMacro.copy(
-                maskLumTarget = 0f, maskLumSpread = 0f, maskLumFeather = 0f, maskLumCombine = 0,
-            )
-            primaryIsLuma = false
-            primaryIsChroma = false
-            if (brushMode == MaskBrushMode.ColorSelect || brushMode == MaskBrushMode.LumaSelect)
-                brushMode = MaskBrushMode.None
-        }
-        maskJob?.cancel()
-        maskJob = scope.launch(Dispatchers.Default) {
-            val bW = neutral.width; val bH = neutral.height
-            val mSize = 320 // RawSegmentationMasks.MASK_SIZE
-            val pixels = IntArray(bW * bH)
-            // Capture existing alpha values for additive mode before any writes.
-            val existingAlpha = if (additive) {
-                maskBitmap?.let { src ->
-                    IntArray(bW * bH).also { src.getPixels(it, 0, bW, 0, 0, bW, bH) }
-                }
-            } else null
-            val useEdges = edges != null && edges.size == floatMask.size
-            for (y in 0 until bH) {
-                if ((y and 0x1F) == 0) kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                for (x in 0 until bW) {
-                    val mx = x.toFloat() / (bW - 1).coerceAtLeast(1) * (mSize - 1)
-                    val my = y.toFloat() / (bH - 1).coerceAtLeast(1) * (mSize - 1)
-                    val x0 = mx.toInt().coerceIn(0, mSize - 2)
-                    val y0 = my.toInt().coerceIn(0, mSize - 2)
-                    val dx = mx - x0; val dy = my - y0
-                    val p = floatMask[y0 * mSize + x0]         * (1 - dx) * (1 - dy) +
-                            floatMask[y0 * mSize + x0 + 1]     * dx       * (1 - dy) +
-                            floatMask[(y0 + 1) * mSize + x0]   * (1 - dx) * dy       +
-                            floatMask[(y0 + 1) * mSize + x0 + 1] * dx     * dy
-                    val a: Int = if (useEdges) {
-                        val edge = edges!![y0 * mSize + x0]         * (1 - dx) * (1 - dy) +
-                                   edges[y0 * mSize + x0 + 1]       * dx       * (1 - dy) +
-                                   edges[(y0 + 1) * mSize + x0]     * (1 - dx) * dy       +
-                                   edges[(y0 + 1) * mSize + x0 + 1] * dx     * dy
-                        var v = p
-                        if (edge > snapThreshold) {
-                            val push = edge * snapStrength
-                            v = if (p > threshold) (p + push).coerceAtMost(1f)
-                                else (p - push).coerceAtLeast(0f)
-                        }
-                        val lo = (threshold - 0.05f).coerceAtLeast(0f)
-                        val hi = (threshold + 0.05f).coerceAtMost(1f)
-                        val t  = ((v - lo) / (hi - lo)).coerceIn(0f, 1f)
-                        val sm = t * t * (3f - 2f * t)
-                        (sm * 255f).toInt().coerceIn(0, 255)
-                    } else {
-                        (p * 255f).toInt().coerceIn(0, 255)
-                    }
-                    val finalA = if (existingAlpha != null) {
-                        val existA = (existingAlpha[y * bW + x] ushr 24) and 0xFF
-                        maxOf(existA, a)
-                    } else a
-                    pixels[y * bW + x] = (finalA shl 24) or 0x00FFFFFF
-                }
-            }
-            // Always allocate a NEW Bitmap, even in additive mode.
-            // If we reuse `maskBitmap!!` (same object), the mutableStateOf
-            // assignment `maskBitmap = bmp` is a no-op reference write and
-            // Compose skips recomposition — the blue overlay never renders.
-            // A new object forces the state change to propagate and invalidates
-            // the `remember(committedMaskLayers, maskBitmap)` cache downstream.
-            val bmp = android.graphics.Bitmap.createBitmap(bW, bH, android.graphics.Bitmap.Config.ARGB_8888)
-            bmp.setPixels(pixels, 0, bW, 0, 0, bW, bH)
-            withContext(Dispatchers.Main) {
-                maskBitmap = bmp
-                maskDirty++
-                isMaskModeActive = true
-                component.updateMask(bmp)
-            }
-        }
-    }
-
-    /**
-     * Color-range mask ("Select Color"). Builds the mask from a set of sampled
-     * colours: every source pixel within a colour distance of ANY sample (scaled
-     * by [tolerance] 0..100) is selected, with a smooth falloff for soft edges.
-     *
-     * Distance is measured in an HSV-cone space — hue placed on a chroma-scaled
-     * circle (hx,hy) plus value — so it keys on colour like Lightroom does:
-     * saturated hues match by hue, near-greys match by brightness, and dark vs
-     * bright shades of the same hue separate naturally. Feeds the SAME pipeline
-     * as [fillFromSegmentation] (maskBitmap → GL brush layer → adjustments → Apply).
-     *
-     * @param combine 0=replace, 1=union (OR into existing bitmap), 2=subtract
-     *                (carve keyed colour out of existing bitmap). When a live
-     *                luma band is the base and combine=2, the keyed colour is
-     *                OR'd into the carve-set bitmap and maskLumCombine=1.
-     */
-    fun fillFromColorRange(samples: List<Int>, tolerance: Float, combine: Int = 0) {
-        val neutral = component.neutralBitmap ?: return
-        if (samples.isEmpty()) {
-            // No samples → clear the color mask only when replacing; leave an
-            // existing object/brush bitmap alone in union/subtract arming.
-            if (combine == 0) {
-                maskBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
-                maskBitmap = null
-                maskDirty++
-                component.updateMask(null)
-            }
-            return
-        }
-        val tol = (tolerance / 100f).coerceIn(0f, 1f)
-        val radius = 0.05f + tol * 0.55f          // match sphere radius in HSV-cone space
-        val rInner = radius * 0.65f               // fully-selected inside this
-        // Precompute each sample as (hx, hy, v).
-        fun toVec(argb: Int): FloatArray {
-            val r = ((argb ushr 16) and 0xFF) / 255f
-            val g = ((argb ushr 8) and 0xFF) / 255f
-            val b = (argb and 0xFF) / 255f
-            val mx = maxOf(r, g, b); val mn = minOf(r, g, b); val d = mx - mn
-            val v = mx; val s = if (mx <= 0f) 0f else d / mx
-            val hDeg = when {
-                d <= 0f      -> 0f
-                mx == r      -> (60f * (((g - b) / d) % 6f))
-                mx == g      -> (60f * (((b - r) / d) + 2f))
-                else         -> (60f * (((r - g) / d) + 4f))
-            }
-            val hRad = Math.toRadians(hDeg.toDouble())
-            return floatArrayOf((kotlin.math.cos(hRad) * s).toFloat(), (kotlin.math.sin(hRad) * s).toFloat(), v)
-        }
-        val svecs = samples.map { toVec(it) }
-        // Luma-base + chroma carve: grow the carve-set bitmap, live subtract in GPU.
-        val lumaBaseCarve = combine == 2 && deltaMacro.maskLumSpread > 0f
-        val effectiveCombine = when {
-            lumaBaseCarve -> 1 // OR into carve set (handled below + maskLumCombine)
-            else -> combine
-        }
-        maskJob?.cancel()
-        maskJob = scope.launch(Dispatchers.Default) {
-            // Cap the working resolution — the mask is soft + gets downsampled to
-            // 512 on GL upload anyway, so full preview res would be wasted work.
-            val longSide = maxOf(neutral.width, neutral.height)
-            val scale = if (longSide > 900) 900f / longSide else 1f
-            val small = if (scale < 1f)
-                android.graphics.Bitmap.createScaledBitmap(
-                    neutral, (neutral.width * scale).toInt().coerceAtLeast(1),
-                    (neutral.height * scale).toInt().coerceAtLeast(1), true)
-            else neutral
-            val bW = small.width; val bH = small.height
-            val src = IntArray(bW * bH)
-            small.getPixels(src, 0, bW, 0, 0, bW, bH)
-            if (small !== neutral) small.recycle()
-            val out = IntArray(bW * bH)
-            var i = 0
-            while (i < src.size) {
-                if ((i and 0xFFFF) == 0) kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                val c = src[i]
-                val r = ((c ushr 16) and 0xFF) / 255f
-                val g = ((c ushr 8) and 0xFF) / 255f
-                val b = (c and 0xFF) / 255f
-                val mx = maxOf(r, g, b); val mn = minOf(r, g, b); val dch = mx - mn
-                val v = mx; val s = if (mx <= 0f) 0f else dch / mx
-                val hDeg = when {
-                    dch <= 0f -> 0f
-                    mx == r   -> (60f * (((g - b) / dch) % 6f))
-                    mx == g   -> (60f * (((b - r) / dch) + 2f))
-                    else      -> (60f * (((r - g) / dch) + 4f))
-                }
-                val hRad = Math.toRadians(hDeg.toDouble())
-                val px = (kotlin.math.cos(hRad) * s).toFloat()
-                val py = (kotlin.math.sin(hRad) * s).toFloat()
-                var best = Float.MAX_VALUE
-                for (sv in svecs) {
-                    val dx = px - sv[0]; val dy = py - sv[1]; val dv = v - sv[2]
-                    val dist = kotlin.math.sqrt(dx * dx + dy * dy + dv * dv)
-                    if (dist < best) best = dist
-                }
-                val a = when {
-                    best <= rInner  -> 255
-                    best >= radius  -> 0
-                    else -> {
-                        val t = ((radius - best) / (radius - rInner)).coerceIn(0f, 1f)
-                        (t * t * (3f - 2f * t) * 255f).toInt()   // smoothstep
-                    }
-                }
-                out[i] = (a shl 24) or 0x00FFFFFF
-                i++
-            }
-            // Merge with existing bitmap when union/subtract (or luma carve-set).
-            val existing = maskBitmap
-            if (existing != null && (effectiveCombine == 1 || effectiveCombine == 2 || lumaBaseCarve)) {
-                val eW = existing.width; val eH = existing.height
-                val merged = IntArray(eW * eH)
-                existing.getPixels(merged, 0, eW, 0, 0, eW, eH)
-                for (ey in 0 until eH) {
-                    if ((ey and 0x1F) == 0) kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                    for (ex in 0 until eW) {
-                        val sx = (ex.toFloat() / (eW - 1).coerceAtLeast(1) * (bW - 1)).toInt().coerceIn(0, bW - 1)
-                        val sy = (ey.toFloat() / (eH - 1).coerceAtLeast(1) * (bH - 1)).toInt().coerceIn(0, bH - 1)
-                        val keyA = (out[sy * bW + sx] ushr 24) and 0xFF
-                        val ei = ey * eW + ex
-                        val existA = (merged[ei] ushr 24) and 0xFF
-                        val newA = when {
-                            lumaBaseCarve || effectiveCombine == 1 -> maxOf(existA, keyA)
-                            else -> (existA * (255 - keyA) / 255f).toInt().coerceIn(0, 255) // subtract
-                        }
-                        merged[ei] = (newA shl 24) or 0x00FFFFFF
-                    }
-                }
-                val bmp = android.graphics.Bitmap.createBitmap(eW, eH, android.graphics.Bitmap.Config.ARGB_8888)
-                bmp.setPixels(merged, 0, eW, 0, 0, eW, eH)
-                withContext(Dispatchers.Main) {
-                    maskBitmap = bmp
-                    maskDirty++
-                    isMaskModeActive = true
-                    if (lumaBaseCarve) deltaMacro = deltaMacro.copy(maskLumCombine = 1)
-                    else if (effectiveCombine == 1 && deltaMacro.maskLumSpread > 0f)
-                        deltaMacro = deltaMacro.copy(maskLumCombine = 3) // chroma∪luma
-                    component.updateMask(bmp)
-                }
-            } else {
-                val bmp = android.graphics.Bitmap.createBitmap(bW, bH, android.graphics.Bitmap.Config.ARGB_8888)
-                bmp.setPixels(out, 0, bW, 0, 0, bW, bH)
-                withContext(Dispatchers.Main) {
-                    maskBitmap = bmp
-                    maskDirty++
-                    isMaskModeActive = true
-                    if (lumaBaseCarve) deltaMacro = deltaMacro.copy(maskLumCombine = 1)
-                    else if (effectiveCombine == 1 && deltaMacro.maskLumSpread > 0f)
-                        deltaMacro = deltaMacro.copy(maskLumCombine = 3)
-                    component.updateMask(bmp)
-                }
-            }
-        }
-    }
 
     /**
      * Invert a luminance-range mask: bake the COMPLEMENT of the tone band
@@ -1235,321 +884,20 @@ fun RawEditorContent(component: RawEditorComponent) {
      * bitmap drives the mask. Lets the halo-free luma selection be inverted while
      * reusing the whole existing mask pipeline (adjustments, further invert, Apply).
      */
-    fun bakeInvertedLuminance(target: Float, spread: Float, feather: Float) {
-        val neutral = component.neutralBitmap ?: return
-        maskJob?.cancel()
-        val f = feather.coerceAtLeast(1e-4f)
-        val e0 = spread; val e1 = spread + f
-        maskJob = scope.launch(Dispatchers.Default) {
-            val longSide = maxOf(neutral.width, neutral.height)
-            val scale = if (longSide > 900) 900f / longSide else 1f
-            val small = if (scale < 1f)
-                android.graphics.Bitmap.createScaledBitmap(
-                    neutral, (neutral.width * scale).toInt().coerceAtLeast(1),
-                    (neutral.height * scale).toInt().coerceAtLeast(1), true)
-            else neutral
-            val bW = small.width; val bH = small.height
-            val srcPx = IntArray(bW * bH)
-            small.getPixels(srcPx, 0, bW, 0, 0, bW, bH)
-            if (small !== neutral) small.recycle()
-            val out = IntArray(bW * bH)
-            var i = 0
-            while (i < srcPx.size) {
-                if ((i and 0xFFFF) == 0) kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                val c = srcPx[i]
-                val r = ((c ushr 16) and 0xFF) / 255f
-                val g = ((c ushr 8) and 0xFF) / 255f
-                val b = (c and 0xFF) / 255f
-                val lum = (r * 0.299f + g * 0.587f + b * 0.114f).coerceIn(0f, 1f)
-                val d = kotlin.math.abs(lum - target)
-                val t = ((d - e0) / (e1 - e0)).coerceIn(0f, 1f)
-                val inBand = 1f - (t * t * (3f - 2f * t))   // 1 inside, feathered out (lumMask)
-                val a = ((1f - inBand) * 255f).toInt().coerceIn(0, 255)  // INVERTED
-                out[i] = (a shl 24) or 0x00FFFFFF
-                i++
-            }
-            val bmp = android.graphics.Bitmap.createBitmap(bW, bH, android.graphics.Bitmap.Config.ARGB_8888)
-            bmp.setPixels(out, 0, bW, 0, 0, bW, bH)
-            withContext(Dispatchers.Main) {
-                maskBitmap = bmp
-                maskDirty++
-                isMaskModeActive = true
-                // Deactivate GPU luma params — the baked (inverted) bitmap drives now.
-                deltaMacro = deltaMacro.copy(
-                    maskLumTarget = 0f, maskLumSpread = 0f, maskLumFeather = 0f, maskLumCombine = 0,
-                )
-                primaryIsLuma = false
-                brushMode = MaskBrushMode.None
-                component.updateMask(bmp)
-            }
-        }
-    }
+
 
     /** True when nothing has claimed the mask base yet (fresh Add = replace). */
     fun isFreshMaskBase(): Boolean =
         primaryMaskClass == null && !primaryIsLuma && !primaryIsChroma &&
             maskBitmap == null && deltaMacro.maskLumSpread <= 0f && maskColorSamples.isEmpty()
 
-    /**
-     * Record an object-class Add. When compositing onto a live luma band with
-     * no carve mode yet, switch to union (maskLumCombine=3) so the bitmap is
-     * visible alongside the band (legacy mode 0 makes luma win and hides it).
-     */
-    fun noteObjectClassAdded(cls: MaskClass, isPrime: Boolean) {
-        if (isPrime) {
-            primaryMaskClass = cls
-            primaryIsLuma = false
-            primaryIsChroma = false
-        } else if (deltaMacro.maskLumSpread > 0f && deltaMacro.maskLumCombine == 0) {
-            deltaMacro = deltaMacro.copy(maskLumCombine = 3)
-        }
-        includedMaskClasses = includedMaskClasses + cls
-    }
 
-    /**
-     * Synchronous variant of [fillFromSegmentation] used by preset replay.
-     * Returns the produced ARGB bitmap directly so the caller can save it
-     * to disk and attach `maskPath` to a freshly-built `RawAction`. No
-     * state mutation — does not touch [maskBitmap] or `component.updateMask`.
-     */
-    fun buildSegmentationBitmap(
-        floatMask: FloatArray,
-        edges: FloatArray? = null,
-        threshold: Float = 0.50f,
-        snapStrength: Float = 0.60f,
-        snapThreshold: Float = 0.20f,
-    ): android.graphics.Bitmap? {
-        val neutral = component.neutralBitmap ?: return null
-        val bW = neutral.width; val bH = neutral.height
-        val mSize = 320
-        val pixels = IntArray(bW * bH)
-        val useEdges = edges != null && edges.size == floatMask.size
-        for (y in 0 until bH) {
-            for (x in 0 until bW) {
-                val mx = x.toFloat() / (bW - 1).coerceAtLeast(1) * (mSize - 1)
-                val my = y.toFloat() / (bH - 1).coerceAtLeast(1) * (mSize - 1)
-                val x0 = mx.toInt().coerceIn(0, mSize - 2)
-                val y0 = my.toInt().coerceIn(0, mSize - 2)
-                val dx = mx - x0; val dy = my - y0
-                val p = floatMask[y0 * mSize + x0]         * (1 - dx) * (1 - dy) +
-                        floatMask[y0 * mSize + x0 + 1]     * dx       * (1 - dy) +
-                        floatMask[(y0 + 1) * mSize + x0]   * (1 - dx) * dy       +
-                        floatMask[(y0 + 1) * mSize + x0 + 1] * dx     * dy
-                val a: Int = if (useEdges) {
-                    val edge = edges!![y0 * mSize + x0]         * (1 - dx) * (1 - dy) +
-                               edges[y0 * mSize + x0 + 1]       * dx       * (1 - dy) +
-                               edges[(y0 + 1) * mSize + x0]     * (1 - dx) * dy       +
-                               edges[(y0 + 1) * mSize + x0 + 1] * dx     * dy
-                    var v = p
-                    if (edge > snapThreshold) {
-                        val push = edge * snapStrength
-                        v = if (p > threshold) (p + push).coerceAtMost(1f)
-                            else (p - push).coerceAtLeast(0f)
-                    }
-                    val lo = (threshold - 0.05f).coerceAtLeast(0f)
-                    val hi = (threshold + 0.05f).coerceAtMost(1f)
-                    val t  = ((v - lo) / (hi - lo)).coerceIn(0f, 1f)
-                    val sm = t * t * (3f - 2f * t)
-                    (sm * 255f).toInt().coerceIn(0, 255)
-                } else {
-                    (p * 255f).toInt().coerceIn(0, 255)
-                }
-                pixels[y * bW + x] = (a shl 24) or 0x00FFFFFF
-            }
-        }
-        val bmp = android.graphics.Bitmap.createBitmap(bW, bH, android.graphics.Bitmap.Config.ARGB_8888)
-        bmp.setPixels(pixels, 0, bW, 0, 0, bW, bH)
-        return bmp
-    }
 
-    /**
-     * Resolve a [MaskClass] to a 320² FloatArray using the SAME subtraction
-     * recipes as the editor's per-class fill buttons. Used by preset replay
-     * so re-applying a saved Sky / Buildings / Face card on a different
-     * photo regenerates the bitmap consistently. Returns null when the
-     * required segmentation source isn't available on the current photo
-     * (e.g. preset has a Sky card but cityscapesMasks hasn't finished).
-     */
-    fun resolveMaskForClass(
-        cls: com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass,
-    ): FloatArray? {
-        return when (cls) {
-            com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.Subject ->
-                segmentationMasks?.subjectMask
-            com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.Background ->
-                segmentationMasks?.let {
-                    subtractMasks(it.backgroundMask, cityscapesMasks?.terrain)
-                }
-            com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.Sky ->
-                cityscapesMasks?.let {
-                    val cross = subtractMasks(it.sky,
-                        segmentationMasks?.subjectMask,
-                        multiclassMasks?.clothes)
-                    subtractMasks(cross, it.buildingWall, it.vegetation, boost = 1f)
-                }
-            com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.Buildings ->
-                cityscapesMasks?.let {
-                    val subjDilated = segmentationMasks?.subjectMask?.let { s -> dilateMask(s) }
-                    val cross = subtractMasks(it.buildingWall, subjDilated,
-                        multiclassMasks?.clothes, multiclassMasks?.faceSkin)
-                    subtractMasks(cross, it.terrain, boost = 1f)
-                }
-            com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.Vegetation ->
-                cityscapesMasks?.let {
-                    val cross = subtractMasks(it.vegetation,
-                        segmentationMasks?.subjectMask,
-                        multiclassMasks?.clothes)
-                    subtractMasks(cross, it.terrain, boost = 1f)
-                }
-            com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.Terrain ->
-                cityscapesMasks?.let {
-                    subtractMasks(it.terrain, segmentationMasks?.subjectMask)
-                }
-            com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.Hair -> {
-                // DeepLab hair (LIP class 2) is a dedicated human-parsing signal —
-                // prefer it when available, fall back to selfie_multiclass hair.
-                val dl = deepLabMasks?.hair
-                val mc = multiclassMasks?.hair
-                when {
-                    dl != null && mc != null && dl.size == mc.size ->
-                        FloatArray(dl.size) { i -> maxOf(dl[i], mc[i]).coerceIn(0f, 1f) }
-                    dl != null -> dl
-                    else -> mc
-                }
-            }
-            com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.BodySkin -> {
-                // DeepLab arms+legs = actual exposed skin area.
-                // selfie_multiclass bodySkin covers neck/hands too.
-                // MAX union gives the broadest skin selection.
-                val dlSkin = deepLabMasks?.bodySkin   // arms + legs computed property
-                val mcSkin = multiclassMasks?.bodySkin
-                when {
-                    dlSkin != null && mcSkin != null && dlSkin.size == mcSkin.size ->
-                        FloatArray(dlSkin.size) { i -> maxOf(dlSkin[i], mcSkin[i]).coerceIn(0f, 1f) }
-                    dlSkin != null -> dlSkin
-                    else -> mcSkin
-                }
-            }
-            com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.FaceSkin -> {
-                val detector = faceMask
-                val dlFace   = deepLabMasks?.face    // LIP class 13, pure face region
-                val synth    = synthesizeFaceFromContext(multiclassMasks, segmentationMasks?.subjectMask)
-                // Merge: DeepLab face + ONNX face detector + context synthesis.
-                // More sources = fewer missed faces in group shots.
-                val merged = listOfNotNull(detector, dlFace, synth)
-                    .reduceOrNull { a, b ->
-                        if (a.size == b.size) FloatArray(a.size) { i -> maxOf(a[i], b[i]) } else a
-                    } ?: multiclassMasks?.faceSkin
-                merged?.let {
-                    subtractMasks(it,
-                        segmentationMasks?.backgroundMask,
-                        multiclassMasks?.hair ?: deepLabMasks?.hair,
-                        multiclassMasks?.clothes ?: deepLabMasks?.allClothes,
-                        cityscapesMasks?.terrain)
-                }
-            }
-            com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass.Clothes -> {
-                // DeepLab upper+lower body clothing — more granular than selfie_multiclass.
-                val dlClothes = deepLabMasks?.allClothes
-                val mcClothes = multiclassMasks?.clothes
-                val merged = when {
-                    dlClothes != null && mcClothes != null && dlClothes.size == mcClothes.size ->
-                        FloatArray(dlClothes.size) { i -> maxOf(dlClothes[i], mcClothes[i]).coerceIn(0f, 1f) }
-                    dlClothes != null -> dlClothes
-                    else -> mcClothes
-                }
-                merged?.let { subtractMasks(it, segmentationMasks?.backgroundMask) }
-            }
-        }
-    }
 
-    /**
-     * OR-merge resolved float masks per RapidRAW-style screen blend:
-     * `out = 1 - Π(1 - mi)`. Returns null when none of the classes
-     * resolved (segmentation not ready or model missing).
-     */
-    fun mergeMaskClasses(
-        classes: List<com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskClass>,
-    ): FloatArray? {
-        val resolved = classes.mapNotNull { resolveMaskForClass(it) }
-        if (resolved.isEmpty()) return null
-        if (resolved.size == 1) return resolved[0]
-        val n = resolved[0].size
-        if (resolved.any { it.size != n }) return resolved[0]
-        val out = FloatArray(n)
-        for (i in 0 until n) {
-            var inv = 1f
-            for (m in resolved) inv *= (1f - m[i].coerceIn(0f, 1f))
-            out[i] = (1f - inv).coerceIn(0f, 1f)
-        }
-        return out
-    }
 
-    fun removeFromSegmentation(floatMask: FloatArray) {
-        // LUMA BASE case: luma is a live GPU band, not a bitmap, so we can't
-        // subtract a region out of it in Kotlin. Instead we OR the object region
-        // into the shared bitmap (the "carve set") and flag combine = 1
-        // (luma × (1 − bitmap)); the shader + export kernel carve it out live.
-        if (deltaMacro.maskLumSpread > 0f) {
-            fillFromSegmentation(floatMask, additive = true)   // grow the carve set
-            deltaMacro = deltaMacro.copy(maskLumCombine = 1)   // luma base − bitmap
-            return
-        }
-        val src = maskBitmap ?: return
-        maskJob?.cancel()
-        maskJob = scope.launch(Dispatchers.Default) {
-            val bW = src.width; val bH = src.height
-            val mSize = 320
-            val pixels = IntArray(bW * bH)
-            src.getPixels(pixels, 0, bW, 0, 0, bW, bH)
-            for (y in 0 until bH) {
-                if ((y and 0x1F) == 0) kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                for (x in 0 until bW) {
-                    val mx = x.toFloat() / (bW - 1).coerceAtLeast(1) * (mSize - 1)
-                    val my = y.toFloat() / (bH - 1).coerceAtLeast(1) * (mSize - 1)
-                    val x0 = mx.toInt().coerceIn(0, mSize - 2)
-                    val y0 = my.toInt().coerceIn(0, mSize - 2)
-                    val dx = mx - x0; val dy = my - y0
-                    val segWeight = floatMask[y0 * mSize + x0]           * (1 - dx) * (1 - dy) +
-                                    floatMask[y0 * mSize + x0 + 1]       * dx       * (1 - dy) +
-                                    floatMask[(y0 + 1) * mSize + x0]     * (1 - dx) * dy       +
-                                    floatMask[(y0 + 1) * mSize + x0 + 1] * dx       * dy
-                    val i = y * bW + x
-                    val existingA = (pixels[i] ushr 24) and 0xFF
-                    val newA = (existingA * (1f - segWeight)).toInt().coerceIn(0, 255)
-                    pixels[i] = (newA shl 24) or (pixels[i] and 0x00FFFFFF)
-                }
-            }
-            src.setPixels(pixels, 0, bW, 0, 0, bW, bH)
-            withContext(Dispatchers.Main) {
-                maskDirty++
-                component.updateMask(src)
-            }
-        }
-    }
 
-    fun invertMask() {
-        maskJob?.cancel()
-        maskJob = scope.launch(Dispatchers.Default) {
-            val src = maskBitmap ?: run {
-                val neutral = component.neutralBitmap ?: return@launch
-                android.graphics.Bitmap.createBitmap(neutral.width, neutral.height, android.graphics.Bitmap.Config.ARGB_8888)
-            }
-            val w = src.width; val h = src.height
-            val pixels = IntArray(w * h)
-            src.getPixels(pixels, 0, w, 0, 0, w, h)
-            for (i in pixels.indices) {
-                val a = (pixels[i] ushr 24) and 0xFF
-                pixels[i] = ((255 - a) shl 24) or 0x00FFFFFF
-            }
-            src.setPixels(pixels, 0, w, 0, 0, w, h)
-            withContext(Dispatchers.Main) {
-                maskBitmap = src
-                maskDirty++
-                component.updateMask(src)
-            }
-        }
-    }
+
+
 
     // Canvas content extracted so it can be reused in both portrait and landscape branches
     @Composable
@@ -1572,7 +920,7 @@ fun RawEditorContent(component: RawEditorComponent) {
                                     val newBmp = android.graphics.Bitmap.createBitmap(
                                         neutral.width, neutral.height, android.graphics.Bitmap.Config.ARGB_8888,
                                     )
-                                    maskBitmap = newBmp
+                                    component.masking.updateMask(newBmp)
                                     newBmp
                                 }
                                 val paint = android.graphics.Paint().apply {
@@ -1629,6 +977,11 @@ fun RawEditorContent(component: RawEditorComponent) {
                                 val down = awaitFirstDown(requireUnconsumed = false)
                                 down.consume()
                                 var last = screenToBmp(down.position)
+                                // Record the stroke in bitmap coordinates so the
+                                // gesture can be pushed onto the operational mask
+                                // graph (undo/redo re-rasterizes it — no bitmap
+                                // snapshots in history).
+                                val strokePoints = mutableListOf(last.x to last.y)
                                 var started = false      // has any paint been laid down
                                 var didTransform = false // this gesture became a pan/zoom
                                 var twoFinger = false     // ≥2 fingers on the PREVIOUS event
@@ -1670,17 +1023,10 @@ fun RawEditorContent(component: RawEditorComponent) {
                                             bmCanvas.drawLine(last.x, last.y, curr.x, curr.y, paint)
                                         }
                                         last = curr
-                                        maskDirty++
+                                        strokePoints.add(curr.x to curr.y)
                                         ch.consume()
                                     }
                                 }
-                                // Pure single-finger tap (no drag, no pinch) → one dab.
-                                if (!started && !didTransform) {
-                                    val p = screenToBmp(down.position)
-                                    bmCanvas.drawLine(p.x, p.y, p.x, p.y, paint)
-                                    maskDirty++
-                                }
-                                component.updateMask(bmp)
                             }
                         }
                         // Color-range "Select Color": tap the photo to sample a
@@ -1712,14 +1058,31 @@ fun RawEditorContent(component: RawEditorComponent) {
                                     sy.toInt().coerceIn(0, neutral.height - 1),
                                 ) or 0xFF000000.toInt()
                                 val updated = maskColorSamples + argb
-                                maskColorSamples = updated
+                                setMaskColorSamples(updated)
                                 val colorCombine = when {
                                     chromaSubtractMode -> 2
                                     primaryIsChroma ||
                                         (maskBitmap == null && deltaMacro.maskLumSpread <= 0f) -> 0
                                     else -> 1 // union onto existing bitmap / luma base
                                 }
-                                fillFromColorRange(updated, maskColorTolerance, colorCombine)
+
+                                // Strictly graph-driven: push a node; the graph
+                                // listener re-evaluates the composite bitmap.
+                                if (deltaMacro.maskLumSpread <= 0f) {
+                                    component.masking.pushMaskNode(
+                                        MaskNode(
+                                            id = java.util.UUID.randomUUID().toString(),
+                                            source = MaskSource.ColorRange(
+                                                samples = updated,
+                                                tolerance = maskColorTolerance,
+                                                range = maskColorRange,
+                                                feather = maskColorFeather
+                                            ),
+                                            operation = if (colorCombine == 2)
+                                                MaskOp.SUBTRACT else MaskOp.ADD,
+                                        )
+                                    )
+                                }
                             }
                         }
                         isVignetteCenterMode && isPreviewReady -> Modifier.pointerInput(
@@ -1761,6 +1124,41 @@ fun RawEditorContent(component: RawEditorComponent) {
                                 }
                             }
                         }
+                        isLensFlareMoveMode && isPreviewReady -> Modifier.pointerInput(
+                            canvasWidth, canvasHeight, canvasScale, canvasOffset,
+                        ) {
+                            fun screenToNorm(pos: Offset): Pair<Float, Float> {
+                                val cW = canvasWidth.toFloat()
+                                val cH = canvasHeight.toFloat()
+                                val cx = cW / 2f; val cy = cH / 2f
+                                val ix = (pos.x - canvasOffset.x - cx) / canvasScale + cx
+                                val iy = (pos.y - canvasOffset.y - cy) / canvasScale + cy
+                                val neutral = component.neutralBitmap ?: return 0.5f to 0.5f
+                                val imgAspect = neutral.width.toFloat() / neutral.height.toFloat()
+                                val imgW: Float; val imgH: Float
+                                if (imgAspect > cW / cH) { imgW = cW; imgH = cW / imgAspect }
+                                else { imgW = cH * imgAspect; imgH = cH }
+                                val left = (cW - imgW) / 2f
+                                val top  = (cH - imgH) / 2f
+                                val nx = ((ix - left) / imgW).coerceIn(0f, 1f)
+                                val ny = ((iy - top)  / imgH).coerceIn(0f, 1f)
+                                return nx to ny
+                            }
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                val (nx, ny) = screenToNorm(down.position)
+                                component.updateLensFlarePosition(nx * 2f - 1f, ny * 2f - 1f)
+                                down.consume()
+                                while (true) {
+                                    val evt = awaitPointerEvent()
+                                    val ch = evt.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (!ch.pressed) break
+                                    val (mx, my) = screenToNorm(ch.position)
+                                    component.updateLensFlarePosition(mx * 2f - 1f, my * 2f - 1f)
+                                    ch.consume()
+                                }
+                            }
+                        }
                         healActive && isPreviewReady -> Modifier.pointerInput(
                             canvasWidth, canvasHeight, canvasScale, canvasOffset, healRadiusPx,
                         ) {
@@ -1798,7 +1196,7 @@ fun RawEditorContent(component: RawEditorComponent) {
                                 // top of the GL surface.
                                 healScope.launch {
                                     if (isHealing) return@launch
-                                    isHealing = true
+                                    component.healing.setIsHealing(true)
                                     val src: android.graphics.Bitmap? =
                                         healedOverlay ?: run {
                                             val v = glViewForHistogram.value
@@ -1835,7 +1233,7 @@ fun RawEditorContent(component: RawEditorComponent) {
                                             "RawHeal",
                                             "snapshot null or 1×1 (${src?.width}×${src?.height}) — skipping",
                                         )
-                                        isHealing = false
+                                        component.healing.setIsHealing(false)
                                         return@launch
                                     }
                                     AppLog.i(
@@ -1879,30 +1277,18 @@ fun RawEditorContent(component: RawEditorComponent) {
                                             "RawHeal",
                                             "heal OK ${healed.width}×${healed.height}",
                                         )
-                                        // Recycle the prior overlay (if any) — keep `src` only
-                                        // if it WAS the overlay (we used it as input).
-                                        val old = healedOverlay
-                                        // Snapshot the pre-edit baseline ONCE on the first
-                                        // dirty tap of this Heal-tab visit. We keep a
-                                        // reference to the previous overlay (or null) so
-                                        // Cancel can restore it pixel-for-pixel without
-                                        // re-running every prior heal.
-                                        if (!healDirty) {
-                                            healedOverlayPreEdit = old
-                                            healCountPreEdit = healCount
-                                        }
-                                        // Push the pre-tap overlay onto the undo stack so
-                                        // Undo last heal can restore it. We never recycle
-                                        // bitmaps that the stack (or the pre-edit snapshot)
-                                        // still references — Cancel/Apply do the cleanup.
-                                        healUndoStack.add(old)
-                                        healedOverlay = healed
-                                        healCount += 1
-                                        healDirty = true
+                                        // Publish via the component: it pushes the
+                                        // pre-tap overlay onto its undo stack,
+                                        // snapshots the pre-edit baseline on the
+                                        // Heal tab's first dirty tap (setHealActive),
+                                        // bumps healCount and marks dirty. The stack
+                                        // (and the pre-edit snapshot) keep references
+                                        // to those bitmaps — nothing is recycled here.
+                                        component.healing.setHealedOverlay(healed)
                                     } else {
                                         AppLog.w("RawHeal", "heal returned null")
                                     }
-                                    isHealing = false
+                                    component.healing.setIsHealing(false)
                                 }
                                 while (true) {
                                     val evt = awaitPointerEvent()
@@ -2124,7 +1510,7 @@ fun RawEditorContent(component: RawEditorComponent) {
                     val toneCurveLut by component.toneCurveLutFlow.collectAsState()
                     // Phase-2: forward params changes into GradingPipeline.
                     // The pipeline debounces 250 ms internally — fine to call on every tick.
-                    val maskLayersForBake by component.maskLayerBitmaps.collectAsState()
+                    val maskLayersForBake by component.masking.maskLayerBitmaps.collectAsState()
                     val composedMacro by component.composedMacroFlow.collectAsState()
                     androidx.compose.runtime.LaunchedEffect(params, stageAPath, lutPath, toneCurveLut, previewDims) {
                         val path = stageAPath ?: return@LaunchedEffect
@@ -2146,17 +1532,17 @@ fun RawEditorContent(component: RawEditorComponent) {
                     // Use v3 flow directly so the letterbox innerRect
                     // metadata survives into the renderer (it's missing
                     // from the v2 RawSegmentationMasks bridge type).
-                    val v3Masks by component.segmentationMasksV3.collectAsState()
-                    val depthMap by component.depthMap.collectAsState()
+                    val v3Masks by component.masking.segmentationMasksV3.collectAsState()
+                    val depthMap by component.masking.depthMap.collectAsState()
                     val pathSnapshot = stageAPath
-                    val brushMaskDirtyState by component.maskDirty.collectAsState()
+                    val brushMaskDirtyState by component.masking.maskDirty.collectAsState()
                     // Read the committed mask flow from the component so
                     // Apply-time PNG reloads reach the GL renderer. The
                     // Committed multi-layer masks (up to 4) for post-Apply
                     // replay. While the user is painting a NEW mask, the
                     // in-flight `maskBitmap` drives layer 0 instead (the
                     // layer list is only authoritative once actions commit).
-                    val committedMaskLayers by component.maskLayerBitmaps.collectAsState()
+                    val committedMaskLayers by component.masking.maskLayerBitmaps.collectAsState()
                     // Hold-to-compare: while pressed (≥1 s) show the
                     // Stage A + auto-exposure baseline. When autoExposure
                     // is enabled the AE action's light params are the
@@ -2166,63 +1552,7 @@ fun RawEditorContent(component: RawEditorComponent) {
                     val effectiveParams = if (isComparing)
                         aeShaderParams
                             ?: com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.ShaderParams()
-                    else if (isFreshMaskSession) {
-                        // Suppress COMMITTED mask layer adjustments so the canvas
-                        // appears clean while the user creates a new mask — but
-                        // never the IN-FLIGHT layer's slot. updateMacro(isMaskEdit
-                        // = true) routes the live edit to layer index == committed
-                        // mask count (capped at 3); zeroing that slot too made
-                        // every Mask-tab slider a silent no-op after Cancel while
-                        // the blue overlay still rendered — the reported
-                        // "adjustment doesn't apply to the selected mask" bug.
-                        val inflightIdx = committedMaskLayers.size.coerceAtMost(3)
-                        var zp = params
-                        if (inflightIdx != 0) zp = zp.copy(
-                            maskBrightness = 0f, maskContrast = 0f,
-                            maskTemperature = 0f, maskTint = 0f,
-                            maskSaturation = 0f, maskClarity = 0f,
-                            maskSharpness = 0f,
-                            maskHighlights = 0f, maskShadows = 0f,
-                            maskWhites = 0f, maskBlacks = 0f,
-                            maskTabOpacity = 1f,
-                            maskLumTarget = 0f, maskLumSpread = 0f,
-                            maskLumFeather = 0f, maskLumCombine = 0,
-                        )
-                        if (inflightIdx != 1) zp = zp.copy(
-                            mask1Brightness = 0f, mask1Contrast = 0f,
-                            mask1Temperature = 0f, mask1Tint = 0f,
-                            mask1Saturation = 0f, mask1Clarity = 0f,
-                            mask1Sharpness = 0f,
-                            mask1Highlights = 0f, mask1Shadows = 0f,
-                            mask1Whites = 0f, mask1Blacks = 0f,
-                            mask1TabOpacity = 1f,
-                            mask1LumTarget = 0f, mask1LumSpread = 0f,
-                            mask1LumFeather = 0f,
-                        )
-                        if (inflightIdx != 2) zp = zp.copy(
-                            mask2Brightness = 0f, mask2Contrast = 0f,
-                            mask2Temperature = 0f, mask2Tint = 0f,
-                            mask2Saturation = 0f, mask2Clarity = 0f,
-                            mask2Sharpness = 0f,
-                            mask2Highlights = 0f, mask2Shadows = 0f,
-                            mask2Whites = 0f, mask2Blacks = 0f,
-                            mask2TabOpacity = 1f,
-                            mask2LumTarget = 0f, mask2LumSpread = 0f,
-                            mask2LumFeather = 0f,
-                        )
-                        if (inflightIdx != 3) zp = zp.copy(
-                            mask3Brightness = 0f, mask3Contrast = 0f,
-                            mask3Temperature = 0f, mask3Tint = 0f,
-                            mask3Saturation = 0f, mask3Clarity = 0f,
-                            mask3Sharpness = 0f,
-                            mask3Highlights = 0f, mask3Shadows = 0f,
-                            mask3Whites = 0f, mask3Blacks = 0f,
-                            mask3TabOpacity = 1f,
-                            mask3LumTarget = 0f, mask3LumSpread = 0f,
-                            mask3LumFeather = 0f,
-                        )
-                        zp
-                    } else
+                    else
                         params
                     // Never-blank backdrop: prefer the last graded pause
                     // snapshot (screen-off / background) so GL reboot does
@@ -2230,7 +1560,7 @@ fun RawEditorContent(component: RawEditorComponent) {
                     // process" look). Fall back to that thumbnail only when
                     // no graded snapshot exists yet (first open).
                     val backdropThumb by component.thumbnailBitmapFlow.collectAsState()
-                    val backdropBmp = pauseGradedBackdrop ?: backdropThumb
+                    val backdropBmp = if (!livePreviewRendered) (pauseGradedBackdrop ?: backdropThumb) else null
                     backdropBmp?.let { t ->
                         Image(
                             bitmap = t.asImageBitmap(),
@@ -2240,6 +1570,10 @@ fun RawEditorContent(component: RawEditorComponent) {
                         )
                     }
                     if (pathSnapshot != null) {
+                        LaunchedEffect(pathSnapshot) {
+                            livePreviewRendered = false
+                            pauseGradedBackdrop = null
+                        }
                         com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3
                             .RawV3PreviewComposable(
                                 stageATifPath = pathSnapshot,
@@ -2306,8 +1640,8 @@ fun RawEditorContent(component: RawEditorComponent) {
                                 // above), not by dropping their textures.
                                 brushMaskLayers = if (maskBitmap != null)
                                     (committedMaskLayers + maskBitmap).takeLast(4)
-                                else if (isFreshMaskSession) emptyList()
-                                else committedMaskLayers,
+                                else
+                                    committedMaskLayers,
                                 onAhbBound = { ahb -> component.setStageBAhb(ahb) },
                                 onImageSize = { w, h ->
                                     if (h > 0) imageAspect = w.toFloat() / h.toFloat()
@@ -2317,7 +1651,11 @@ fun RawEditorContent(component: RawEditorComponent) {
                                 // opens. (Rendering pauses on that tab, so we
                                 // grab the view ref here during normal editing.)
                                 onGradedFrameReady = { v -> glViewForHistogram.value = v },
-                                onPauseBackdrop = { bmp -> pauseGradedBackdrop = bmp },
+                                onPauseBackdrop = { bmp ->
+                                    pauseGradedBackdrop = bmp
+                                    livePreviewRendered = false
+                                },
+                                onFirstFrameRendered = { livePreviewRendered = true },
                                 onBakeStateChange = { req, baked ->
                                     bakeRequestedKey = req
                                     bakeBakedKey = baked
@@ -2340,7 +1678,8 @@ fun RawEditorContent(component: RawEditorComponent) {
                                     .matchParentSize()
                                     .transformable(
                                         state = transformableState,
-                                        enabled = !isToneCurvesTab && !isMaskTab && (
+                                        enabled = !isToneCurvesTab && !isMaskTab &&
+                                            !isVignetteCenterMode && !isLensFlareMoveMode && (
                                             !isMaskModeActive ||
                                             brushMode == MaskBrushMode.None),
                                     ),
@@ -2543,98 +1882,32 @@ fun RawEditorContent(component: RawEditorComponent) {
     }
     SideEffect { projectExitCapture.value = captureGradedCanvas }
 
-        RawAdjustmentPanel(
-            macro               = deltaMacro,
-            onMacroChange       = { deltaMacro = it },
-            // Auto-apply: non-mask tabs read their sliders from the committed
-            // cards and commit live on every move (no Apply button, no lock).
-            composeTabMacro     = { tab -> component.composeTabMacro(tab) },
-            onReplaceTabCards   = { tab, cards -> component.replaceTabCards(tab, cards) },
-            // AI Color Enhance: enabled when a visible _ai_color_enhance card
-            // exists; toggling shows/hides it via the component.
-            sceneAutoEnhanceEnabled  = actions.any {
-                it.label == "_ai_color_enhance" && it.isVisible
-            },
-            onSceneAutoEnhanceChange = { component.setAiColorEnhance(it) },
-            previewBitmap       = previewBitmap,
-            gradedHistogram     = gradedHistogram,
-            imageLongSide       = previewDimsForAspect?.let { maxOf(it.first, it.second) }
-                ?: CinematicBloomProcessor.REF_LONG_SIDE,
-            actions             = actions,
-            presets             = presets,
-            onSavePreset        = { name ->
-                val ok = component.savePreset(name)
-                if (ok) presets = component.loadPresetIndex()
-                ok
-            },
-            onLoadPreset        = { index ->
-                val loaded = component.loadPreset(index) ?: return@RawAdjustmentPanel
-                // Install all cards immediately so global-only edits take effect
-                // at once; mask cards will have maskPath=null until the async
-                // segmentation pass below patches them in.
-                component.replaceActions(loaded)
-                deltaMacro = UserMacro()
-                // Re-derive segmentation bitmaps for any card that was saved with
-                // a maskClass/maskClasses (Subject, Background, Sky, etc.). We run
-                // ensureSegmentation() and await the result on a background thread,
-                // then patch each card's maskPath via updateActionMask so the render
-                // updates incrementally rather than blocking the UI.
-                val maskCards = loaded.filter {
-                    it.maskClasses.isNotEmpty() || it.maskClass != null
-                }
-                if (maskCards.isNotEmpty()) {
-                    scope.launch(kotlinx.coroutines.Dispatchers.Default) {
-                        // Trigger segmentation chain if not already running.
-                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                            component.ensureSegmentation()
-                        }
-                        // Wait up to 30 s for masks to arrive.
-                        kotlinx.coroutines.withTimeoutOrNull(30_000L) {
-                            component.segmentationMasks.first { it != null }
-                        }
-                        // Re-derive each mask card's bitmap and patch it in.
-                        for (a in maskCards) {
-                            val classes = a.maskClasses.ifEmpty {
-                                listOfNotNull(a.maskClass)
-                            }
-                            val merged = mergeMaskClasses(classes) ?: continue
-                            // component.segmentationMasks is a StateFlow — safe to
-                            // read .value from any thread (no Compose snapshot needed).
-                            val edges = component.segmentationMasks.value?.edgeMask
-                            val bmp = buildSegmentationBitmap(merged, edges = edges) ?: continue
-                            val newPath = com.RAZStudio.StudioRoom
-                                .feature.photo_editor.raw.RawMaskStorage
-                                .save(context, a.id, bmp)
-                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                if (newPath != null) component.updateActionMask(a.id, newPath)
-                            }
-                        }
-                    }
-                }
-            },
-            // Settings clipboard — Copy/Paste Settings + Apply from previous.
-            // Paste/apply replace the stack, so drop any in-flight delta too.
-            onCopySettings      = { component.copySettings() },
-            onPasteSettings     = {
-                if (component.pasteSettings()) deltaMacro = UserMacro()
-            },
-            canPasteSettings    = component.canPasteSettings(),
-            onApplyPrevious     = {
-                if (component.applyPreviousSettings()) deltaMacro = UserMacro()
-            },
-            canApplyPrevious    = component.canApplyPreviousSettings(),
-            onDeletePreset      = { index ->
-                component.deletePreset(index)
-                presets = component.loadPresetIndex()
-            },
-            onApplyAction       = { label, tabIndex, currentDelta ->
-                // Detect a mask edit by presence of any non-default mask field.
-                // If yes, snapshot the brush mask bitmap to disk and link the new
-                // action to it. The mask is the live `maskBitmap` (the one the
-                // user just painted in the mask tab). Without a snapshot, the
-                // next action would inherit/replace this mask and the layers
-                // wouldn't stack correctly.
-                val hasMaskEdit = currentDelta.maskBrightness != 0f ||
+    val cancelCurrentAction = {
+        deltaMacro = UserMacro(); lightAeActive = false
+        maskJob?.cancel(); maskJob = null
+        component.masking.updateMask(null)
+        setIncludedMaskClasses(emptySet())
+        setPrimaryMaskClass(null)
+        setPrimaryIsLuma(false)
+        setPrimaryIsChroma(false)
+        setChromaSubtractMode(false)
+        setMaskColorSamples(emptyList())
+        setIsMaskModeActive(false)
+        setBrushMode(MaskBrushMode.None)
+    }
+
+    RawEditorPanel(
+        modifier = modifier,
+        component = component,
+        uiState = uiState,
+        previewBitmap = previewBitmap,
+        gradedHistogram = gradedHistogram,
+        deltaMacro = deltaMacro,
+        onMacroChange = { deltaMacro = it },
+        actions = actions,
+        presets = presets,
+        onApplyAction = { label, tabIndex, currentDelta ->
+            val hasMaskEdit = currentDelta.maskBrightness != 0f ||
                     currentDelta.maskContrast != 0f ||
                     currentDelta.maskTemperature != 0 ||
                     currentDelta.maskTint != 0f ||
@@ -2645,41 +1918,35 @@ fun RawEditorContent(component: RawEditorComponent) {
                     currentDelta.maskTone.shadows != 0f ||
                     currentDelta.maskTone.whites != 0f ||
                     currentDelta.maskTone.blacks != 0f
-                // Reject an Apply that would commit a card carrying zero
-                // adjustments. On the Mask tab specifically, an empty
-                // commit used to silently shift the brush-mask GL layer
-                // mapping → previous masks (subject/sky/face) lost their
-                // effect in the preview. Discarding the in-flight delta
-                // and bailing out keeps the action stack and GL state in
-                // sync.
-                val isEmptyMacro = currentDelta == UserMacro()
-                if (isEmptyMacro) {
-                    // Nothing to commit — drop the in-flight delta and
-                    // leave the action stack untouched. Mask-tab GL state
-                    // stays bound to the existing top mask.
-                    deltaMacro = UserMacro()
-                } else {
+            val isEmptyMacro = currentDelta == UserMacro()
+            if (isEmptyMacro) {
+                deltaMacro = UserMacro()
+            } else {
                 val currentMask = maskBitmap
-                // Snapshot the included segmentation classes so the new card
-                // remembers what auto-mask recipe produced its bitmap. Empty
-                // set = hand-painted brush mask (not portable across photos).
-                // Ordering is preserved (LinkedHashSet → toList) so replay
-                // OR-merges classes in the same order the user selected them.
                 val classesForCard = includedMaskClasses.toList()
+                val currentNodes = component.masking.maskNodes.value
+                val currentPrimary = primaryMaskClass
                 val newAction = if (hasMaskEdit && currentMask != null) {
                     val newId = java.util.UUID.randomUUID().toString()
                     val savedPath = com.RAZStudio.StudioRoom.feature.photo_editor.raw
                         .RawMaskStorage.save(context, newId, currentMask)
                     if (savedPath != null) {
+                        android.util.Log.d("MaskInstance", """
+                            CREATE/APPLY ----------------
+                            ActionId=$newId
+                            PrimaryMaskClass=$currentPrimary
+                            IncludedClasses=$classesForCard
+                            MaskNodeCount=${currentNodes.size}
+                            MaskNodeIds=${currentNodes.joinToString { it.id }}
+                        """.trimIndent())
                         RawAction(
                             id = newId, label = label, tabIndex = tabIndex,
                             macro = currentDelta, maskPath = savedPath,
-                            maskClass = classesForCard.firstOrNull(),
+                            maskClass = currentPrimary,
                             maskClasses = classesForCard,
+                            maskNodes = currentNodes,
                         )
                     } else {
-                        // Save failed: fall back to action without mask layering.
-                        // User's adjustments still apply via mergeWith (legacy path).
                         RawAction(label = label, tabIndex = tabIndex, macro = currentDelta)
                     }
                 } else {
@@ -2687,8 +1954,6 @@ fun RawEditorContent(component: RawEditorComponent) {
                         label          = label,
                         tabIndex       = tabIndex,
                         macro          = currentDelta,
-                        // Mark as auto-exposure when applied from the Light tab while
-                        // AE is active so preset reapply recalculates per-photo.
                         isAutoExposure = tabIndex == com.RAZStudio.StudioRoom.feature.photo_editor
                             .presentation.raw.components.TAB_LIGHT && lightAeActive,
                     )
@@ -2697,904 +1962,582 @@ fun RawEditorContent(component: RawEditorComponent) {
                         .presentation.raw.components.TAB_LIGHT) {
                     lightAeActive = false
                 }
-                // Drop the editor-local in-flight mask BEFORE committing so
-                // the subsequent addAction → rebuildShaderParams →
-                // publishTopmostMaskBitmap can load the freshly saved PNG
-                // into the GL brush mask without our nulling it back to
-                // empty afterwards.
                 if (hasMaskEdit) {
-                    maskBitmap = null
-                    includedMaskClasses = emptySet()
-                    primaryMaskClass = null
-                    primaryIsLuma = false
-                    primaryIsChroma = false
-                    chromaSubtractMode = false
-                    maskColorSamples = emptyList()
-                    isMaskModeActive = false
-                    isFreshMaskSession = false
+                    component.masking.updateMask(null)
+                    setIncludedMaskClasses(emptySet())
+                    setPrimaryMaskClass(null)
+                    setPrimaryIsLuma(false)
+                    setPrimaryIsChroma(false)
+                    setChromaSubtractMode(false)
+                    setMaskColorSamples(emptyList())
+                    setIsMaskModeActive(false)
                 }
                 component.addAction(newAction)
-                // v2-integration §B.5 — commit a sidecar history checkpoint. The new
-                // baseline-with-this-action becomes the head; the previous head moves
-                // into the revisions list. SidecarStore caps the stack at 50 entries.
-                // Fire-and-forget on the Main scope; failure is non-fatal (logged inside
-                // SidecarStore).
                 scope.launch { component.pushSidecarRevision() }
                 deltaMacro = UserMacro()
-                } // end else branch (committed a non-empty action)
-            },
-            onCancelAction      = {
-                deltaMacro = UserMacro(); lightAeActive = false
-                // Drop any in-flight painted mask too. A stale maskBitmap gets
-                // appended to the GL brush layers (takeLast(4) then evicts a REAL
-                // committed layer) and injects a phantom in-flight mask layer —
-                // corrupting multi-mask rendering. Apply already nulls it; Cancel
-                // must as well.
-                maskJob?.cancel(); maskJob = null
-                maskBitmap = null
-                includedMaskClasses = emptySet()
-                primaryMaskClass = null
-                primaryIsLuma = false
-                primaryIsChroma = false
-                chromaSubtractMode = false
-                maskColorSamples = emptyList()
-                isMaskModeActive = false
-                brushMode = MaskBrushMode.None
-                component.updateMask(null)
-                // Mark fresh session so committed mask layers are suppressed
-                // from GL while the user creates a new mask.
-                isFreshMaskSession = true
-            },
-            onLoadAction        = { action ->
-                deltaMacro = action.macro
-                if (action.isAutoExposure) lightAeActive = true
-                // Re-editing a committed card — not a fresh session.
-                isFreshMaskSession = false
-                // M-fix: restore the painted mask bitmap when re-editing a
-                // mask card. The action carries the PNG path on disk; without
-                // re-loading it into `maskBitmap`, the user would land on the
-                // Mask tab with the sliders restored but an empty brush
-                // canvas — the original painted region would appear "lost"
-                // and any new strokes wouldn't stack with the previous shape.
-                //
-                // For non-mask cards we explicitly clear any leftover
-                // in-flight mask from a prior session — otherwise tapping a
-                // Color/Light/Vignette card after touching the Mask tab
-                // would leave a stale mask bitmap visible.
-                val path = action.maskPath
-                if (path != null) {
-                    val restored = com.RAZStudio.StudioRoom.feature.photo_editor.raw
-                        .RawMaskStorage.loadFromPath(path)
-                    if (restored != null) {
-                        maskBitmap = restored
-                        maskDirty++
-                        component.updateMask(restored)
-                        // Show the blue overlay so the user sees the committed
-                        // mask region on the canvas when re-editing this card.
-                        isMaskModeActive = true
-                    }
-                } else if (action.tabIndex == com.RAZStudio.StudioRoom.feature.photo_editor
-                        .presentation.raw.components.TAB_MASK_LAYERS) {
-                    // Shader-based mask (luminance/no bitmap) — activate overlay
-                    // so the user sees the blue tint from the luma params in the
-                    // macro. The GL renderer generates the mask per-pixel from
-                    // maskLumTarget/Spread/Feather uniforms.
-                    maskBitmap = null
-                    val hasLuma = action.macro.maskLumSpread > 0f
-                    isMaskModeActive = true
-                    if (hasLuma) brushMode = MaskBrushMode.LumaSelect
-                } else {
-                    maskBitmap = null
-                }
-                // Loaded action's bitmap is opaque — we can't re-derive which
-                // segmentation classes produced it. Start the per-class
-                // inclusion tracker fresh so the user can layer additional
-                // classes via split-buttons on top of the loaded mask.
-                includedMaskClasses = emptySet()
-                primaryMaskClass = null
-                primaryIsLuma = action.macro.maskLumSpread > 0f && action.maskPath == null
-                primaryIsChroma = false
-                chromaSubtractMode = false
-            },
-            onRestoreAction     = { idx, action -> component.restoreActionAt(idx, action) },
-            onDeleteAction      = { id -> component.deleteAction(id) },
-            onEyeToggleAction   = { id -> component.toggleEye(id) },
-            onToggleLockAction  = { id -> component.toggleLock(id) },
-            onExportToEditor    = {
-                component.updateMacro(deltaMacro)
-                // Wait for any in-flight preset apply to finish + give the
-                // GL thread two frames to redraw with the final card stack
-                // BEFORE snapshotting. Without this the Export page can
-                // capture a partially-applied preset (e.g. shows the photo
-                // with only the first 2/5 cards rendered, then the user sees
-                // a different look from what saves a moment later).
-                scope.launch {
-                    if (presetApplyInFlight) {
-                        // Block on the StateFlow flag until cards finish landing.
-                        while (presetApplyInFlight) {
-                            kotlinx.coroutines.delay(50)
-                        }
-                    }
-                    // One extra frame so the GL renderer has consumed the
-                    // final shaderParamsFlow value triggered by addAction.
-                    kotlinx.coroutines.delay(100)
-                    val graded = captureGradedCanvas()
-                    component.setGradedPreview(graded)
-                    // Project photo: the tile should show what is about to be exported.
-                    if (graded != null && component.projectContext != null) {
-                        component.persistProjectThumbnail(graded)
-                    }
-                    component.navigateToRawExport()
-                }
-            },
-            onTabSelected       = { tabIndex ->
-                // The Tone Curves editor lives under TAB_CURVES_LUT (index 2). The legacy
-                // TAB_TONE_CURVES constant is 4, which now collides with the FX tab
-                // (TAB_EFFECTS = 4) — using it here misidentified FX as Tone Curves, which
-                // hid the panel resize handle on FX and skipped the curve pause/snapshot on
-                // the real Curves tab. Key off the current constant so every non-curves tab
-                // (FX included) keeps the uniform drag-to-resize handle.
-                isToneCurvesTab = tabIndex == com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components.TAB_CURVES_LUT
-                // Mask tab keeps the Local-tab masking behavior: zoom/pan stays
-                // available except while actively painting (gated by brushMode in
-                // the transformable below), so isMaskTab is intentionally NOT set
-                // for TAB_MASK_LAYERS (that flag fully locks zoom — undesired here).
-                val nowMask = false
-                isMaskTab = nowMask
-                // Tone Curves and Mask tabs show the photo static/fit — reset zoom/pan.
-                if (isToneCurvesTab || nowMask) {
-                    canvasScale  = 1f
-                    canvasOffset = androidx.compose.ui.geometry.Offset.Zero
-                }
-                // Force a GL redraw immediately after tab switch so the SurfaceView
-                // doesn't show a blank frame while Compose recomposes the panel.
-                glViewForHistogram.value?.requestRender()
-                // Phase-2: suppress/resume via GradingPipeline instead of the
-                // old suppressGradedBake flag. No source swap on tab switch.
-                if (nowMask) {
-                    component.gradingPipeline.suppressBake(
-                        com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.SuppressReason.MASK_TAB
-                    )
-                } else {
-                    val dims = component.previewDimsFlow.value
-                    component.gradingPipeline.resumeBake(
-                        params          = component.shaderParamsFlow.value,
-                        macro           = component.composedMacroFlow.value,
-                        stageATifPath   = component.stageATifPathFlow.value ?: "",
-                        lutCubePath     = component.lutCubePathFlow.value,
-                        brushMaskLayers = emptyList(),
-                        toneCurveLut    = component.toneCurveLutFlow.value,
-                        knownSrcWidth   = dims?.first ?: 0,
-                        knownSrcHeight  = dims?.second ?: 0,
-                    )
-                }
-            },
-            isVignetteCenterMode       = isVignetteCenterMode,
-            onVignetteCenterModeChange = { isVignetteCenterMode = it },
-            healRadiusPx               = healRadiusPx,
-            onHealRadiusChange         = { healRadiusPx = it },
-            healActive                 = healActive,
-            onHealActiveChange         = { healActive = it },
-            isHealing                  = isHealing,
-            healCount                  = healCount,
-            onUndoLastHeal             = {
-                // Pop the most recent pre-tap overlay and restore it,
-                // recycling the current (post-tap) overlay so pixels
-                // free instead of leaking. healDirty stays true as long
-                // as at least one tap remains in this Heal session —
-                // once the stack empties (back to the baseline) we drop
-                // the dirty flag so Apply/Cancel disappear.
-                if (healUndoStack.isNotEmpty()) {
-                    val restored = healUndoStack.removeAt(healUndoStack.lastIndex)
-                    val current = healedOverlay
-                    if (current != null && current !== restored &&
-                        current !== healedOverlayPreEdit) current.recycle()
-                    healedOverlay = restored
-                    if (healCount > 0) healCount -= 1
-                    if (healUndoStack.isEmpty()) {
-                        // Back to the pre-edit state — clear the dirty
-                        // flag so the Apply/Cancel bar collapses.
-                        healDirty = false
-                        healedOverlayPreEdit = null
-                    }
-                }
-            },
-            onHealModeActive           = { active ->
-                // Leaving the tab implicitly disables the toggle so the
-                // canvas regains gestures.
-                if (!active && healActive) healActive = false
-            },
-            healDirty                  = healDirty,
-            onHealApply                = {
-                // Commit a Heal action card with a label reflecting how
-                // many taps were folded into this card. The healed bitmap
-                // stays as the live in-memory overlay so the canvas keeps
-                // showing the inpainted result; the card's existence in
-                // Actions makes the heal addressable for delete / hide.
-                val count = healCount - healCountPreEdit
-                val label = "Heal" + if (count > 1) " ×$count" else ""
-                component.addAction(
-                    RawAction(
-                        label = label,
-                        tabIndex = com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components.TAB_HEAL,
-                        macro = UserMacro(),
-                    )
-                )
-                // The just-committed state becomes the new baseline:
-                // future Heal-tab visits Cancel back to THIS overlay,
-                // not to whatever was there before.
-                healedOverlayPreEdit = null
-                healCountPreEdit = healCount
-                healDirty = false
-                healActive = false
-                // Drop intermediate snapshots — the committed overlay
-                // is the new baseline; nothing in the stack is reachable
-                // anymore. Recycle each unless it's still in use as the
-                // pre-edit reference or the live overlay.
-                healUndoStack.forEach { b ->
-                    if (b != null && b !== healedOverlay) {
-                        runCatching { b.recycle() }
-                    }
-                }
-                healUndoStack.clear()
-            },
-            onHealCancel               = {
-                // Revert overlay + count to the snapshot taken on tab
-                // entry. The discarded `healedOverlay` is recycled
-                // unless it's actually the snapshot (no-op case).
-                val current = healedOverlay
-                val snapshot = healedOverlayPreEdit
-                if (current != null && current !== snapshot) current.recycle()
-                healedOverlay = snapshot
-                healedOverlayPreEdit = null
-                healCount = healCountPreEdit
-                healDirty = false
-                healActive = false
-                // Recycle every intermediate snapshot (none are reachable
-                // after Cancel) except the one we just restored as live.
-                healUndoStack.forEach { b ->
-                    if (b != null && b !== healedOverlay) {
-                        runCatching { b.recycle() }
-                    }
-                }
-                healUndoStack.clear()
-            },
-            isNonRawSource             = isNonRawSource,
-            onExportActions     = {
-                scope.launch(Dispatchers.IO) {
-                    val path = runCatching { component.prepareExportFile() }.getOrNull()
-                    withContext(Dispatchers.Main) {
-                        if (path != null) {
-                            pendingExportFilePath = path
-                            actionsExportSavePicker.launch("raw_actions.xml")
-                        }
-                    }
-                }
-            },
-            onImportActions     = { actionsImportPicker.launch(arrayOf("text/xml", "application/xml")) },
-            onSaveEditAsLut     = { name -> component.exportEditAsLut(name) },
-            segmentationMasks   = segmentationMasks,
-            onMaskModeActive    = { isMaskModeActive = it },
-            // showMaskOverlay piggybacks on isMaskModeActive — same flag,
-            // just exposed via a second name so the Show button can
-            // toggle it independently of the tab selection. The setter
-            // also clears brushMode when overlay goes off so paint /
-            // tap-select don't stay armed on a no-overlay canvas.
-            showMaskOverlay     = isMaskModeActive,
-            onShowMaskOverlayChange = { newShow ->
-                isMaskModeActive = newShow
-                if (!newShow) brushMode = MaskBrushMode.None
-            },
-            brushMode           = brushMode,
-            onBrushModeChange   = { brushMode = it },
-            sharpSpread         = sharpSpread,
-            onSharpSpreadChange = { sharpSpread = it },
-            onFillSharp         = {
-                segmentationMasks?.let {
-                    fillFromSegmentationSharp(it.subjectMask, it.edgeMask, sharpSpread)
-                }
-            },
-            // Light-tab Auto button: compute slider values from a
-            // percentile histogram of the cached Stage A thumbnail,
-            // then COMMIT as an action card labelled "AUTO EXPO" with
-            // the `isAutoExposure` marker. The marker is what lets
-            // saved presets recompute Auto per-file on apply rather
-            // than carrying the original photo's exposure numbers
-            // forward (different RAWs need different lifts).
-            // On-demand segmentation: entering the Mask / Gradient tabs kicks off
-            // the ONNX chain (it no longer runs eagerly at open — that was the OOM).
-            onSegmentationNeeded = { component.ensureSegmentation() },
-            // Grey subject-mask-dependent controls (Bokeh, subject/background
-            // Vignette & Gradient) while detection runs; re-enabled when the
-            // subject mask arrives or the chain ends.
-            subjectSegBusy      = subjectSegBusy,
-            subjectDetected     = segmentationMasksV3OuterScope?.hasSubject ?: true,
-            onLightAuto         = {
-                val src = component.neutralBitmap ?: return@RawAdjustmentPanel
-                // AI Expose subject protection needs masks — start segmentation now
-                // (idempotent). First tap may run global if masks aren't ready yet;
-                // adjusting protection after they arrive gives the subject-aware result.
-                component.ensureSegmentation()
-                val masks = component.segmentationMasks.value
-                val protection = component.composeTabMacro(
-                    com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components.TAB_TONE_COLOR
-                ).aeSubjectProtection
-                scope.launch(Dispatchers.Default) {
-                    val result = com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3
-                        .RawAutoExposure.analyse(
-                            bitmap = src,
-                            base   = UserMacro(aeSubjectProtection = protection),
-                            masks  = masks,
-                            iso    = component.rawMetadata?.iso ?: 0,
-                            subjectProtection = protection,
+            }
+        },
+        onCancelAction = cancelCurrentAction,
+        onLoadAction = { action ->
+            deltaMacro = action.macro
+            if (action.isAutoExposure) lightAeActive = true
+
+            // Strictly graph-driven: do not manually load maskPath.
+            // restoreMaskState below triggers the graph listener which
+            // re-evaluates the composite (including StoredBitmap nodes).
+            setIsMaskModeActive(action.maskNodes.isNotEmpty() ||
+                (action.tabIndex == com.RAZStudio.StudioRoom.feature.photo_editor
+                    .presentation.raw.components.TAB_MASK_LAYERS))
+
+            if (action.tabIndex == com.RAZStudio.StudioRoom.feature.photo_editor
+                    .presentation.raw.components.TAB_MASK_LAYERS) {
+                val hasLuma = action.macro.maskLumSpread > 0f
+                if (hasLuma) setBrushMode(MaskBrushMode.LumaSelect)
+            }
+
+            // Restore semantic identity: nodes + class metadata (Fix 1, 2, 3)
+            android.util.Log.d("MaskInstance", """
+                RESTORE (Graph Driven) ----------------
+                ActionId=${action.id}
+                MaskNodeCount=${action.maskNodes.size}
+            """.trimIndent())
+            component.masking.restoreMaskState(
+                nodes = action.maskNodes,
+                primary = action.maskClass,
+                included = action.maskClasses.toSet(),
+                isLuma = action.macro.maskLumSpread > 0f && action.maskPath == null,
+                isChroma = false // TODO: store chroma identity if needed
+            )
+            setChromaSubtractMode(false)
+        },
+        onRestoreAction = { idx, action -> component.restoreActionAt(idx, action) },
+        onDeleteAction = { id, keepStorage -> component.deleteAction(id, keepStorage) },
+        onEyeToggleAction = { id -> component.toggleEye(id) },
+        onToggleLockAction = { id -> component.toggleLock(id) },
+        onSavePreset = { name ->
+            val ok = component.savePreset(name)
+            if (ok) presets = component.loadPresetIndex()
+            ok
+        },
+        onLoadPreset = { index ->
+            val loaded = component.loadPreset(index) ?: return@RawEditorPanel
+            // Convert legacy presets (maskClasses only) to graph-driven (maskNodes).
+            val upgraded = loaded.map { a ->
+                if (a.maskNodes.isEmpty() && (a.maskClasses.isNotEmpty() || a.maskClass != null)) {
+                    val classes = a.maskClasses.ifEmpty { listOfNotNull(a.maskClass) }
+                    a.copy(maskNodes = classes.map { cls ->
+                        MaskNode(
+                            id = java.util.UUID.randomUUID().toString(),
+                            source = MaskSource.ModelClass(cls),
+                            operation = MaskOp.ADD
                         )
-                    withContext(Dispatchers.Main) {
-                        // Register immediately as its own action card so it appears
-                        // in the Actions tab without requiring an explicit Apply press.
-                        val aeAction = RawAction(
+                    })
+                } else a
+            }
+            component.replaceActions(upgraded)
+            deltaMacro = UserMacro()
+            // No imperative mask generation here. rebuildShaderParams ->
+            // publishTopmostMaskBitmap -> topmostMaskAction -> restoreMaskState
+            // handle it purely through the graph.
+        },
+        onDeletePreset = { index ->
+            component.deletePreset(index)
+            presets = component.loadPresetIndex()
+        },
+        onExportDebugMap = { type ->
+            val dir = android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_DOCUMENTS
+            ).resolve("SR_Debug")
+            dir.mkdirs()
+            val name = when (type) {
+                0 -> "blend"
+                1 -> "edge"
+                2 -> "texture"
+                3 -> "noise"
+                4 -> "highlights"
+                else -> "unknown"
+            }
+            val timestamp = java.text.SimpleDateFormat("HHmmss", java.util.Locale.US).format(java.util.Date())
+            val path = dir.resolve("${name}_$timestamp.png").absolutePath
+            val ok = com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.RawV3Engine.exportDebugMap(type, path)
+            scope.launch {
+                snackbarHostState.showSnackbar(if (ok) "Exported $name map to Documents/SR_Debug" else "Export failed for $name map")
+            }
+        },
+        onExportToEditor = {
+            component.updateMacro(deltaMacro)
+            scope.launch {
+                if (presetApplyInFlight) {
+                    while (presetApplyInFlight) {
+                        kotlinx.coroutines.delay(50)
+                    }
+                }
+                kotlinx.coroutines.delay(100)
+                val graded = captureGradedCanvas()
+                component.setGradedPreview(graded)
+                if (graded != null && component.projectContext != null) {
+                    component.persistProjectThumbnail(graded)
+                }
+                component.navigateToRawExport()
+            }
+            Unit
+        }.also { exportHandler.value = it },
+        onExportActions = {
+            scope.launch(Dispatchers.IO) {
+                val path = runCatching { component.prepareExportFile() }.getOrNull()
+                withContext(Dispatchers.Main) {
+                    if (path != null) {
+                        pendingExportFilePath = path
+                        actionsExportSavePicker.launch("raw_actions.xml")
+                    }
+                }
+            }
+        },
+        onImportActions = { actionsImportPicker.launch(arrayOf("text/xml", "application/xml")) },
+        onTabSelected = { tabIndex ->
+            isToneCurvesTab = tabIndex == com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components.TAB_CURVES_LUT
+            val nowMask = tabIndex == com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components.TAB_MASK_LAYERS
+            isMaskTab = nowMask
+            if (isToneCurvesTab || nowMask) {
+                canvasScale  = 1f
+                canvasOffset = androidx.compose.ui.geometry.Offset.Zero
+            }
+            glViewForHistogram.value?.requestRender()
+            if (nowMask) {
+                component.gradingPipeline.suppressBake(
+                    com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.SuppressReason.MASK_TAB
+                )
+            } else {
+                val dims = component.previewDimsFlow.value
+                component.gradingPipeline.resumeBake(
+                    params          = component.shaderParamsFlow.value,
+                    macro           = component.composedMacroFlow.value,
+                    stageATifPath   = component.stageATifPathFlow.value ?: "",
+                    lutCubePath     = component.lutCubePathFlow.value,
+                    brushMaskLayers = emptyList(),
+                    toneCurveLut    = component.toneCurveLutFlow.value,
+                    knownSrcWidth   = dims?.first ?: 0,
+                    knownSrcHeight  = dims?.second ?: 0,
+                )
+            }
+        },
+        isVignetteCenterMode = isVignetteCenterMode,
+        onVignetteCenterModeChange = {
+            isVignetteCenterMode = it
+            if (it) isLensFlareMoveMode = false
+        },
+        isLensFlareMoveMode = isLensFlareMoveMode,
+        onLensFlareMoveModeChange = {
+            isLensFlareMoveMode = it
+            if (it) isVignetteCenterMode = false
+        },
+        sceneAutoEnhanceEnabled = sceneAutoEnhanceEnabled,
+        onSceneAutoEnhanceChange = { enabled -> component.setAiColorEnhance(enabled) },
+        onUndoLastHeal = { component.healing.undoHeal() },
+        onHealApply = {
+            val count = healCount - component.healing.healCountPreEdit.value
+            val label = "Heal" + if (count > 1) " ×$count" else ""
+            component.addAction(
+                RawAction(
+                    label = label,
+                    tabIndex = com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components.TAB_HEAL,
+                    macro = UserMacro(),
+                )
+            )
+            component.healing.applyHeal()
+        },
+        onHealCancel = { component.healing.cancelHeal() },
+        onSaveEditAsLut = { name -> component.exportEditAsLut(name) },
+        onMaskModeActive = { setIsMaskModeActive(it) },
+        onShowMaskOverlayChange = { newShow ->
+            setIsMaskModeActive(newShow)
+            if (!newShow) setBrushMode(MaskBrushMode.None)
+        },
+        onBrushModeChange = { setBrushMode(it) },
+        onSharpSpreadChange = { setSharpSpread(it) },
+        onFillSharp = {
+            android.util.Log.d("MaskInstance", "GRAPH ADD SharpSubject spread=$sharpSpread")
+            component.masking.pushMaskNode(
+                MaskNode(
+                    id = java.util.UUID.randomUUID().toString(),
+                    source = MaskSource.SharpSubject(sharpSpread),
+                    operation = MaskOp.ADD
+                )
+            )
+            setIsMaskModeActive(true)
+        },
+        onSegmentationNeeded = { component.ensureSegmentation() },
+        subjectSegBusy = subjectSegBusy,
+        subjectDetected = segmentationMasksV3OuterScope?.hasSubject ?: true,
+        imageLongSide = previewDimsForAspect?.let { maxOf(it.first, it.second) }
+            ?: CinematicBloomProcessor.REF_LONG_SIDE,
+        onLightAuto = {
+            val src = component.neutralBitmap ?: return@RawEditorPanel
+            component.ensureSegmentation()
+            val masks = component.masking.segmentationMasks.value
+            val protection = component.composeTabMacro(
+                com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components.TAB_TONE_COLOR
+            ).aeSubjectProtection
+            scope.launch(Dispatchers.Default) {
+                val result = com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3
+                    .RawAutoExposure.analyse(
+                        bitmap = src,
+                        base   = UserMacro(aeSubjectProtection = protection),
+                        masks  = masks,
+                        iso    = component.rawMetadata?.iso ?: 0,
+                        subjectProtection = protection,
+                    )
+                withContext(Dispatchers.Main) {
+                    val aeAction = RawAction(
+                        label          = "Tone · AI Expose On",
+                        tabIndex       = com.RAZStudio.StudioRoom.feature.photo_editor
+                            .presentation.raw.components.TAB_TONE_COLOR,
+                        macro          = result,
+                        isAutoExposure = true,
+                    )
+                    component.addAction(aeAction)
+                    scope.launch { component.pushSidecarRevision() }
+                    lightAeActive = true
+                }
+            }
+        },
+        onLightAutoOff = {
+            actions.lastOrNull { it.isAutoExposure }?.let { component.deleteAction(it.id) }
+            lightAeActive = false
+        },
+        onLightBasicAuto = {
+            val src = component.neutralBitmap ?: return@RawEditorPanel
+            scope.launch(Dispatchers.Default) {
+                val result = com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3
+                    .RawAutoExposure.analyse(
+                        bitmap = src,
+                        base   = UserMacro(),
+                        masks  = null,
+                        iso    = 0,
+                    )
+                withContext(Dispatchers.Main) {
+                    component.addAction(
+                        RawAction(
+                            label          = "Tone · Basic Auto On",
+                            tabIndex       = com.RAZStudio.StudioRoom.feature.photo_editor
+                                .presentation.raw.components.TAB_TONE_COLOR,
+                            macro          = result,
+                            isAutoExposure = true,
+                        )
+                    )
+                    lightAeActive = true
+                }
+            }
+        },
+        lightAutoEnabled = component.neutralBitmap != null,
+        lightAeActive = lightAeActive,
+        onLightAeProtectionChange = { prot ->
+            val src = component.neutralBitmap ?: return@RawEditorPanel
+            component.ensureSegmentation()
+            val masks = component.masking.segmentationMasks.value
+            scope.launch(Dispatchers.Default) {
+                val result = com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3
+                    .RawAutoExposure.analyse(
+                        bitmap = src,
+                        base   = UserMacro(aeSubjectProtection = prot),
+                        masks  = masks,
+                        iso    = component.rawMetadata?.iso ?: 0,
+                        subjectProtection = prot,
+                    )
+                withContext(Dispatchers.Main) {
+                    component.addAction(
+                        RawAction(
                             label          = "Tone · AI Expose On",
                             tabIndex       = com.RAZStudio.StudioRoom.feature.photo_editor
                                 .presentation.raw.components.TAB_TONE_COLOR,
                             macro          = result,
                             isAutoExposure = true,
                         )
-                        component.addAction(aeAction)
-                        scope.launch { component.pushSidecarRevision() }
-                        lightAeActive = true
-                    }
+                    )
+                    lightAeActive = true
                 }
-            },
-            lightAutoEnabled    = component.neutralBitmap != null,
-            lightAeActive       = lightAeActive,
-            onLightAutoOff      = {
-                // Remove the most recent AE action card from the stack.
-                actions.lastOrNull { it.isAutoExposure }?.let { component.deleteAction(it.id) }
-                lightAeActive = false
-            },
-            onLightBasicAuto    = {
-                // Basic Auto: instant GLOBAL auto-brightness/levels. No subject
-                // masks, no U2Net wait, no ISO noise-reduction (iso=0) — just the
-                // percentile exposure/blacks/whites/highlights/shadows solve.
-                // Commits as the auto-exposure overlay (singleton, so it and AI
-                // Expose are mutually exclusive — tapping one replaces the other).
-                val src = component.neutralBitmap ?: return@RawAdjustmentPanel
-                scope.launch(Dispatchers.Default) {
-                    val result = com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3
-                        .RawAutoExposure.analyse(
-                            bitmap = src,
-                            base   = UserMacro(),
-                            masks  = null,
-                            iso    = 0,
-                        )
-                    withContext(Dispatchers.Main) {
-                        component.addAction(
-                            RawAction(
-                                label          = "Tone · Basic Auto On",
-                                tabIndex       = com.RAZStudio.StudioRoom.feature.photo_editor
-                                    .presentation.raw.components.TAB_TONE_COLOR,
-                                macro          = result,
-                                isAutoExposure = true,
-                            )
-                        )
-                        lightAeActive = true
-                    }
-                }
-            },
-            onLightAeProtectionChange = { prot ->
-                // Re-run AE with updated protection level, keeping current result
-                // as the base so other fields aren't lost.
-                val src = component.neutralBitmap ?: return@RawAdjustmentPanel
-                component.ensureSegmentation()
-                val masks = component.segmentationMasks.value
-                scope.launch(Dispatchers.Default) {
-                    val result = com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3
-                        .RawAutoExposure.analyse(
-                            bitmap = src,
-                            base   = UserMacro(aeSubjectProtection = prot),
-                            masks  = masks,
-                            iso    = component.rawMetadata?.iso ?: 0,
-                            subjectProtection = prot,
-                        )
-                    withContext(Dispatchers.Main) {
-                        // Re-commit the AUTO EXPO card with the re-analysed result
-                        // (addAction replaces the AE singleton). Live, no Apply.
-                        component.addAction(
-                            RawAction(
-                                label          = "Tone · AI Expose On",
-                                tabIndex       = com.RAZStudio.StudioRoom.feature.photo_editor
-                                    .presentation.raw.components.TAB_TONE_COLOR,
-                                macro          = result,
-                                isAutoExposure = true,
-                            )
-                        )
-                        lightAeActive = true
-                    }
-                }
-            },
-            // AI Expose is never locked — the workspace-level "Auto Expose on Open"
-            // toggle has been removed; the manual AI Expose toggle is always user-controllable.
-            lightAeLocked       = false,
-            // Smart Bright: adjust freely (like Exposure) until Apply. It locks
-            // ONLY once a COMMITTED action carries it — i.e. after the user
-            // presses Apply, registering the card. Deleting that card unlocks it.
-            // (No commit on slider release, so it isn't locked mid-edit.)
-            smartBright         = actions.firstOrNull { it.isVisible && it.macro.smartBright > 0f }
-                ?.macro?.smartBright ?: deltaMacro.smartBright,
-            smartBrightLocked   = actions.any { it.isVisible && it.macro.smartBright > 0f },
-            asShotKelvin        = component.asShotKelvin.collectAsState().value,
-            brushSize           = brushSize,
-            onBrushSize         = { brushSize = it },
-            brushIntensity      = brushIntensity,
-            onBrushIntensity    = { brushIntensity = it },
-            brushFeather        = brushFeather,
-            onBrushFeather      = { brushFeather = it },
-            colorTolerance      = maskColorTolerance,
-            onColorToleranceChange = {
-                maskColorTolerance = it
-                // Re-key the range live as the Refine slider moves.
-                if (maskColorSamples.isNotEmpty()) {
-                    val colorCombine = when {
-                        chromaSubtractMode -> 2
-                        primaryIsChroma ||
-                            (maskBitmap == null && deltaMacro.maskLumSpread <= 0f) -> 0
-                        else -> 1
-                    }
-                    fillFromColorRange(maskColorSamples, it, colorCombine)
-                }
-            },
-            colorSampleArgb     = maskColorSamples.lastOrNull() ?: 0,
-            onClearColorSamples = {
-                maskColorSamples = emptyList()
-                fillFromColorRange(emptyList(), maskColorTolerance)
-            },
-            chromaSubtractMode  = chromaSubtractMode,
-            hasMask             = maskBitmap != null,
-            onClearMask         = {
+            }
+        },
+        isToneCurvesTab = isToneCurvesTab,
+        isMaskTab = isMaskTab,
+        brushSize = brushSize,
+        onBrushSize = { setBrushSize(it) },
+        brushIntensity = brushIntensity,
+        onBrushIntensity = { setBrushIntensity(it) },
+        brushFeather = brushFeather,
+        onBrushFeather = { setBrushFeather(it) },
+        hasMask = maskBitmap != null,
+        onClearMask = {
+            maskBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
+            component.masking.updateMask(null)
+            setMaskColorSamples(emptyList())
+            // Also deactivate a luminance-range mask (GPU, no bitmap) and
+            // reset the luma↔bitmap carve combine mode.
+            deltaMacro = deltaMacro.copy(
+                maskLumTarget = 0f, maskLumSpread = 0f, maskLumFeather = 0f, maskLumCombine = 0,
+            )
+            setIncludedMaskClasses(emptySet())
+            setPrimaryMaskClass(null)
+            // A clear wipes the selection outright — the op graph resets with it.
+            component.masking.clearMaskGraph()
+        },
+        onFillSubject = {
+            val isPrime = primaryMaskClass == null &&
+                !primaryIsLuma && !primaryIsChroma &&
+                deltaMacro.maskLumSpread <= 0f && maskColorSamples.isEmpty()
+            if (isPrime) {
+                setMaskColorSamples(emptyList())
+                setChromaSubtractMode(false)
+                deltaMacro = deltaMacro.copy(
+                    maskLumTarget = 0f, maskLumSpread = 0f, maskLumFeather = 0f, maskLumCombine = 0,
+                )
+                setPrimaryIsLuma(false)
+                setPrimaryIsChroma(false)
+                if (brushMode == MaskBrushMode.ColorSelect || brushMode == MaskBrushMode.LumaSelect)
+                    setBrushMode(MaskBrushMode.None)
+
+                setPrimaryMaskClass(MaskClass.Subject)
+                component.masking.clearMaskGraph()
+            } else if (deltaMacro.maskLumSpread > 0f) {
+                deltaMacro = deltaMacro.copy(maskLumCombine = 3) // union with luma band
+            }
+
+            android.util.Log.d("MaskInstance", "GRAPH ADD Subject: isPrime=$isPrime")
+            setIncludedMaskClasses(includedMaskClasses + MaskClass.Subject)
+            component.masking.pushMaskNode(
+                MaskNode(
+                    id = java.util.UUID.randomUUID().toString(),
+                    source = MaskSource.ModelClass(MaskClass.Subject),
+                    operation = MaskOp.ADD,
+                )
+            )
+            setIsMaskModeActive(true)
+        },
+        // Background = everything EXCEPT the subject (invert-of-subject):
+        // "select all but the person" in one tap.
+        onFillBackground = {
+            val isPrime = primaryMaskClass == null &&
+                !primaryIsLuma && !primaryIsChroma &&
+                deltaMacro.maskLumSpread <= 0f && maskColorSamples.isEmpty()
+            if (isPrime) {
+                setMaskColorSamples(emptyList())
+                setChromaSubtractMode(false)
+                deltaMacro = deltaMacro.copy(
+                    maskLumTarget = 0f, maskLumSpread = 0f, maskLumFeather = 0f, maskLumCombine = 0,
+                )
+                setPrimaryIsLuma(false)
+                setPrimaryIsChroma(false)
+                if (brushMode == MaskBrushMode.ColorSelect || brushMode == MaskBrushMode.LumaSelect)
+                    setBrushMode(MaskBrushMode.None)
+
+                setPrimaryMaskClass(MaskClass.Background)
+                component.masking.clearMaskGraph()
+            } else if (deltaMacro.maskLumSpread > 0f) {
+                deltaMacro = deltaMacro.copy(maskLumCombine = 3)
+            }
+
+            android.util.Log.d("MaskInstance", "GRAPH ADD Background: isPrime=$isPrime")
+            setIncludedMaskClasses(includedMaskClasses + MaskClass.Background)
+            component.masking.pushMaskNode(
+                MaskNode(
+                    id = java.util.UUID.randomUUID().toString(),
+                    source = MaskSource.ModelClass(MaskClass.Background),
+                    operation = MaskOp.ADD,
+                )
+            )
+            setIsMaskModeActive(true)
+        },
+        onRemoveSubject = {
+            if (primaryMaskClass == MaskClass.Subject) {
+                // Removing the prime — wipe the whole mask and reset.
                 maskBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
-                component.updateMask(null)
-                maskBitmap = null
-                maskColorSamples = emptyList()
-                chromaSubtractMode = false
-                // Also deactivate a luminance-range mask (GPU, no bitmap) and
-                // reset the luma↔bitmap carve combine mode.
-                deltaMacro = deltaMacro.copy(maskLumTarget = 0f, maskLumSpread = 0f, maskLumFeather = 0f, maskLumCombine = 0)
-                includedMaskClasses = emptySet()
-                primaryMaskClass = null
-                primaryIsLuma = false
-                primaryIsChroma = false
-            },
-            onAddLuma = {
-                isMaskModeActive = true
-                chromaSubtractMode = false
-                val fresh = isFreshMaskBase()
-                if (fresh) {
-                    // Luma becomes the base — clear any stale state first.
-                    maskBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
-                    component.updateMask(null)
-                    maskBitmap = null
-                    maskColorSamples = emptyList()
-                    includedMaskClasses = emptySet()
-                    primaryMaskClass = null
-                    primaryIsLuma = true
-                    primaryIsChroma = false
-                    brushMode = MaskBrushMode.LumaSelect
-                    deltaMacro = deltaMacro.copy(
-                        maskLumTarget = 0.80f, maskLumSpread = 0.12f,
-                        maskLumFeather = 0.15f, maskLumCombine = 0,
+                component.masking.updateMask(null)
+                setIncludedMaskClasses(emptySet())
+                setPrimaryMaskClass(null)
+                component.masking.clearMaskGraph()
+            } else {
+                android.util.Log.d("MaskInstance", "GRAPH SUBTRACT Subject")
+                component.masking.pushMaskNode(
+                    MaskNode(
+                        id = java.util.UUID.randomUUID().toString(),
+                        source = MaskSource.ModelClass(MaskClass.Subject),
+                        operation = MaskOp.SUBTRACT,
                     )
-                } else {
-                    // Union onto an existing bitmap/object/chroma base.
-                    brushMode = MaskBrushMode.LumaSelect
-                    val spread = if (deltaMacro.maskLumSpread > 0f) deltaMacro.maskLumSpread else 0.12f
-                    deltaMacro = deltaMacro.copy(
-                        maskLumTarget = if (deltaMacro.maskLumSpread > 0f) deltaMacro.maskLumTarget else 0.80f,
-                        maskLumSpread = spread,
-                        maskLumFeather = if (deltaMacro.maskLumSpread > 0f) deltaMacro.maskLumFeather else 0.15f,
-                        maskLumCombine = 3, // bitmap ∪ luma
-                    )
-                }
-            },
-            onRemoveLuma = {
-                val lumaIsBase = primaryIsLuma ||
-                    (deltaMacro.maskLumSpread > 0f && maskBitmap == null &&
-                        primaryMaskClass == null && !primaryIsChroma)
-                when {
-                    lumaIsBase -> {
-                        // Base Remove clears everything.
-                        maskBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
-                        component.updateMask(null)
-                        maskBitmap = null
-                        maskColorSamples = emptyList()
-                        chromaSubtractMode = false
-                        deltaMacro = deltaMacro.copy(
-                            maskLumTarget = 0f, maskLumSpread = 0f,
-                            maskLumFeather = 0f, maskLumCombine = 0,
-                        )
-                        includedMaskClasses = emptySet()
-                        primaryMaskClass = null
-                        primaryIsLuma = false
-                        primaryIsChroma = false
-                        brushMode = MaskBrushMode.None
-                    }
-                    maskBitmap != null || primaryMaskClass != null || primaryIsChroma ||
-                        maskColorSamples.isNotEmpty() -> {
-                        // Carve luma band out of the bitmap base (live GPU).
-                        isMaskModeActive = true
-                        chromaSubtractMode = false
-                        brushMode = MaskBrushMode.LumaSelect
-                        deltaMacro = deltaMacro.copy(
-                            maskLumTarget = if (deltaMacro.maskLumSpread > 0f) deltaMacro.maskLumTarget else 0.80f,
-                            maskLumSpread = if (deltaMacro.maskLumSpread > 0f) deltaMacro.maskLumSpread else 0.12f,
-                            maskLumFeather = if (deltaMacro.maskLumSpread > 0f) deltaMacro.maskLumFeather else 0.15f,
-                            maskLumCombine = 2, // bitmap − luma
-                        )
-                    }
-                    else -> {
-                        deltaMacro = deltaMacro.copy(
-                            maskLumTarget = 0f, maskLumSpread = 0f,
-                            maskLumFeather = 0f, maskLumCombine = 0,
-                        )
-                        primaryIsLuma = false
-                        brushMode = MaskBrushMode.None
-                    }
-                }
-            },
-            onAddChroma = {
-                isMaskModeActive = true
-                chromaSubtractMode = false
-                val fresh = isFreshMaskBase()
-                if (fresh) {
-                    maskBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
-                    component.updateMask(null)
-                    maskBitmap = null
-                    maskColorSamples = emptyList()
-                    includedMaskClasses = emptySet()
-                    primaryMaskClass = null
-                    primaryIsLuma = false
-                    primaryIsChroma = true
-                    // Clear any leftover luma band — chroma is the new base.
-                    deltaMacro = deltaMacro.copy(
-                        maskLumTarget = 0f, maskLumSpread = 0f,
-                        maskLumFeather = 0f, maskLumCombine = 0,
-                    )
-                }
-                // Non-fresh: keep existing bitmap/luma; taps union keyed colour in.
-                brushMode = MaskBrushMode.ColorSelect
-            },
-            onRemoveChroma = {
-                val chromaIsBase = primaryIsChroma ||
-                    (maskColorSamples.isNotEmpty() && primaryMaskClass == null &&
-                        !primaryIsLuma && deltaMacro.maskLumSpread <= 0f)
-                when {
-                    chromaIsBase && maskColorSamples.isNotEmpty() -> {
-                        // Base Remove clears everything.
-                        maskBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
-                        component.updateMask(null)
-                        maskBitmap = null
-                        maskColorSamples = emptyList()
-                        chromaSubtractMode = false
-                        deltaMacro = deltaMacro.copy(
-                            maskLumTarget = 0f, maskLumSpread = 0f,
-                            maskLumFeather = 0f, maskLumCombine = 0,
-                        )
-                        includedMaskClasses = emptySet()
-                        primaryMaskClass = null
-                        primaryIsLuma = false
-                        primaryIsChroma = false
-                        brushMode = MaskBrushMode.None
-                    }
-                    maskBitmap != null || primaryMaskClass != null ||
-                        deltaMacro.maskLumSpread > 0f || primaryIsLuma -> {
-                        // Arm chroma carve: next colour taps subtract from base.
-                        isMaskModeActive = true
-                        chromaSubtractMode = true
-                        primaryIsChroma = false
-                        brushMode = MaskBrushMode.ColorSelect
-                        // Hint text in the ColorSelect row is easy to miss —
-                        // snackbar so the user knows to tap the photo.
-                        scope.launch {
-                            snackbarHostState.showSnackbar(
-                                message = "Tap the photo to carve a colour",
-                                duration = androidx.compose.material3.SnackbarDuration.Short,
-                            )
-                        }
-                    }
-                    else -> {
-                        maskColorSamples = emptyList()
-                        primaryIsChroma = false
-                        chromaSubtractMode = false
-                        brushMode = MaskBrushMode.None
-                    }
-                }
-            },
-            onFillSubject       = {
-                segmentationMasks?.let {
-                    val isPrime = isFreshMaskBase()
-                    fillFromSegmentation(it.subjectMask, edges = it.edgeMask, additive = !isPrime)
-                    noteObjectClassAdded(MaskClass.Subject, isPrime)
-                }
-            },
-            // Background = everything EXCEPT the subject (invert-of-subject).
-            // This gives "select all but the person" in one tap, which is what
-            // users mean when they say "select background" on a portrait.
-            onFillBackground    = {
-                segmentationMasks?.let {
-                    val excludeSubject = subtractMasks(it.backgroundMask, it.subjectMask)
-                    val isPrime = isFreshMaskBase()
-                    fillFromSegmentation(excludeSubject, edges = it.edgeMask, additive = !isPrime)
-                    noteObjectClassAdded(MaskClass.Background, isPrime)
-                }
-            },
-            onRemoveSubject     = {
-                if (primaryMaskClass == MaskClass.Subject) {
-                    // Removing the prime — wipe the whole mask and reset.
-                    maskBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
-                    component.updateMask(null)
-                    maskBitmap = null
-                    includedMaskClasses = emptySet()
-                    primaryMaskClass = null
-                    primaryIsLuma = false
-                    primaryIsChroma = false
-                    chromaSubtractMode = false
-                    deltaMacro = deltaMacro.copy(
-                        maskLumTarget = 0f, maskLumSpread = 0f,
-                        maskLumFeather = 0f, maskLumCombine = 0,
-                    )
-                } else {
-                    segmentationMasks?.let { removeFromSegmentation(it.subjectMask) }
-                    includedMaskClasses = includedMaskClasses - MaskClass.Subject
-                }
-            },
-            onRemoveBackground  = {
-                if (primaryMaskClass == MaskClass.Background) {
-                    maskBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
-                    component.updateMask(null)
-                    maskBitmap = null
-                    includedMaskClasses = emptySet()
-                    primaryMaskClass = null
-                    primaryIsLuma = false
-                    primaryIsChroma = false
-                    chromaSubtractMode = false
-                    deltaMacro = deltaMacro.copy(
-                        maskLumTarget = 0f, maskLumSpread = 0f,
-                        maskLumFeather = 0f, maskLumCombine = 0,
-                    )
-                } else {
-                    segmentationMasks?.let { removeFromSegmentation(it.backgroundMask) }
-                    includedMaskClasses = includedMaskClasses - MaskClass.Background
-                }
-            },
-            onInvertMask        = {
-                // Luminance mask has no bitmap — invert by baking the COMPLEMENT
-                // of the tone band into a mask bitmap (then it behaves like any
-                // other mask). Otherwise invert the existing bitmap (brush/chroma).
+                )
+                setIncludedMaskClasses(includedMaskClasses - MaskClass.Subject)
                 if (deltaMacro.maskLumSpread > 0f) {
-                    bakeInvertedLuminance(deltaMacro.maskLumTarget, deltaMacro.maskLumSpread, deltaMacro.maskLumFeather)
-                } else {
-                    invertMask()
+                    deltaMacro = deltaMacro.copy(maskLumCombine = 1) // luma − bitmap
                 }
-                includedMaskClasses = emptySet()
-                primaryMaskClass = null
-                primaryIsLuma = false
-                primaryIsChroma = false
-                chromaSubtractMode = false
-            },
-            // MediaPipe multiclass — each Select button hands a
-            // FloatArray of 0/1 values through the existing
-            // fillFromSegmentation pipeline. Buttons are hidden when
-            // multiclassMasks is null (model not loaded or
-            // inference not yet finished).
-            // Buttons are visible once ANY human-parsing source is ready:
-            // selfie_multiclass, DeepLabV3p, or the ONNX face detector.
-            isMulticlassLoading  = multiclassLoadingState && multiclassMasks == null && faceMask == null && deepLabMasks == null,
-            hasMulticlass       = multiclassMasks != null || faceMask != null || deepLabMasks != null,
-            onFillHair          = {
-                val mask = resolveMaskForClass(MaskClass.Hair)
-                if (mask != null) {
-                    val isPrime = isFreshMaskBase()
-                    fillFromSegmentation(mask, edges = segmentationMasks?.edgeMask, additive = !isPrime)
-                    noteObjectClassAdded(MaskClass.Hair, isPrime)
-                }
-            },
-            onFillBodySkin      = {
-                val mask = resolveMaskForClass(MaskClass.BodySkin)
-                if (mask != null) {
-                    val isPrime = isFreshMaskBase()
-                    fillFromSegmentation(mask, edges = segmentationMasks?.edgeMask, additive = !isPrime)
-                    noteObjectClassAdded(MaskClass.BodySkin, isPrime)
-                }
-            },
-            onFillFaceSkin      = {
-                val mask = resolveMaskForClass(MaskClass.FaceSkin)
-                if (mask != null) {
-                    val isPrime = isFreshMaskBase()
-                    fillFromSegmentation(mask, edges = segmentationMasks?.edgeMask, additive = !isPrime)
-                    noteObjectClassAdded(MaskClass.FaceSkin, isPrime)
-                }
-            },
-            onFillClothes       = {
-                val mask = resolveMaskForClass(MaskClass.Clothes)
-                if (mask != null) {
-                    val isPrime = isFreshMaskBase()
-                    fillFromSegmentation(mask, edges = segmentationMasks?.edgeMask, additive = !isPrime)
-                    noteObjectClassAdded(MaskClass.Clothes, isPrime)
-                }
-            },
-            onRemoveHair        = {
-                if (primaryMaskClass == MaskClass.Hair) {
-                    maskBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
-                    component.updateMask(null); maskBitmap = null
-                    includedMaskClasses = emptySet(); primaryMaskClass = null
-                } else {
-                    val mask = deepLabMasks?.hair ?: multiclassMasks?.hair
-                    mask?.let { removeFromSegmentation(it) }
-                    includedMaskClasses = includedMaskClasses - MaskClass.Hair
-                }
-            },
-            onRemoveBodySkin    = {
-                if (primaryMaskClass == MaskClass.BodySkin) {
-                    maskBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
-                    component.updateMask(null); maskBitmap = null
-                    includedMaskClasses = emptySet(); primaryMaskClass = null
-                } else {
-                    val mask = deepLabMasks?.bodySkin ?: multiclassMasks?.bodySkin
-                    mask?.let { removeFromSegmentation(it) }
-                    includedMaskClasses = includedMaskClasses - MaskClass.BodySkin
-                }
-            },
-            onRemoveFaceSkin    = {
-                if (primaryMaskClass == MaskClass.FaceSkin) {
-                    maskBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
-                    component.updateMask(null); maskBitmap = null
-                    includedMaskClasses = emptySet(); primaryMaskClass = null
-                } else {
-                    val mask = faceMask ?: deepLabMasks?.face ?: multiclassMasks?.faceSkin
-                    mask?.let { removeFromSegmentation(it) }
-                    includedMaskClasses = includedMaskClasses - MaskClass.FaceSkin
-                }
-            },
-            onRemoveClothes     = {
-                if (primaryMaskClass == MaskClass.Clothes) {
-                    maskBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
-                    component.updateMask(null); maskBitmap = null
-                    includedMaskClasses = emptySet(); primaryMaskClass = null
-                } else {
-                    val mask = deepLabMasks?.allClothes ?: multiclassMasks?.clothes
-                    mask?.let { removeFromSegmentation(it) }
-                    includedMaskClasses = includedMaskClasses - MaskClass.Clothes
-                }
-            },
-            // Cityscapes — 4 landscape mask classes, with subject subtracted.
-            // The U²Net subject mask wins ties: when a pixel reads as "person"
-            // it's removed from sky/building/vegetation/terrain so a Sky-tap
-            // on a portrait doesn't paint the figure's silhouette as sky.
-            // When no subject mask is present (subjectDetection off, or
-            // U²Net hasn't finished), the class plane passes through
-            // unchanged — matches the no-subject expectation.
-            isCityscapesLoading  = cityscapesLoadingState,
-            hasCityscapes       = cityscapesMasks != null,
-            // Cityscapes class exclusions to clean up soft-confidence
-            // overlaps at boundaries (subject mask + within-cityscapes class
-            // bleeds + cross-model bleeds from MediaPipe clothes/face):
-            //   • Sky      − Subject − Building − Plants − Clothes
-            //   • Plants   − Subject − Terrain − Clothes
-            //   • Building − Subject − Terrain − Clothes − Face
-            //   • Terrain  − Subject
-            // Cloth/face subtractions catch SegFormer over-classifying a
-            // person's torso as "building" or sky leaking into hair.
-            onFillBuildingWall  = {
-                cityscapesMasks?.let {
-                    val subjDilated = segmentationMasks?.subjectMask?.let { s -> dilateMask(s) }
-                    val crossVendorCleared = subtractMasks(
-                        it.buildingWall,
-                        subjDilated,
-                        multiclassMasks?.clothes, multiclassMasks?.faceSkin,
+            }
+        },
+        onRemoveBackground = {
+            if (primaryMaskClass == MaskClass.Background) {
+                maskBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
+                component.masking.updateMask(null)
+                setIncludedMaskClasses(emptySet())
+                setPrimaryMaskClass(null)
+                component.masking.clearMaskGraph()
+            } else {
+                android.util.Log.d("MaskInstance", "GRAPH SUBTRACT Background")
+                component.masking.pushMaskNode(
+                    MaskNode(
+                        id = java.util.UUID.randomUUID().toString(),
+                        source = MaskSource.ModelClass(MaskClass.Background),
+                        operation = MaskOp.SUBTRACT,
                     )
-                    val finalMask = subtractMasks(
-                        crossVendorCleared, it.terrain,
-                        boost = 1f,
+                )
+                setIncludedMaskClasses(includedMaskClasses - MaskClass.Background)
+                if (deltaMacro.maskLumSpread > 0f) {
+                    deltaMacro = deltaMacro.copy(maskLumCombine = 1)
+                }
+            }
+        },
+        onFillDetectedClass = { cls ->
+            val isPrime = primaryMaskClass == null &&
+                !primaryIsLuma && !primaryIsChroma &&
+                deltaMacro.maskLumSpread <= 0f && maskColorSamples.isEmpty()
+            if (isPrime) {
+                setMaskColorSamples(emptyList())
+                setChromaSubtractMode(false)
+                deltaMacro = deltaMacro.copy(
+                    maskLumTarget = 0f, maskLumSpread = 0f, maskLumFeather = 0f, maskLumCombine = 0,
+                )
+                setPrimaryIsLuma(false)
+                setPrimaryIsChroma(false)
+                if (brushMode == MaskBrushMode.ColorSelect || brushMode == MaskBrushMode.LumaSelect)
+                    setBrushMode(MaskBrushMode.None)
+
+                setPrimaryMaskClass(cls)
+                component.masking.clearMaskGraph()
+            } else if (deltaMacro.maskLumSpread > 0f) {
+                deltaMacro = deltaMacro.copy(maskLumCombine = 3)
+            }
+
+            android.util.Log.d("MaskInstance", "GRAPH ADD $cls: isPrime=$isPrime")
+            setIncludedMaskClasses(includedMaskClasses + cls)
+            component.masking.pushMaskNode(
+                MaskNode(
+                    id = java.util.UUID.randomUUID().toString(),
+                    source = MaskSource.ModelClass(cls),
+                    operation = MaskOp.ADD,
+                )
+            )
+            setIsMaskModeActive(true)
+        },
+        onRemoveDetectedClass = { cls ->
+            if (primaryMaskClass == cls) {
+                maskBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
+                component.masking.updateMask(null)
+                setIncludedMaskClasses(emptySet())
+                setPrimaryMaskClass(null)
+                component.masking.clearMaskGraph()
+            } else {
+                android.util.Log.d("MaskInstance", "GRAPH SUBTRACT $cls")
+                component.masking.pushMaskNode(
+                    MaskNode(
+                        id = java.util.UUID.randomUUID().toString(),
+                        source = MaskSource.ModelClass(cls),
+                        operation = MaskOp.SUBTRACT,
                     )
-                    val isPrime = isFreshMaskBase()
-                    fillFromSegmentation(finalMask, edges = segmentationMasks?.edgeMask, additive = !isPrime)
-                    noteObjectClassAdded(MaskClass.Buildings, isPrime)
+                )
+                setIncludedMaskClasses(includedMaskClasses - cls)
+                if (deltaMacro.maskLumSpread > 0f) {
+                    deltaMacro = deltaMacro.copy(maskLumCombine = 1)
                 }
-            },
-            onFillVegetation    = {
-                cityscapesMasks?.let {
-                    val crossVendorCleared = subtractMasks(
-                        it.vegetation,
-                        segmentationMasks?.subjectMask,
-                        multiclassMasks?.clothes,
-                    )
-                    val finalMask = subtractMasks(
-                        crossVendorCleared, it.terrain,
-                        boost = 1f,
-                    )
-                    val isPrime = isFreshMaskBase()
-                    fillFromSegmentation(finalMask, edges = segmentationMasks?.edgeMask, additive = !isPrime)
-                    noteObjectClassAdded(MaskClass.Vegetation, isPrime)
-                }
-            },
-            onFillTerrain       = {
-                cityscapesMasks?.let {
-                    val finalMask = subtractMasks(it.terrain,
-                        segmentationMasks?.subjectMask)
-                    val isPrime = isFreshMaskBase()
-                    fillFromSegmentation(finalMask, edges = segmentationMasks?.edgeMask, additive = !isPrime)
-                    noteObjectClassAdded(MaskClass.Terrain, isPrime)
-                }
-            },
-            onFillSky           = {
-                cityscapesMasks?.let {
-                    // Two-pass subtraction:
-                    //  • cross-vendor masks (U²Net subject, MediaPipe clothes)
-                    //    use ×3 boost so soft silhouettes fully clear sky.
-                    //  • same-vendor Cityscapes classes (building, vegetation)
-                    //    use ×1 because SegFormer softmax is already sharp.
-                    // Then edge-snap to the photo's Sobel edges so the soft
-                    // 320² boundary locks onto real foliage edges instead of
-                    // leaving 8–15 px fuzzy halos between tree and sky.
-                    val crossVendorCleared = subtractMasks(
-                        it.sky,
-                        segmentationMasks?.subjectMask,
-                        multiclassMasks?.clothes,
-                    )
-                    val finalMask = subtractMasks(
-                        crossVendorCleared,
-                        it.buildingWall, it.vegetation,
-                        boost = 1f,
-                    )
-                    val isPrime = isFreshMaskBase()
-                    fillFromSegmentation(finalMask, edges = segmentationMasks?.edgeMask, additive = !isPrime)
-                    noteObjectClassAdded(MaskClass.Sky, isPrime)
-                }
-            },
-            onRemoveBuildingWall = {
-                if (primaryMaskClass == MaskClass.Buildings) {
-                    maskBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
-                    component.updateMask(null); maskBitmap = null
-                    includedMaskClasses = emptySet(); primaryMaskClass = null
-                } else {
-                    cityscapesMasks?.let { removeFromSegmentation(it.buildingWall) }
-                    includedMaskClasses = includedMaskClasses - MaskClass.Buildings
-                }
-            },
-            onRemoveVegetation   = {
-                if (primaryMaskClass == MaskClass.Vegetation) {
-                    maskBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
-                    component.updateMask(null); maskBitmap = null
-                    includedMaskClasses = emptySet(); primaryMaskClass = null
-                } else {
-                    cityscapesMasks?.let { removeFromSegmentation(it.vegetation) }
-                    includedMaskClasses = includedMaskClasses - MaskClass.Vegetation
-                }
-            },
-            onRemoveTerrain      = {
-                if (primaryMaskClass == MaskClass.Terrain) {
-                    maskBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
-                    component.updateMask(null); maskBitmap = null
-                    includedMaskClasses = emptySet(); primaryMaskClass = null
-                } else {
-                    cityscapesMasks?.let { removeFromSegmentation(it.terrain) }
-                    includedMaskClasses = includedMaskClasses - MaskClass.Terrain
-                }
-            },
-            onRemoveSky          = {
-                if (primaryMaskClass == MaskClass.Sky) {
-                    maskBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
-                    component.updateMask(null); maskBitmap = null
-                    includedMaskClasses = emptySet(); primaryMaskClass = null
-                } else {
-                    cityscapesMasks?.let { removeFromSegmentation(it.sky) }
-                    includedMaskClasses = includedMaskClasses - MaskClass.Sky
-                }
-            },
-            includedMaskClasses = includedMaskClasses,
-            primaryMaskClass    = primaryMaskClass,
-            isFullResReady      = fullResReady,
-            isFullResProcessing = isFullResProcessing,
-            modifier            = modifier,
-        )
+            }
+        },
+        primaryIsLuma = primaryIsLuma,
+        primaryIsChroma = primaryIsChroma,
+        onInvertMask = {
+            // Luminance mask has no bitmap — invert by baking the COMPLEMENT
+            // of the tone band into a mask bitmap (then it behaves like any
+            // other mask). Otherwise invert the existing bitmap (brush/chroma).
+            if (deltaMacro.maskLumSpread > 0f) {
+                bakeInvertedLuminance(deltaMacro.maskLumTarget, deltaMacro.maskLumSpread, deltaMacro.maskLumFeather)
+            } else {
+                invertMask()
+            }
+            setIncludedMaskClasses(emptySet())
+            setPrimaryMaskClass(null)
+            // Inversion is not expressible as an ADD/SUBTRACT node; reset the
+            // graph so a later undo can't resurrect the pre-invert composite.
+            component.masking.clearMaskGraph()
+        },
+        onAddLuma = {
+            val hasBitmapBase = maskBitmap != null ||
+                includedMaskClasses.isNotEmpty() || primaryMaskClass != null
+            val combine = when {
+                hasBitmapBase -> 3 // union: max(luma, bitmap)
+                else -> 0
+            }
+            val spread = if (deltaMacro.maskLumSpread > 0f) deltaMacro.maskLumSpread else 0.5f
+            val target = if (deltaMacro.maskLumSpread > 0f) deltaMacro.maskLumTarget else 0.5f
+            val feather = if (deltaMacro.maskLumSpread > 0f) deltaMacro.maskLumFeather else 0.12f
+            deltaMacro = deltaMacro.copy(
+                maskLumSpread = spread,
+                maskLumTarget = target,
+                maskLumFeather = feather,
+                maskLumCombine = combine,
+            )
+            if (!hasBitmapBase) setPrimaryIsLuma(true)
+            setIsMaskModeActive(true)
+            setBrushMode(MaskBrushMode.LumaSelect)
+        },
+        onRemoveLuma = {
+            val hasBitmapBase = maskBitmap != null ||
+                includedMaskClasses.isNotEmpty() || primaryMaskClass != null
+            if (primaryIsLuma && !hasBitmapBase) {
+                deltaMacro = deltaMacro.copy(
+                    maskLumTarget = 0f, maskLumSpread = 0f, maskLumFeather = 0f, maskLumCombine = 0,
+                )
+                setPrimaryIsLuma(false)
+                setBrushMode(MaskBrushMode.None)
+                if (maskBitmap == null) cancelCurrentAction()
+            } else {
+                val spread = if (deltaMacro.maskLumSpread > 0f) deltaMacro.maskLumSpread else 0.5f
+                val target = if (deltaMacro.maskLumSpread > 0f) deltaMacro.maskLumTarget else 0.5f
+                val feather = if (deltaMacro.maskLumSpread > 0f) deltaMacro.maskLumFeather else 0.12f
+                deltaMacro = deltaMacro.copy(
+                    maskLumSpread = spread,
+                    maskLumTarget = target,
+                    maskLumFeather = feather,
+                    maskLumCombine = 2, // bitmap − luma
+                )
+                setPrimaryIsLuma(false)
+                setIsMaskModeActive(true)
+                setBrushMode(MaskBrushMode.LumaSelect)
+            }
+        },
+        onAddChroma = {
+            val hasBitmapBase = maskBitmap != null ||
+                includedMaskClasses.isNotEmpty() || primaryMaskClass != null ||
+                deltaMacro.maskLumSpread > 0f
+            if (!hasBitmapBase) setPrimaryIsChroma(true)
+            setChromaSubtractMode(false)
+            setIsMaskModeActive(true)
+            setBrushMode(MaskBrushMode.ColorSelect)
+        },
+        onRemoveChroma = {
+            val hasBitmapBase = maskBitmap != null ||
+                includedMaskClasses.isNotEmpty() || primaryMaskClass != null ||
+                deltaMacro.maskLumSpread > 0f
+            if (primaryIsChroma && !hasBitmapBase) {
+                setMaskColorSamples(emptyList())
+                setPrimaryIsChroma(false)
+                setChromaSubtractMode(false)
+                setBrushMode(MaskBrushMode.None)
+            } else {
+                setChromaSubtractMode(true)
+                setPrimaryIsChroma(false)
+                setIsMaskModeActive(true)
+                setBrushMode(MaskBrushMode.ColorSelect)
+            }
+        },
+        onColorToleranceChange = { setMaskColorTolerance(it) },
+        onClearColorSamples = { setMaskColorSamples(emptyList()) },
+        isFullResReady = fullResReady,
+        isFullResProcessing = fullResProcessing,
+    )
 
         } // Box
         } // CompositionLocalProvider
@@ -3695,6 +2638,20 @@ fun RawEditorContent(component: RawEditorComponent) {
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        floatingActionButton = {
+            if (isPreviewReady) {
+                EnhancedFloatingActionButton(
+                    onClick = if (fullResReady && !isFullResProcessing) {
+                        { exportHandler.value?.invoke() }
+                    } else null,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.IosShare,
+                        contentDescription = stringResource(R.string.raw_export_save),
+                    )
+                }
+            }
+        },
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
@@ -4000,28 +2957,17 @@ fun RawEditorContent(component: RawEditorComponent) {
             val totalHeightPx = constraints.maxHeight.toFloat()
             val dotColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
 
-            // Auto-fit canvas slot to image aspect ratio.
-            //   Photo aspect-fits inside the canvas slot via .aspectRatio()
-            //   below. For a landscape photo (e.g. 3:2) in a square-ish
-            //   canvas slot, the photo touches the side edges and leaves
-            //   letterbox above + below. We compute the EXACT canvasFraction
-            //   that makes the canvas slot the photo's aspect — so letterbox
-            //   collapses to zero and the panel grows up to claim the space.
+            // Auto-fit canvas slot to photo dimensions.
+            //   The handle is initially positioned so the photo fits its
+            //   shorter side (width for portrait, height for landscape).
+            //   For a 3:2 landscape photo, this results in an optimized fit
+            //   with no background color (letterboxing). For portrait, the
+            //   photo appears slightly smaller but ensures maximum reserved
+            //   space for the adjustment panel.
             //
             //   Skipped when the user has manually dragged the splitter
             //   handle (canvasFractionUserOverridden) so manual control
             //   always wins.
-            //
-            //   Math:
-            //     Portrait: canvas width  = totalWidthPx (full row width)
-            //               required H    = totalWidthPx / imageAspect
-            //               fraction      = required H / totalHeightPx
-            //     Landscape: canvas height = totalHeightPx (full column height)
-            //                required W    = totalHeightPx * imageAspect
-            //                fraction      = required W / totalWidthPx
-            //   Both clamped to [0.25, 0.75] (same range the manual drag uses)
-            //   so an extreme aspect ratio doesn't squash the panel to nothing
-            //   or crowd the canvas out entirely.
             androidx.compose.runtime.LaunchedEffect(
                 imageAspect, isLandscape, totalWidthPx, totalHeightPx,
                 canvasFractionUserOverridden,
@@ -4029,73 +2975,84 @@ fun RawEditorContent(component: RawEditorComponent) {
                 if (canvasFractionUserOverridden) return@LaunchedEffect
                 if (imageAspect <= 0f || totalWidthPx <= 0f || totalHeightPx <= 0f)
                     return@LaunchedEffect
-                val needed = if (isLandscape) {
-                    (totalHeightPx * imageAspect) / totalWidthPx
+                val targetDim = if (isLandscape) {
+                    kotlin.math.min(totalWidthPx, totalHeightPx * imageAspect)
                 } else {
-                    (totalWidthPx / imageAspect) / totalHeightPx
+                    kotlin.math.min(totalHeightPx, totalWidthPx / imageAspect)
                 }
-                canvasFraction = needed.coerceIn(0.40f, 0.75f)
+                val fraction = if (isLandscape) targetDim / totalWidthPx else targetDim / totalHeightPx
+                canvasFraction = fraction.coerceIn(0.25f, 0.75f)
             }
 
-            if (isLandscape) {
-                // ── Landscape: canvas left | vertical handle | panel right ──────
+            if (isTablet) {
                 Row(modifier = Modifier.fillMaxSize()) {
-
-                    if (true) {  // always keep CanvasBox in composition to avoid SurfaceView destroy/recreate flicker
-                        CanvasBox(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .weight(canvasFraction),
-                        )
-
-                        // Fallback banner sticks immediately left of the handle.
-                        if (embeddedFallback != null) {
-                            FallbackBanner(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .padding(end = 4.dp),
-                            )
-                        }
-
-                        // Vertical handle bar
-                        if (isPreviewReady) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .width(20.dp)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                                    .draggable(
-                                        orientation = Orientation.Horizontal,
-                                        state       = rememberDraggableState { delta ->
-                                            canvasFraction = (canvasFraction + delta / totalWidthPx)
-                                                .coerceIn(0.25f, 0.75f)
-                                            canvasFractionUserOverridden = true
-                                        },
-                                    ),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Column(
-                                    verticalArrangement   = Arrangement.spacedBy(4.dp),
-                                    horizontalAlignment   = Alignment.CenterHorizontally,
-                                ) {
-                                    repeat(3) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(5.dp)
-                                                .clip(CircleShape)
-                                                .background(dotColor),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
+                    PanelBox(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .widthIn(max = 360.dp)
+                            .weight(0.32f, fill = false),
+                    )
+                    CanvasBox(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .weight(1f),
+                    )
+                    RawTabletInspector(gradedHistogram = gradedHistogram)
+                }
+            } else if (isLandscape) {
+                // Landscape: adjustments | canvas
+                Row(modifier = Modifier.fillMaxSize()) {
                     PanelBox(
                         modifier = Modifier
                             .fillMaxHeight()
                             .weight(1f - canvasFraction),
                     )
+
+                    if (isPreviewReady) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .width(20.dp)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .draggable(
+                                    orientation = Orientation.Horizontal,
+                                    state       = rememberDraggableState { delta ->
+                                        canvasFraction = (canvasFraction - delta / totalWidthPx)
+                                            .coerceIn(0.25f, 0.75f)
+                                        canvasFractionUserOverridden = true
+                                    },
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(
+                                verticalArrangement   = Arrangement.spacedBy(4.dp),
+                                horizontalAlignment   = Alignment.CenterHorizontally,
+                            ) {
+                                repeat(3) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(5.dp)
+                                            .clip(CircleShape)
+                                            .background(dotColor),
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    CanvasBox(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .weight(canvasFraction),
+                    )
+
+                    if (embeddedFallback != null) {
+                        FallbackBanner(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .padding(start = 4.dp),
+                        )
+                    }
                 }
             } else {
                 // ── Portrait: Column — canvas top, handle, panel bottom — no overlap ──
@@ -4117,7 +3074,7 @@ fun RawEditorContent(component: RawEditorComponent) {
                     }
 
                     // Drag handle between canvas and panel.
-                    if (isPreviewReady && !isToneCurvesTab) {
+                    if (isPreviewReady) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -4353,59 +3310,22 @@ fun RawEditorContent(component: RawEditorComponent) {
                     // upsampling to full preview dims is ~50-150 ms.
                     presetApplyInFlight = true
                     scope.launch(kotlinx.coroutines.Dispatchers.Default) {
-                        // If any card requires segmentation and masks aren't ready
-                        // yet, trigger the chain and wait before iterating cards.
-                        // This ensures Subject / Background / Sky cards get their
-                        // bitmaps from THIS photo, not silently applying globally.
-                        val needsSeg = preset.cards.any {
-                            it.maskClasses.isNotEmpty() || it.maskClass != null
-                        }
-                        if (needsSeg && segmentationMasks == null) {
-                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                component.ensureSegmentation()
-                            }
-                            kotlinx.coroutines.withTimeoutOrNull(30_000L) {
-                                component.segmentationMasks.first { it != null }
-                            }
-                        }
-                        var skippedMaskCards = 0
                         for (c in preset.cards) {
-                            // Collect the class set, falling back to the
-                            // first-class field for old single-class cards.
-                            val classes: List<com.RAZStudio.StudioRoom
-                                .feature.photo_editor.raw.model.MaskClass> = when {
-                                c.maskClasses.isNotEmpty() -> c.maskClasses
-                                c.maskClass != null -> listOf(c.maskClass)
-                                else -> emptyList()
-                            }
-                            var maskPath: String? = null
-                            if (classes.isNotEmpty()) {
-                                val merged = mergeMaskClasses(classes)
-                                val edges = segmentationMasks?.edgeMask
-                                val bmp = merged?.let {
-                                    buildSegmentationBitmap(it, edges = edges)
-                                }
-                                if (bmp != null) {
-                                    val newId = java.util.UUID.randomUUID().toString()
-                                    maskPath = com.RAZStudio.StudioRoom
-                                        .feature.photo_editor.raw.RawMaskStorage
-                                        .save(context, newId, bmp)
-                                    if (maskPath == null) skippedMaskCards++
-                                } else {
-                                    // Segmentation ran but this class had no result
-                                    // for this photo (e.g. Sky card on an indoor
-                                    // portrait, or cityscapes model not loaded).
-                                    // Macro values still apply globally; the user
-                                    // can re-tap the class button to populate it.
-                                    skippedMaskCards++
-                                }
+                            // Strictly graph-driven: reconstruct nodes from classes.
+                            val classes = c.maskClasses.ifEmpty { listOfNotNull(c.maskClass) }
+                            val nodes = classes.map { cls ->
+                                MaskNode(
+                                    id = java.util.UUID.randomUUID().toString(),
+                                    source = MaskSource.ModelClass(cls),
+                                    operation = MaskOp.ADD
+                                )
                             }
                             val newAction = com.RAZStudio.StudioRoom
                                 .feature.photo_editor.raw.model.RawAction(
                                     label = c.label,
                                     tabIndex = c.tabIndex,
                                     macro = c.macro,
-                                    maskPath = maskPath,
+                                    maskNodes = nodes,
                                     maskClass = c.maskClass,
                                     maskClasses = c.maskClasses,
                                     isAutoExposure = c.isAutoExposure,
@@ -4420,11 +3340,8 @@ fun RawEditorContent(component: RawEditorComponent) {
                             kotlinx.coroutines.Dispatchers.Main,
                         ) {
                             presetApplyInFlight = false
-                            val suffix = if (skippedMaskCards > 0)
-                                " ($skippedMaskCards mask${if (skippedMaskCards == 1) "" else "s"} had no matching region)"
-                            else ""
                             snackbarHostState.showSnackbar(
-                                "Applied preset: ${preset.name} (${preset.cards.size} cards)$suffix"
+                                "Applied preset: ${preset.name} (${preset.cards.size} cards)"
                             )
                         }
                     }

@@ -250,6 +250,14 @@ class SonyUsbImporter(
         // A few common Sony Alpha USB product ids (Mass Storage mode). The USB
         // product string ("ILCE-7M2" etc.) is authoritative when the device
         // grants it; this table is a fallback for a nicer label pre-permission.
+        //
+        // NOTE: A Sony body reports a DIFFERENT USB product id per USB mode
+        // (Mass Storage vs MTP vs PTP), and there is no authoritative public
+        // PID→model map — pmca-re keys off the USB product STRING, not the PID,
+        // for this reason. So this table is only a best-effort pre-permission
+        // label for Mass-Storage-mode PIDs; the product string (SonyModelNames)
+        // is always preferred once USB permission is granted. Unknown PIDs fall
+        // back to the raw VID:PID until the product string is available.
         // Verified / commonly reported Mass-Storage / MTP / PC-Remote PIDs
         // (VID 0x054C). Same body uses DIFFERENT PIDs per USB mode — product
         // string always wins after permission. Values are canonical ILCE/… IDs
