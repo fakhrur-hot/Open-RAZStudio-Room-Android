@@ -8,7 +8,7 @@ An open-source **camera-RAW photo processing** app for Android — the free edit
 
 ## ✨ RAW Engine Highlights
 
-### 📷 Advanced Hybrid RAW Processing
+### 📷 The First Ever Advanced Hybrid RAW Processing for Android
 
 - Hybrid dual-demosaic reconstruction
 - Detail-preserving, high-bit-depth development
@@ -57,7 +57,7 @@ Same masking architecture as the premium edition. Optional on-device models (sub
 
 Premium-only (not in this release):
 
-- RAW LUT and LUT Adj (tabs stay visible but grey; implementation stripped)
+- RAW LUT and LUT Adj 
 - Gallery Workspace, project import/export, sidecars, Add to Project
 - Sony / Canon project integration
 - LUT Creator and Short Video
