@@ -1,3 +1,5 @@
+![Open RAZStudio Room](Banner.png)
+
 # Open RAZStudio Room
 
 An open-source **camera-RAW photo processing** app for Android — the free edition of RAZStudio Room. Unlike filter-first mobile editors, it is built around **image reconstruction and photographer control**. Read the code, build it, install it, and run it fully offline.
