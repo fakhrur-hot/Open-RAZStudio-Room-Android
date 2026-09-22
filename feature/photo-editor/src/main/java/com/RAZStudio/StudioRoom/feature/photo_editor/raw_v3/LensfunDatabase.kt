@@ -26,7 +26,7 @@ object LensfunDatabase {
     private const val TAG = "LensfunDatabase"
     private const val ASSET_DIR = "lensfun_db"
     /** Bump when bundled XML content changes without a file-count change. */
-    private const val DB_VERSION = 7  // v7: master a5e2caeb (2026-09-05) re-sync + PR#2858/#2004 vignetting patches + zz-community-extras.xml
+    private const val DB_VERSION = 8  // v8: lensfun master re-sync 2026-09-22 (+Canon R8 II, RF 50/1.4 L VCM, Sigma 20-200 Contemp, A710 IS, OM PEN; PR#2004 Samyang vignette; drop landed PR#2858)
 
     /**
      * Returns the absolute path of the on-disk database directory, copying

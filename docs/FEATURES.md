@@ -83,11 +83,10 @@
   Runs in Stage A post-demosaic on the sRGB FP16 buffer
   (linearize→gain→re-encode for vignetting).
 - **Database**: `feature/photo-editor/src/main/assets/lensfun_db/` — 58
-  XMLs = 1,053 cameras / 1,585 lenses (re-synced 2026-09-07 to lensfun master
-  a5e2caeb, 2026-09-05, via `scripts/lensfun_sync.py`, which also re-applies
-  the in-place vignetting patches from still-open PRs #2858 TTArtisan 40/2 Z
-  and #2004 Samyang AF 12/2 — the latter was documented as applied before but
-  never was). Two files are NOT master: `zz-pending-upstream.xml` (open PRs
+  XMLs = 1,056 cameras / 1,587 lenses (re-synced 2026-09-22 to lensfun master
+  via scripts/lensfun_sync.py, which also re-applies
+  the in-place vignetting patch from still-open PR #2004 Samyang AF 12/2;
+  PR #2858 TTArtisan 40/2 Z has landed upstream and was dropped from PATCHES). Two files are NOT master: `zz-pending-upstream.xml` (open PRs
   #2781 Canon MP-E 65, #2408 7Artisans 25/1.8, issue #509 EF-S 60 Macro, plus
   the owner's Sigma 28/1.8 HSW II and EF 100/2 remap targets) and
   `zz-community-extras.xml` (profiles from outside lensfun: 7 Hasselblad XCD
@@ -98,7 +97,7 @@
   matching), issue #2836 Leica Q2M/Q3M (master already has "Q2 Mono"/"Q3 Mono"
   on the full Q2 lens profile), and any lens master already carries (Fuji XC
   35/2, Sigma 17-40 Art). Materialized to filesDir by
-  `LensfunDatabase.ensureMaterialized`; bump `DB_VERSION` (now 7) whenever XML
+  `LensfunDatabase.ensureMaterialized`; bump `DB_VERSION` (now 8) whenever XML
   content changes without a file-count change. Other online sources are Adobe
   LCP (proprietary) and PTLens (paid) — master IS the canonical maximum, and the
   GitHub sweep found nothing else with real calibration data.
