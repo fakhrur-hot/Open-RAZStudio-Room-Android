@@ -1,4 +1,4 @@
-package com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components
+﻿package com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier

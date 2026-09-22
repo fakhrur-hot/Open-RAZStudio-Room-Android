@@ -1,4 +1,4 @@
-#include "lut3d.h"
+﻿#include "lut3d.h"
 namespace raw_v3 {
 CubeLut parseCubeFile(const std::string&) { return {}; }
 #ifndef RAZ_NO_EGL

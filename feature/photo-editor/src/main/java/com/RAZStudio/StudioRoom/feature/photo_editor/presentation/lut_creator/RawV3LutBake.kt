@@ -1,4 +1,4 @@
-package com.RAZStudio.StudioRoom.feature.photo_editor.presentation.lut_creator
+﻿package com.RAZStudio.StudioRoom.feature.photo_editor.presentation.lut_creator
 
 import android.content.Context
 import com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.ShaderParams
