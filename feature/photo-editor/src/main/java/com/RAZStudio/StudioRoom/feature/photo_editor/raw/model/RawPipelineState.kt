@@ -349,6 +349,14 @@ data class ColorShift(
     val blueX: Float = 0f,
 )
 
+/** JPEG Refine sliders (0–100). Nested so UserMacro.copy$default stays under the dex ceiling. */
+data class JpegRefineMacro(
+    val strength: Float = 0f,
+    val clean: Float = 50f,
+    val detail: Float = 50f,
+    val touched: Boolean = false,
+)
+
 data class UserMacro(
     // ── 3D LUT — exactly two committed slots ("LUT 1" and "LUT 2"), each applied
     //    once. At render time both are chained into a single cube (the existing
@@ -376,6 +384,8 @@ data class UserMacro(
     // mute highlights.
     val claheShadowsBoost: Float = 0f,
     val claheHighlightsBoost: Float = 0f,
+    // JPEG Refine (Dual Reconstruction Lite). UI 0–100. Strength 0 = no-op.
+    val jpegRefine: JpegRefineMacro = JpegRefineMacro(),
     // Color Pop ("Smart Color Enhancement") STRENGTH in [0..1]: 0 = off,
     // 1 = full effect. Off/Low/Med/High in the UI map to 0 / 0.4 / 0.7 / 1.0
     // (see COLOR_POP_* below). The GL preview + Stage C export blend the full
@@ -1024,6 +1034,7 @@ data class UserMacro(
             claheEnabled         = true,
             claheShadowsBoost    = if (delta.claheShadowsBoost    != 0f) delta.claheShadowsBoost    else claheShadowsBoost,
             claheHighlightsBoost = if (delta.claheHighlightsBoost != 0f) delta.claheHighlightsBoost else claheHighlightsBoost,
+            jpegRefine = if (delta.jpegRefine.touched) delta.jpegRefine.copy(touched = false) else jpegRefine,
             // LUT vibrancy is a LUT-tab field; latest non-zero wins so the
             // delta overrides the base when the user adjusts it.
             lutHighlightVibrancy = if (delta.lutHighlightVibrancy != 0f) delta.lutHighlightVibrancy else lutHighlightVibrancy,

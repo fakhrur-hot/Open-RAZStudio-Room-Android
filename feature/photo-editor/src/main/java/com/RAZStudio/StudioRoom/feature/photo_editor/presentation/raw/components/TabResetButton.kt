@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.HslExtended
+import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.JpegRefineMacro
 import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.UserMacro
 
 enum class RawTabId { Light, Tonemap, Color, Detail, Effects, Curves, LutAdj, Vignette, Gradient, Mask }
@@ -112,6 +113,7 @@ fun UserMacro.resetTab(tab: RawTabId): UserMacro = when (tab) {
         blueNR           = 0f,
         redNR            = 0f,
         smoothBackground = 0f,
+        jpegRefine = JpegRefineMacro(touched = true),
     )
     RawTabId.Effects -> copy(
         filmRolloff      = 0f,   // moved here from the Tone tab

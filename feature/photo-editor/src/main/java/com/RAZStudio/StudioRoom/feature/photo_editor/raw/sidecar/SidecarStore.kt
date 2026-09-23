@@ -166,7 +166,24 @@ class SidecarStore(
     suspend fun writeSnapshot(sourceUri: Uri, snapshot: SidecarSnapshot, hasVisibleEdit: Boolean) {
         if (!snapshot.workspace.sidecarEnabled) return
         withMutex(sourceUri) {
-            var trimmed = snapshot
+            val previous = readXmp(sourceUri)?.let {
+                runCatching { SidecarXmpSerializer.fromXmp(it) }.getOrNull()
+            }
+            // Never replace a persisted action stack with an empty one. The
+            // first-open workspace write used to land after the user had
+            // already edited, wiping every card on the next reopen.
+            var trimmed = if (
+                snapshot.actionStack.isEmpty() &&
+                previous?.actionStack?.isNotEmpty() == true
+            ) {
+                snapshot.copy(
+                    actionStack = previous.actionStack,
+                    macro = previous.macro,
+                )
+            } else snapshot
+            val reportedVisible = hasVisibleEdit || trimmed.actionStack.any { entry ->
+                entry.id != com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.RawAction.ORIGINAL_ID
+            }
             var xmp = SidecarXmpSerializer.toXmp(trimmed)
             while (xmp.length > MAX_SIDECAR_BYTES && trimmed.revisions.isNotEmpty()) {
                 trimmed = trimmed.copy(revisions = trimmed.revisions.dropLast(1))
@@ -174,7 +191,7 @@ class SidecarStore(
             }
             val location = resolver.resolve(sourceUri)
             if (writeAt(location, xmp)) {
-                resolver.onSnapshotWritten(location, hasVisibleEdit)
+                resolver.onSnapshotWritten(location, reportedVisible)
             }
         }
     }

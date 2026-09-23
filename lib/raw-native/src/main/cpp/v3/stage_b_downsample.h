@@ -58,6 +58,9 @@ StageBResult runStageBDownsample(
     const float* subjectMask = nullptr,   // [maskW×maskH] in [0,1], or null
     int subjectMaskSize = 0,              // mask width
     int subjectMaskH = 0,                 // mask height; 0 = square (== width)
+    float jpegRefineStrength = 0.0f,
+    float jpegRefineClean = 0.5f,
+    float jpegRefineDetail = 0.5f,
     // Cancellation token. When non-null, the bake checks *cancelToken
     // at the start of each row (pass 1 and pass 2) and before each
     // post-pass (CLAHE/NR/Detail). Returns cancelled=true immediately
@@ -85,6 +88,9 @@ StageBResult runStageBApplySpatialToAhb(
     const DetailParams& detail,
     const float* subjectMask,
     int subjectMaskSize,
-    int subjectMaskH = 0);
+    int subjectMaskH = 0,
+    float jpegRefineStrength = 0.0f,
+    float jpegRefineClean = 0.5f,
+    float jpegRefineDetail = 0.5f);
 
 }  // namespace raw_v3

@@ -22,7 +22,15 @@ plugins {
     alias(libs.plugins.image.toolbox.compose)
 }
 
-android.namespace = "com.RAZStudio.StudioRoom.feature.root"
+android {
+    namespace = "com.RAZStudio.StudioRoom.feature.root"
+    buildTypes {
+        create("hardened") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+        }
+    }
+}
 
 dependencies {
     implementation(projects.feature.main)

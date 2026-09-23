@@ -329,7 +329,7 @@ struct ShaderParams {
     // Kept in lockstep with ShaderParams.kt FLOAT_COUNT. This had drifted
     // to 410 while Kotlin was already sending 435, which is exactly the
     // kind of gap that makes a slot look free when it is not.
-    static constexpr int FLOAT_COUNT = 458;  // highest used slot [457] vintage.textureScale
+    static constexpr int FLOAT_COUNT = 461;  // highest used slot [460] jpegRefineDetail
     static ShaderParams fromFloatArray(const float* arr, int count);
 };
 

@@ -16,6 +16,7 @@
 #include "stage_b_downsample.h"
 #include "tiff_mmap_io.h"
 #include "raw_v3_clahe.h"
+#include "jpeg_dual_recon.h"
 #include "raw_v3_nr.h"
 #include "raw_v3_detail.h"
 
@@ -180,6 +181,7 @@ KernelTable buildKernel(int inSize, int outSize) {
 static void applyStageBSpatialInPlace(
     uint16_t* dstBase, int outW, int outH, int dstStridePx,
     bool claheEnabled, float claheShadowsBoost, float claheHighlightsBoost,
+    float jpegRefineStrength, float jpegRefineClean, float jpegRefineDetail,
     float luminanceNR, float colorNR, float blueNR, float redNR,
     const DetailParams& detail,
     const float* subjectMask, int subjectMaskSize, int subjectMaskH) {
@@ -190,6 +192,11 @@ static void applyStageBSpatialInPlace(
         applyClahe<__fp16>(reinterpret_cast<__fp16*>(dstBase),
                            outW, outH, dstStridePx, 4,
                            claheShadowsBoost, claheHighlightsBoost);
+    }
+    if (jpegRefineStrength > 0.001f) {
+        applyJpegDualRecon<__fp16>(reinterpret_cast<__fp16*>(dstBase),
+                                   outW, outH, dstStridePx, 4,
+                                   jpegRefineStrength, jpegRefineClean, jpegRefineDetail);
     }
     if (luminanceNR > 0.f || colorNR > 0.f || blueNR > 0.f || redNR > 0.f) {
         applyNoiseReduction<__fp16>(reinterpret_cast<__fp16*>(dstBase),
@@ -222,6 +229,9 @@ StageBResult runStageBDownsample(
     const float* subjectMask,
     int subjectMaskSize,
     int subjectMaskH,
+    float jpegRefineStrength,
+    float jpegRefineClean,
+    float jpegRefineDetail,
     const volatile int8_t* cancelToken) {
 
 // Checked before AHB lock (no unlock needed)
@@ -392,6 +402,7 @@ StageBResult runStageBDownsample(
         auto tS0 = std::chrono::steady_clock::now();
         applyStageBSpatialInPlace(dstBase, int(outW), int(outH), int(dstStridePx),
                                   claheEnabled, claheShadowsBoost, claheHighlightsBoost,
+                                  jpegRefineStrength, jpegRefineClean, jpegRefineDetail,
                                   luminanceNR, colorNR, blueNR, redNR,
                                   detail, subjectMask, subjectMaskSize, subjectMaskH);
         LOGI("runStageBDownsample: spatial pre-pass %lld ms (clahe=%d nr=%.2f detail=%d)",
@@ -428,7 +439,10 @@ StageBResult runStageBApplySpatialToAhb(
     const DetailParams& detail,
     const float* subjectMask,
     int subjectMaskSize,
-    int subjectMaskH) {
+    int subjectMaskH,
+    float jpegRefineStrength,
+    float jpegRefineClean,
+    float jpegRefineDetail) {
     StageBResult r;
     if (!srcAhb || !dstAhb) { r.error = "null AHB"; return r; }
 
@@ -468,6 +482,7 @@ StageBResult runStageBApplySpatialToAhb(
 
     applyStageBSpatialInPlace(dstBase, int(outW), int(outH), int(dd.stride),
                               claheEnabled, claheShadowsBoost, claheHighlightsBoost,
+                              jpegRefineStrength, jpegRefineClean, jpegRefineDetail,
                               luminanceNR, colorNR, blueNR, redNR,
                               detail, subjectMask, subjectMaskSize, subjectMaskH);
 

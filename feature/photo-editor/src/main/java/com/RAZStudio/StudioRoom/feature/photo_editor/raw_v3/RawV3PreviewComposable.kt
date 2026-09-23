@@ -296,6 +296,7 @@ fun RawV3PreviewComposable(
         params.detailSmoothBackground,
         params.detailFilmGrain, params.detailFilmGrainSize,
         params.detailFilmGrainWash,
+        params.jpegRefine.strength, params.jpegRefine.clean, params.jpegRefine.detail,
         // Subject-mask-driven spatial ops: rebake when the mask itself changes.
         if (params.detailSmartSharpness > 0f || params.detailSmoothBackground > 0f) {
             System.identityHashCode(subjectMask)

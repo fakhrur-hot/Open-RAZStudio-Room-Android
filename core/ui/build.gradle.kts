@@ -32,11 +32,21 @@ android {
         buildConfigField("boolean", "FEATURE_GALLERY_WORKSPACE", "false")
     }
     buildTypes {
-        release {
+        debug {
+            // Daily experimental APK: no 3-month lock. Unstable tools stay on home.
+            buildConfigField("boolean", "EDITION_PRIVATE_TRIAL", "false")
             buildConfigField("boolean", "FEATURE_LUT_CREATOR", "false")
             buildConfigField("boolean", "FEATURE_VIDEO_EDITOR", "false")
         }
-        debug {
+        release {
+            buildConfigField("boolean", "EDITION_PRIVATE_TRIAL", "false")
+            buildConfigField("boolean", "FEATURE_LUT_CREATOR", "false")
+            buildConfigField("boolean", "FEATURE_VIDEO_EDITOR", "false")
+        }
+        create("hardened") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            buildConfigField("boolean", "EDITION_PRIVATE_TRIAL", "false")
             buildConfigField("boolean", "FEATURE_LUT_CREATOR", "false")
             buildConfigField("boolean", "FEATURE_VIDEO_EDITOR", "false")
         }

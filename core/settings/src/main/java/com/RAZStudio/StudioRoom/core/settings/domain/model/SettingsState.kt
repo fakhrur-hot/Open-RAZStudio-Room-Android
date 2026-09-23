@@ -157,7 +157,9 @@ data class SettingsState(
                 fabAlignment = 1,
                 selectedEmoji = 0,
                 picturePickerModeInt = 0,
-                clearCacheOnLaunch = true,
+                // Debug experimental: on. R8/hardened trial: off so a fresh
+                // install does not wipe decode caches at every start.
+                clearCacheOnLaunch = com.RAZStudio.StudioRoom.core.resources.BuildConfig.DEBUG,
                 showUpdateDialogOnStartup = !Flavor.isFoss(),
                 groupOptionsByTypes = true,
                 showFavoriteToolsInGroupedMode = false,

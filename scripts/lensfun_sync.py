@@ -26,7 +26,6 @@ PR_DIFF = "https://patch-diff.githubusercontent.com/raw/lensfun/lensfun/pull/{n}
 # (file, first <model> of the lens, PR number, note). The PR diff's added
 # <vignetting> rows are inserted before </calibration> of that lens.
 PATCHES = [
-    ("misc.xml",        "TTARTISAN 40mmF2.0Z",   2858, "TTArtisan AF 40mm F2 Z vignetting (Nikon Z5)"),
     ("mil-samyang.xml", "Samyang AF 12mm f/2.0", 2004, "Samyang AF 12mm f/2.0 vignetting"),
 ]
 

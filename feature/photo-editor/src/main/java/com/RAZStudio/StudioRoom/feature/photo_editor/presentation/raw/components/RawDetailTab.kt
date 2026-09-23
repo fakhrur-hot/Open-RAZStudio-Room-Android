@@ -43,6 +43,7 @@ internal fun RawDetailTab(
     macro: UserMacro,
     onMacroChange: (UserMacro) -> Unit,
     modifier: Modifier = Modifier,
+    isJpegSource: Boolean = false,
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
 
@@ -69,6 +70,46 @@ internal fun RawDetailTab(
                 valueRange = -100f..100f,
                 onValueChange = { onMacroChange(macro.copy(clarity = it)) },
             )
+        }
+
+        if (isJpegSource) {
+            DetailSection(title = stringResource(R.string.raw_section_jpeg_refine)) {
+                RawSliderRow(
+                    label = stringResource(R.string.raw_jpeg_refine_strength),
+                    value = macro.jpegRefine.strength,
+                    valueRange = 0f..100f,
+                    onValueChange = {
+                        onMacroChange(macro.copy(
+                            jpegRefine = macro.jpegRefine.copy(strength = it, touched = true),
+                        ))
+                    },
+                    displayValue = "${macro.jpegRefine.strength.toInt()}",
+                )
+                Spacer(Modifier.height(4.dp))
+                RawSliderRow(
+                    label = stringResource(R.string.raw_jpeg_refine_clean),
+                    value = macro.jpegRefine.clean,
+                    valueRange = 0f..100f,
+                    onValueChange = {
+                        onMacroChange(macro.copy(
+                            jpegRefine = macro.jpegRefine.copy(clean = it, touched = true),
+                        ))
+                    },
+                    displayValue = "${macro.jpegRefine.clean.toInt()}",
+                )
+                Spacer(Modifier.height(4.dp))
+                RawSliderRow(
+                    label = stringResource(R.string.raw_jpeg_refine_detail),
+                    value = macro.jpegRefine.detail,
+                    valueRange = 0f..100f,
+                    onValueChange = {
+                        onMacroChange(macro.copy(
+                            jpegRefine = macro.jpegRefine.copy(detail = it, touched = true),
+                        ))
+                    },
+                    displayValue = "${macro.jpegRefine.detail.toInt()}",
+                )
+            }
         }
 
         // ── Noise Reduction ──────────────────────────────────────────────────────

@@ -177,6 +177,7 @@ fun RawEditorPanel(
                 onHealApply = onHealApply,
                 onHealCancel = onHealCancel,
                 isNonRawSource = component.isNonRawSource.value,
+                isJpegSource = component.isJpegSource.value,
                 onSaveEditAsLut = onSaveEditAsLut,
                 segmentationMasks = segmentationMasks,
                 onMaskModeActive = onMaskModeActive,

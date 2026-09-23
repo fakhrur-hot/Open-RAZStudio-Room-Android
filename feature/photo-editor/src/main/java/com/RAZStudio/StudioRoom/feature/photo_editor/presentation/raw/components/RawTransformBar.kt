@@ -46,6 +46,7 @@ import com.RAZStudio.StudioRoom.core.ui.widget.modifier.container
  * flipping this to true.
  */
 private const val SHOW_ONLINE_AI_EDIT_BUTTON = false
+private const val SHOW_AI_DENOISE_BUTTON = false
 
 @Composable
 internal fun RawExportTransformBar(
@@ -80,19 +81,21 @@ internal fun RawExportTransformBar(
                 modifier = Modifier.height(20.dp),
             )
         }
-        Spacer(Modifier.width(4.dp))
-        EnhancedIconButton(
-            containerColor = if (hasAiDenoise) MaterialTheme.colorScheme.tertiaryContainer
-                             else MaterialTheme.colorScheme.secondaryContainer,
-            contentColor = if (hasAiDenoise) MaterialTheme.colorScheme.onTertiaryContainer
-                           else MaterialTheme.colorScheme.onSecondaryContainer,
-            onClick = onAiDenoise,
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.AutoAwesome,
-                contentDescription = "AI Denoise",
-                modifier = Modifier.height(20.dp),
-            )
+        if (SHOW_AI_DENOISE_BUTTON) {
+            Spacer(Modifier.width(4.dp))
+            EnhancedIconButton(
+                containerColor = if (hasAiDenoise) MaterialTheme.colorScheme.tertiaryContainer
+                                 else MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = if (hasAiDenoise) MaterialTheme.colorScheme.onTertiaryContainer
+                               else MaterialTheme.colorScheme.onSecondaryContainer,
+                onClick = onAiDenoise,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.AutoAwesome,
+                    contentDescription = "AI Denoise",
+                    modifier = Modifier.height(20.dp),
+                )
+            }
         }
         EnhancedIconButton(
             containerColor = if (hasHeal) MaterialTheme.colorScheme.tertiaryContainer

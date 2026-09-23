@@ -55,7 +55,10 @@ internal fun PermissionDialog() {
     val scope = rememberCoroutineScope()
 
     var showDialog by remember { mutableStateOf(false) }
-    var showOutputFolderDialog by rememberSaveable { mutableStateOf(false) }
+    var showOutputFolderDialog by remember { mutableStateOf(false) }
+    val folderPrefs = remember {
+        context.getSharedPreferences("studio_room_output_folder", android.content.Context.MODE_PRIVATE)
+    }
 
     val currentLifecycleEvent = rememberCurrentLifecycleEvent()
     LaunchedEffect(
@@ -70,13 +73,22 @@ internal fun PermissionDialog() {
             delay(100)
         }
 
-        if (!showDialog && settingsState.saveFolderUri == null) {
+        val uriAssigned = settingsState.saveFolderUri != null
+        val alreadyPicked = folderPrefs.getBoolean(OUTPUT_FOLDER_ASSIGNED_KEY, false)
+        if (uriAssigned) {
+            folderPrefs.edit().putBoolean(OUTPUT_FOLDER_ASSIGNED_KEY, true).apply()
+            showOutputFolderDialog = false
+        } else if (alreadyPicked) {
+            showOutputFolderDialog = false
+        } else if (!showDialog && settingsState.appOpenCount > 0) {
+            // DataStore has loaded and the user has never successfully picked a folder.
             showOutputFolderDialog = true
         }
     }
 
     val outputFolderPicker = rememberFolderPicker(
         onSuccess = { uri ->
+            folderPrefs.edit().putBoolean(OUTPUT_FOLDER_ASSIGNED_KEY, true).apply()
             scope.launch {
                 settingsInteractor.setSaveFolderUri(uri.toString())
             }
@@ -160,3 +172,5 @@ internal fun PermissionDialog() {
         }
     )
 }
+
+private const val OUTPUT_FOLDER_ASSIGNED_KEY = "assigned"

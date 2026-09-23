@@ -619,6 +619,10 @@ Free space after: %3$s</string>
     <string name="raw_vignette_apply_to">Apply To</string>
     <string name="raw_segment_exclude_subject">Exclude Subject</string>
     <string name="raw_section_sharpness">Sharpness</string>
+    <string name="raw_section_jpeg_refine">JPEG Refine</string>
+    <string name="raw_jpeg_refine_strength">Strength</string>
+    <string name="raw_jpeg_refine_clean">Clean</string>
+    <string name="raw_jpeg_refine_detail">Detail</string>
     <string name="raw_section_noise_reduction">Noise Reduction</string>
     <string name="raw_section_film_grain">Film Grain</string>
     <string name="raw_section_local_contrast">Local Contrast</string>

@@ -270,6 +270,8 @@ internal fun RawAdjustmentPanel(
      *  data) AND swap the Colour tab's Kelvin readout for a relative
      *  Temperature slider (a developed file has no as-shot white balance). */
     isNonRawSource: Boolean = false,
+    /** JPEG-only Dual Reconstruction Lite (Details tab). PNG/HEIF/RAW stay hidden. */
+    isJpegSource: Boolean = false,
     /**
      * Heal-tab state. The tab itself only owns the radius slider; the
      * actual tap-to-heal interaction lives on the main preview canvas
@@ -698,6 +700,12 @@ internal fun RawAdjustmentPanel(
                 addF(m.redNR,           "Red NR",  scale=100f, single=d.copy(redNR=m.redNR))
                 addF(m.smartSharpness,  "Sharpness",scale=100f,single=d.copy(smartSharpness=m.smartSharpness))
                 addF(m.smoothBackground,"Smooth BG",  scale=100f,single=d.copy(smoothBackground=m.smoothBackground))
+                if (m.jpegRefine.strength != 0f || m.jpegRefine.clean != 50f || m.jpegRefine.detail != 50f) {
+                    add(
+                        "JPEG Refine",
+                        d.copy(jpegRefine = m.jpegRefine.copy(touched = true)),
+                    )
+                }
             }
         }
         // Safety net: every edited field must be captured by a card above, or it
@@ -1098,6 +1106,7 @@ internal fun RawAdjustmentPanel(
                             macro         = liveMacro,
                             onMacroChange = ::onLiveChange,
                             modifier      = contentModifier,
+                            isJpegSource  = isJpegSource,
                         )
 
                         // ── Tab 6: Actions ───────────────────────────────────────

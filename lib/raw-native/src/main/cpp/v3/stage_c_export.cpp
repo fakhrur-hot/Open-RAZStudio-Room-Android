@@ -8,6 +8,7 @@
 #include "apply_macro.h"
 #include "selective_bokeh_stage_c.h"
 #include "raw_v3_clahe.h"
+#include "jpeg_dual_recon.h"
 #include "raw_v3_nr.h"
 #include "raw_v3_detail.h"
 #include "soft_diffusion.h"
@@ -1193,6 +1194,10 @@ StageCResult runStageC(const std::string& stageATifPath,
     // run the kernels in place (CLAHE first — it can amplify noise — then NR),
     // and the row loop reads from this buffer instead of the Stage A strips.
     const bool claheOn = options.paramsCount > 144 && options.params[144] > 0.5f;
+    const float jpegStr = (options.paramsCount > 458) ? options.params[458] : 0.0f;
+    const float jpegClean = (options.paramsCount > 459) ? options.params[459] : 0.5f;
+    const float jpegDet = (options.paramsCount > 460) ? options.params[460] : 0.5f;
+    const bool jpegOn = jpegStr > 0.001f;
     const float lumaNR   = (options.paramsCount > 147) ? options.params[147] : 0.0f;
     const float chromaNR = (options.paramsCount > 148) ? options.params[148] : 0.0f;
     const float blueNR   = (options.paramsCount > 233) ? options.params[233] : 0.0f;
@@ -1238,7 +1243,7 @@ StageCResult runStageC(const std::string& stageATifPath,
     const float aberStrength   = (options.paramsCount > 352) ? options.params[352] : 0.0f;
     const float aberSeparation = (options.paramsCount > 353) ? options.params[353] : 0.0f;
     const bool cubicCAOn = aberStrength != 0.0f;
-    const bool preOn = claheOn || nrOn || detailOn || maskClarityOn || maskSharpnessOn || needBlur
+    const bool preOn = claheOn || jpegOn || nrOn || detailOn || maskClarityOn || maskSharpnessOn || needBlur
                      || softDiffOn || bilateralOn || cubicCAOn;
     std::vector<float> preBuf;
     if (preOn) {
@@ -1261,6 +1266,12 @@ StageCResult runStageC(const std::string& stageATifPath,
             raw_v3::applyClahe<float>(preBuf.data(), int(srcW), int(srcH),
                                       int(srcW), 3, shBoost, hiBoost);
             LOGI("runStageC: CLAHE pre-pass applied (sh=%.2f hi=%.2f)", shBoost, hiBoost);
+        }
+        if (jpegOn) {
+            raw_v3::applyJpegDualRecon<float>(preBuf.data(), int(srcW), int(srcH),
+                                              int(srcW), 3, jpegStr, jpegClean, jpegDet);
+            LOGI("runStageC: JPEG Refine pre-pass applied (str=%.2f clean=%.2f detail=%.2f)",
+                 jpegStr, jpegClean, jpegDet);
         }
         if (nrOn) {
             raw_v3::applyNoiseReduction<float>(preBuf.data(), int(srcW), int(srcH),
@@ -1636,6 +1647,10 @@ StageCResult runStageCToRGBA8(const std::string& stageATifPath,
     // resolve before the streaming row loop. Decode once into FP32, equalize
     // in place, then the loop reads from claheBuf.
     const bool claheOn = options.paramsCount > 144 && options.params[144] > 0.5f;
+    const float jpegStr = (options.paramsCount > 458) ? options.params[458] : 0.0f;
+    const float jpegClean = (options.paramsCount > 459) ? options.params[459] : 0.5f;
+    const float jpegDet = (options.paramsCount > 460) ? options.params[460] : 0.5f;
+    const bool jpegOn = jpegStr > 0.001f;
     const float lumaNR   = (options.paramsCount > 147) ? options.params[147] : 0.0f;
     const float chromaNR = (options.paramsCount > 148) ? options.params[148] : 0.0f;
     const float blueNR   = (options.paramsCount > 233) ? options.params[233] : 0.0f;
@@ -1678,7 +1693,7 @@ StageCResult runStageCToRGBA8(const std::string& stageATifPath,
     const float aberStrengthRGBA   = (options.paramsCount > 352) ? options.params[352] : 0.0f;
     const float aberSeparationRGBA = (options.paramsCount > 353) ? options.params[353] : 0.0f;
     const bool cubicCAOnRGBA = aberStrengthRGBA != 0.0f;
-    const bool preOn = claheOn || nrOn || detailOn || maskClarityOn || maskSharpnessOn || needBlurRGBA
+    const bool preOn = claheOn || jpegOn || nrOn || detailOn || maskClarityOn || maskSharpnessOn || needBlurRGBA
                      || softDiffOnRGBA || bilateralOnRGBA || cubicCAOnRGBA;
     std::vector<float> preBuf;
     if (preOn) {
@@ -1701,6 +1716,11 @@ StageCResult runStageCToRGBA8(const std::string& stageATifPath,
             raw_v3::applyClahe<float>(preBuf.data(), int(srcW), int(srcH),
                                       int(srcW), 3, shBoost, hiBoost);
             LOGI("runStageCToRGBA8: CLAHE pre-pass applied (sh=%.2f hi=%.2f)", shBoost, hiBoost);
+        }
+        if (jpegOn) {
+            raw_v3::applyJpegDualRecon<float>(preBuf.data(), int(srcW), int(srcH),
+                                              int(srcW), 3, jpegStr, jpegClean, jpegDet);
+            LOGI("runStageCToRGBA8: JPEG Refine pre-pass applied (str=%.2f)", jpegStr);
         }
         if (nrOn) {
             raw_v3::applyNoiseReduction<float>(preBuf.data(), int(srcW), int(srcH),

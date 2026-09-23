@@ -190,20 +190,8 @@ if (Test-Path $relImpl) {
     Remove-Item -Force $relImpl
 }
 
-$models = Join-Path $Dest "feature\photo-editor\src\main\assets\models"
-$keepModels = @(
-    "ae_tone_model.tflite", "ae_scaler_mean.npy", "ae_scaler_scale.npy",
-    "raw_hdr_recovery.bin", "raw_shadow_recovery.bin",
-    "README.md", "NOTICE_DEPTH_SEG.md"
-)
-if (Test-Path $models) {
-    Get-ChildItem $models -File | Where-Object { $keepModels -notcontains $_.Name } | Remove-Item -Force
-}
-
-$lens = Join-Path $Dest "feature\photo-editor\src\main\assets\lensfun_db"
-if (Test-Path $lens) {
-    Get-ChildItem $lens -File | Where-Object { $_.Name -ne "README.md" } | Remove-Item -Force
-}
+# Keep on-device AI models and camera/lens profile XML in Open APKs (owner: full bundle).
+# LUT cubes stay out ($xd luts + empty .gitkeep below).
 
 $luts = Join-Path $Dest "feature\photo-editor\src\main\assets\luts"
 New-Item -ItemType Directory -Force -Path $luts | Out-Null
@@ -353,8 +341,8 @@ if (Test-Path $photoGradle) {
 $toml = Join-Path $Dest "gradle\libs.versions.toml"
 if (Test-Path $toml) {
     $t = Get-Content $toml -Raw
-    $t = $t -replace 'versionName = "[^"]+"', 'versionName = "1.0.1-alpha"'
-    $t = $t -replace 'versionCode = "[^"]+"', 'versionCode = "101"'
+    $t = $t -replace 'versionName = "[^"]+"', 'versionName = "1.0.1.2-alpha"'
+    $t = $t -replace 'versionCode = "[^"]+"', 'versionCode = "102"'
     Set-Content -Path $toml -Value $t -NoNewline
 }
 
@@ -369,7 +357,8 @@ $readmeSrc = Join-Path $Keep "README.md"
 $readmeDst = Join-Path $Dest "README.md"
 if (Test-Path $readmeSrc) {
     $r = Get-Content $readmeSrc -Raw
-    $r = $r -replace "1\.0\.0-alpha", "1.0.1-alpha"
+    $r = $r -replace "1\.0\.0-alpha", "1.0.1.1-alpha"
+    $r = $r -replace "1\.0\.1-alpha", "1.0.1.1-alpha"
     $r = $r -replace "All application source code \(every module\)\.", "All Open-edition application source code. Private LUT implementation and Short Video are excluded."
     $r = $r -replace '(?m)^- \*\*RAW LUT and LUT Adj implementation\*\*.*\r?\n', ''
     $r = $r -replace '(?m)^- \*\*Gallery Workspace.*\r?\n', ''

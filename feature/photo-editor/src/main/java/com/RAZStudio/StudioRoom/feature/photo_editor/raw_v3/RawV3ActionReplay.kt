@@ -517,6 +517,11 @@ object RawV3ActionReplay {
             claheEnabled         = true,
             claheShadowsBoost    = m.claheShadowsBoost,
             claheHighlightsBoost = m.claheHighlightsBoost,
+            jpegRefine = JpegRefine(
+                strength = (m.jpegRefine.strength / 100f).coerceIn(0f, 1f),
+                clean    = (m.jpegRefine.clean / 100f).coerceIn(0f, 1f),
+                detail   = (m.jpegRefine.detail / 100f).coerceIn(0f, 1f),
+            ),
             lutHighlightVibrancy = m.lutHighlightVibrancy,
             highlightTemperature = m.highlightTemperature,
             highlightTint        = m.highlightTint,

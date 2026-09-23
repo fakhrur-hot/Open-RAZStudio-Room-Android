@@ -1026,6 +1026,7 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeSt
     bool  claheEnabled = false;
     float claheSh = 0.0f, claheHi = 0.0f;
     float lumaNR = 0.0f, chromaNR = 0.0f, blueNR = 0.0f, redNR = 0.0f;
+    float jpegStr = 0.0f, jpegClean = 0.5f, jpegDet = 0.5f;
     raw_v3::DetailParams detail{};
     if (jParams) {
         const jsize n = env->GetArrayLength(jParams);
@@ -1049,6 +1050,9 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeSt
             if (n > 155) detail.filmGrainUniformity = p[155];
             if (n > 156) detail.filmGrainWashOut    = p[156];
             if (n > 178) detail.smoothBackground    = p[178];
+            if (n > 458) jpegStr = p[458];
+            if (n > 459) jpegClean = p[459];
+            if (n > 460) jpegDet = p[460];
             env->ReleaseFloatArrayElements(jParams, p, JNI_ABORT);
         }
     }
@@ -1082,6 +1086,7 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeSt
         tifPath, ahb, uint32_t(targetW), uint32_t(targetH),
         claheEnabled, claheSh, claheHi, lumaNR, chromaNR, blueNR, redNR, detail,
         maskBuf.empty() ? nullptr : maskBuf.data(), maskSize, maskH,
+        jpegStr, jpegClean, jpegDet,
         reinterpret_cast<const volatile int8_t*>(cancelPtr));
 
     if (jCancelFlag && cancelPtr) {
@@ -1124,6 +1129,7 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeSt
     bool  claheEnabled = false;
     float claheSh = 0.0f, claheHi = 0.0f;
     float lumaNR = 0.0f, chromaNR = 0.0f, blueNR = 0.0f, redNR = 0.0f;
+    float jpegStr = 0.0f, jpegClean = 0.5f, jpegDet = 0.5f;
     raw_v3::DetailParams detail{};
     if (jParams) {
         const jsize n = env->GetArrayLength(jParams);
@@ -1146,6 +1152,9 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeSt
             if (n > 155) detail.filmGrainUniformity = p[155];
             if (n > 156) detail.filmGrainWashOut    = p[156];
             if (n > 178) detail.smoothBackground    = p[178];
+            if (n > 458) jpegStr = p[458];
+            if (n > 459) jpegClean = p[459];
+            if (n > 460) jpegDet = p[460];
             env->ReleaseFloatArrayElements(jParams, p, JNI_ABORT);
         }
     }
@@ -1167,7 +1176,8 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeSt
     raw_v3::StageBResult r = raw_v3::runStageBApplySpatialToAhb(
         srcAhb, dstAhb,
         claheEnabled, claheSh, claheHi, lumaNR, chromaNR, blueNR, redNR, detail,
-        maskBuf.empty() ? nullptr : maskBuf.data(), maskSize, maskH);
+        maskBuf.empty() ? nullptr : maskBuf.data(), maskSize, maskH,
+        jpegStr, jpegClean, jpegDet);
 
     std::string json = "{";
     json += "\"success\":";    json += (r.success ? "true" : "false");

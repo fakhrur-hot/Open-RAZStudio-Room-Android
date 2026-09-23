@@ -69,6 +69,13 @@ data class VintageFx(
     val textureScale: Float = 1f,
 )
 
+/** JPEG Dual Reconstruction Lite. Nested so ShaderParams.copy$default stays under the dex 256-register ceiling. */
+data class JpegRefine(
+    val strength: Float = 0f, // [458] [0..1]
+    val clean: Float = 0.5f,  // [459]
+    val detail: Float = 0.5f, // [460]
+)
+
 data class ShaderParams(
     // ── Workspace block (M4) ────────────────────────────────────────────
     val exposure: Float = 0f,        // [0]   stops, [-4..+4]
@@ -648,6 +655,8 @@ data class ShaderParams(
     // (shader_sources uClarityLift) and the CPU export/desktop (raw_v3_detail)
     // clarity paths — preview=export. See docs/GOTCHAS.md (clarity is a pair).
     val clarityLift:             Float = 0f, // [408] [0..1]
+    // JPEG Dual Reconstruction Lite (native spatial; shader ignores). 0 = no-op.
+    val jpegRefine: JpegRefine = JpegRefine(),
 ) {
     val fxVintageMistIntensity: Float
         get() = vintage.mistIntensity
@@ -881,6 +890,9 @@ data class ShaderParams(
         a[406] = extDiffractionComp
         a[407] = extBodyWbTrim
         a[408] = clarityLift
+        a[458] = jpegRefine.strength
+        a[459] = jpegRefine.clean
+        a[460] = jpegRefine.detail
         if (BuildConfig.DEBUG) debugValidate()
     }
 
@@ -1103,6 +1115,9 @@ data class ShaderParams(
         a[406] = extDiffractionComp
         a[407] = extBodyWbTrim
         a[408] = clarityLift
+        a[458] = jpegRefine.strength
+        a[459] = jpegRefine.clean
+        a[460] = jpegRefine.detail
     }
 
     /**
@@ -1127,8 +1142,9 @@ data class ShaderParams(
     }
 
     companion object {
-        // Append-only ABI. Highest used slot is [457] (vintage.textureScale);
-        // next free is [458].
+        // Append-only ABI. Highest used slot is [460] (jpegRefineDetail);
+        // next free is [461].
+        // JPEG Dual Reconstruction Lite [458..460] (native spatial; 0 = no-op).
         // lensFlare [400,401,409,430,431] + lensFlareWarmth [435],
         // colorShift [432,433,434],
         // film response [436..446], cinematic bloom [447..448],
@@ -1137,7 +1153,7 @@ data class ShaderParams(
         // (slot [453] reserved to keep these three clear of the 450+ vintage
         //  range they used to collide with),
         // vintage [454..457] — mist intensity/scale and texture intensity/scale.
-        const val FLOAT_COUNT = 458
+        const val FLOAT_COUNT = 461
         const val XMP_BLOB_FLOAT_COUNT = 25
         /** Brush-mask layer count — matches GlesRenderer::kMaskLayers. */
         const val MASK_LAYER_COUNT = 4
@@ -1463,6 +1479,11 @@ data class ShaderParams(
                 extHighlightHeadroom   = arr.getOrElse(405) { 0f }.coerceIn(0f, 3f),
                 extDiffractionComp     = arr.getOrElse(406) { 0f }.coerceIn(0f, 30f),
                 extBodyWbTrim          = arr.getOrElse(407) { 0f }.coerceIn(-1f, 1f),
+                jpegRefine = JpegRefine(
+                    strength = arr.getOrElse(458) { 0f }.coerceIn(0f, 1f),
+                    clean    = arr.getOrElse(459) { 0.5f }.coerceIn(0f, 1f),
+                    detail   = arr.getOrElse(460) { 0.5f }.coerceIn(0f, 1f),
+                ),
             ).also { if (BuildConfig.DEBUG) it.debugValidate() }
         }
     }
@@ -1693,6 +1714,9 @@ fun ShaderParams.withUpdate(slot: Int, value: Float): ShaderParams = when (slot)
     398  -> copy(mask2Sharpness       = value.coerceIn(-100f, 100f))
     399  -> copy(mask3Sharpness       = value.coerceIn(-100f, 100f))
     408  -> copy(clarityLift          = value.coerceIn(0f, 1f))
+    458  -> copy(jpegRefine = jpegRefine.copy(strength = value.coerceIn(0f, 1f)))
+    459  -> copy(jpegRefine = jpegRefine.copy(clean = value.coerceIn(0f, 1f)))
+    460  -> copy(jpegRefine = jpegRefine.copy(detail = value.coerceIn(0f, 1f)))
     400  -> copy(lensFlareX           = value.coerceIn(-1f, 1f))
     401  -> copy(lensFlareY           = value.coerceIn(-1f, 1f))
     409  -> copy(lensFlareBrightness  = value.coerceIn(0f, 1f))
@@ -1922,6 +1946,9 @@ fun ShaderParams.debugValidate() {
     chk("haxGrainLumaAmp",       haxGrainLumaAmp,       0f,     2f)
     chk("haxGrainChromaAmp",     haxGrainChromaAmp,     0f,     1f)
     chk("sharpenAmount",         sharpenAmount,         0f,     1f)
+    chk("jpegRefineStrength",    jpegRefine.strength,    0f,     1f)
+    chk("jpegRefineClean",       jpegRefine.clean,       0f,     1f)
+    chk("jpegRefineDetail",      jpegRefine.detail,      0f,     1f)
     check(viewZoom >= 0.01f && viewZoom.isFinite()) { "ShaderParams.viewZoom must be >= 0.01, got $viewZoom" }
     check(viewPanX.isFinite()) { "ShaderParams.viewPanX is not finite: $viewPanX" }
     check(viewPanY.isFinite()) { "ShaderParams.viewPanY is not finite: $viewPanY" }

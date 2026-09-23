@@ -32,6 +32,7 @@ add_library(raw_decoder SHARED
         v3/adobe_xmp_parser.cpp
         v3/apply_macro.cpp
         v3/raw_v3_clahe.cpp
+        v3/jpeg_dual_recon.cpp
         v3/raw_v3_nr.cpp
         v3/raw_v3_detail.cpp
         v3/raw_v3_highlight_recovery.cpp

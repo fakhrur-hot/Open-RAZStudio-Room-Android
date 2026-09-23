@@ -912,27 +912,27 @@ fun RawEditorContent(component: RawEditorComponent) {
                         isMaskModeActive &&
                             (brushMode == MaskBrushMode.Draw || brushMode == MaskBrushMode.Erase) &&
                             isPreviewReady -> Modifier.pointerInput(
-                            brushSize, brushIntensity, brushFeather, brushMode, canvasWidth, canvasHeight,
+                            brushSize, brushIntensity, brushFeather, brushMode,
+                            canvasWidth, canvasHeight,
                         ) {
                             awaitEachGesture {
-                                val bmp = maskBitmap ?: run {
-                                    val neutral = component.neutralBitmap ?: return@awaitEachGesture
-                                    val newBmp = android.graphics.Bitmap.createBitmap(
-                                        neutral.width, neutral.height, android.graphics.Bitmap.Config.ARGB_8888,
-                                    )
-                                    component.masking.updateMask(newBmp)
-                                    newBmp
-                                }
+                                val src = component.masking.maskBitmap.value
+                                val space = src ?: component.neutralBitmap
+                                    ?: return@awaitEachGesture
+                                val bW = space.width.toFloat()
+                                val bH = space.height.toFloat()
+                                // Paint on a copy so the graph's published bitmap
+                                // is not mutated. Overlay updates via maskDirty;
+                                // finger-up pushes a BrushStroke and rebuilds.
+                                val live = (src ?: android.graphics.Bitmap.createBitmap(
+                                    space.width, space.height, android.graphics.Bitmap.Config.ARGB_8888,
+                                )).copy(android.graphics.Bitmap.Config.ARGB_8888, true)
                                 val paint = android.graphics.Paint().apply {
                                     isAntiAlias = true
                                     style = android.graphics.Paint.Style.STROKE
                                     strokeCap = android.graphics.Paint.Cap.ROUND
                                     strokeJoin = android.graphics.Paint.Join.ROUND
                                     strokeWidth = brushSize
-                                    // Both Draw and Erase honour intensity + feather. Erase uses
-                                    // DST_OUT (subtract source alpha from destination) so intensity
-                                    // = how much to erase, feather = soft edge. Draw uses opaque
-                                    // SrcOver white with alpha = intensity.
                                     color = android.graphics.Color.WHITE
                                     alpha = (255 * brushIntensity).roundToInt().coerceIn(0, 255)
                                     if (brushFeather > 0.01f) {
@@ -947,11 +947,9 @@ fun RawEditorContent(component: RawEditorComponent) {
                                         )
                                     }
                                 }
-                                val bmCanvas = android.graphics.Canvas(bmp)
+                                val bmCanvas = android.graphics.Canvas(live)
 
                                 fun screenToBmp(pos: Offset): android.graphics.PointF {
-                                    val bW = bmp.width.toFloat()
-                                    val bH = bmp.height.toFloat()
                                     val cW = canvasWidth.toFloat()
                                     val cH = canvasHeight.toFloat()
                                     val cx = cW / 2f; val cy = cH / 2f
@@ -982,7 +980,6 @@ fun RawEditorContent(component: RawEditorComponent) {
                                 // graph (undo/redo re-rasterizes it — no bitmap
                                 // snapshots in history).
                                 val strokePoints = mutableListOf(last.x to last.y)
-                                var started = false      // has any paint been laid down
                                 var didTransform = false // this gesture became a pan/zoom
                                 var twoFinger = false     // ≥2 fingers on the PREVIOUS event
                                 var prevCentroid = Offset.Zero
@@ -1016,16 +1013,33 @@ fun RawEditorContent(component: RawEditorComponent) {
                                         val ch = pressed.first()
                                         if (didTransform) { ch.consume(); continue } // no draw after a pinch
                                         val curr = screenToBmp(ch.position)
-                                        if (!started) {
-                                            bmCanvas.drawLine(curr.x, curr.y, curr.x, curr.y, paint)
-                                            started = true
-                                        } else {
-                                            bmCanvas.drawLine(last.x, last.y, curr.x, curr.y, paint)
-                                        }
+                                        bmCanvas.drawLine(last.x, last.y, curr.x, curr.y, paint)
                                         last = curr
                                         strokePoints.add(curr.x to curr.y)
+                                        component.masking.updateMask(live)
                                         ch.consume()
                                     }
+                                }
+                                if (!didTransform && strokePoints.isNotEmpty()) {
+                                    if (strokePoints.size == 1) {
+                                        val p = strokePoints[0]
+                                        bmCanvas.drawLine(p.first, p.second, p.first, p.second, paint)
+                                        component.masking.updateMask(live)
+                                    }
+                                    component.masking.pushMaskNode(
+                                        MaskNode(
+                                            id = java.util.UUID.randomUUID().toString(),
+                                            source = MaskSource.BrushStroke(
+                                                points = strokePoints.toList(),
+                                                radius = brushSize,
+                                                hardness = (1f - brushFeather).coerceIn(0f, 1f),
+                                                intensity = brushIntensity,
+                                            ),
+                                            operation = if (brushMode == MaskBrushMode.Erase)
+                                                MaskOp.SUBTRACT else MaskOp.ADD,
+                                        )
+                                    )
+                                    setIsMaskModeActive(true)
                                 }
                             }
                         }

@@ -384,6 +384,8 @@ class RawEditorComponent @AssistedInject internal constructor(
      */
     private val _isNonRawSource = MutableStateFlow(false)
     val isNonRawSource: StateFlow<Boolean> = _isNonRawSource.asStateFlow()
+    private val _isJpegSource = MutableStateFlow(false)
+    val isJpegSource: StateFlow<Boolean> = _isJpegSource.asStateFlow()
 
     /**
      * v3 has no "Stage C runs in the background while editing" concept —
@@ -485,14 +487,11 @@ class RawEditorComponent @AssistedInject internal constructor(
         val composed = com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3
             .RawV3ActionReplay.composeMacro(actions.toList())
         sidecarStore.pushRevision(uri, workspace, composed)
-        // Persist the action stack alongside the macro by passing through
-        // a separate save() path. SidecarStore exposes only macro+ws;
-        // for v3 we hijack the same writer by injecting actionStack via
-        // a synthetic snapshot (the SidecarStore.save() / pushRevision()
-        // ignore actionStack today — the actionStack persistence is
-        // wired via direct SidecarXmpSerializer.toXmp() on the next
-        // commit, see [saveActionStackSidecar] below).
-        saveActionStackSidecar(uri, workspace, composed)
+        if (projectContext != null) {
+            flushProjectSidecarNow()?.join()
+        } else {
+            saveActionStackSidecar(uri, workspace, composed)
+        }
     }
 
     /**
@@ -632,7 +631,22 @@ class RawEditorComponent @AssistedInject internal constructor(
      */
     private suspend fun restoreActionStackFromSidecar() {
         val snap = loadSidecar() ?: return
-        if (snap.actionStack.isEmpty()) return
+        if (snap.actionStack.isEmpty()) {
+            val composed = snap.macro
+            if (composed != com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.UserMacro()) {
+                actions.clear()
+                actions.add(
+                    com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.RawAction(
+                        label = "Restored edit",
+                        tabIndex = -1,
+                        macro = composed,
+                    )
+                )
+                actions.add(com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.RawAction.Original)
+                rebuildShaderParams()
+            }
+            return
+        }
         val src = neutralBitmap
         val restored = snap.actionStack.map { e ->
             val maskPathOnDisk = e.maskPath?.takeIf { java.io.File(it).exists() }
@@ -1873,6 +1887,15 @@ class RawEditorComponent @AssistedInject internal constructor(
                     !mime.contains("arw")
             }
         }
+        _isJpegSource.value = run {
+            val seg = (effectiveUri.lastPathSegment ?: "").substringAfterLast('/').lowercase()
+            val ext = seg.substringAfterLast('.', "")
+            if (ext == "jpg" || ext == "jpeg") true
+            else {
+                val mime = runCatching { appContext.contentResolver.getType(effectiveUri) }.getOrNull() ?: ""
+                mime.equals("image/jpeg", ignoreCase = true)
+            }
+        }
         _asShotKelvin.value = 0   // reset until probe completes
         _showWorkspaceDialog.value = false
         _pendingDialogUri.value = null
@@ -2123,26 +2146,32 @@ class RawEditorComponent @AssistedInject internal constructor(
         config: com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.WorkspaceConfig,
         applyToMatching: Boolean,
     ) {
-        confirmWorkspace(uri, config)
-        val ctx = projectContext ?: return
+        val ctx = projectContext
         scope.launch(Dispatchers.IO) {
-            // Written through THIS component's own sidecarStore (mutex-protected,
-            // already bound to ctx's resolver) rather than editorPort's raw writer
-            // — that writer exists for the BULK loop below, which touches OTHER
-            // photos this component holds no SidecarStore for; using it here too
-            // would race an unsynchronized write against this same photo's own
-            // sidecarStore the moment the user makes their first edit.
-            val snapshot = com.RAZStudio.StudioRoom.feature.photo_editor.raw.sidecar
-                .SidecarSnapshot(
-                    workspace = config,
-                    macro = com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.UserMacro(),
+            val existing = sidecarStore.load(uri)
+            if (existing == null) {
+                sidecarStore.writeSnapshot(
+                    uri,
+                    com.RAZStudio.StudioRoom.feature.photo_editor.raw.sidecar.SidecarSnapshot(
+                        workspace = config,
+                        macro = com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.UserMacro(),
+                    ),
+                    hasVisibleEdit = false,
                 )
-            sidecarStore.writeSnapshot(uri, snapshot, hasVisibleEdit = false)
-            if (applyToMatching) {
+            } else if (existing.actionStack.isEmpty()) {
+                sidecarStore.writeSnapshot(
+                    uri,
+                    existing.copy(workspace = config),
+                    hasVisibleEdit = existing.macro !=
+                        com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.UserMacro(),
+                )
+            }
+            if (ctx != null && applyToMatching) {
                 val result = editorPort.applyLensProfileToMatching(ctx.projectId, ctx.photoId, config)
                 _bulkLensApplyResult.value = result
             }
         }
+        confirmWorkspace(uri, config)
     }
 
     /**
