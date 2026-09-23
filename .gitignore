@@ -46,3 +46,7 @@ IMG_*.JPG
 IMG_*.jpg
 IMG_*.NEF
 *.stageA.tif
+
+# Agent skills are local Cursor/Claude tooling, not product source.
+/SKILL.md
+/skills/
