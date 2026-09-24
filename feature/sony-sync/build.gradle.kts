@@ -50,6 +50,8 @@ dependencies {
     // camera card's FAT volume directly over bulk-only transport, the same stack
     // feature:sd-card-browser uses. Pinned to match that module's version.
     implementation("me.jahnen.libaums:core:0.10.0")
+    // Same JNI names as the AAR, rebuilt with 16 KB ELF alignment.
+    implementation(project(":lib:libaums-jni"))
 
     // Cloud live-upload Phase 2 reuses the RAW pipeline's preset + watermark on
     // each captured JPEG: RawPresetsStorage, RawV3ActionReplay.composeMacro,

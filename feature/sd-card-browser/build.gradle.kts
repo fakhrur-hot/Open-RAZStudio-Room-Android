@@ -35,6 +35,8 @@ dependencies {
     // Raw USB Mass Storage (bulk-only transport + FAT) driver for OTG card readers
     // that Android doesn't auto-mount as a StorageVolume. Apache-2.0 licensed.
     implementation("me.jahnen.libaums:core:0.10.0")
+    // Same JNI names as the AAR, rebuilt with 16 KB ELF alignment.
+    implementation(project(":lib:libaums-jni"))
 
     // Shared with Canon Sync's PTP/IP download path so both import pipelines
     // write to disk identically (SafCaptureTarget: staging + atomic rename +

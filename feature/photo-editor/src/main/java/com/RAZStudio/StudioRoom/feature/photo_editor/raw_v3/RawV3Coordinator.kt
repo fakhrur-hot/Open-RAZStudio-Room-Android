@@ -1332,6 +1332,12 @@ class RawV3Coordinator(private val context: Context) {
          */
         val maskLayerPaths: List<String> = emptyList(),
         /**
+         * Canvas mask graph, same list the preview uploads (committed layers,
+         * then the in-flight subject/brush bitmap). Null entries are holes and
+         * must keep their index. When non-null this replaces [maskLayerPaths].
+         */
+        val maskLayerBitmaps: List<android.graphics.Bitmap?>? = null,
+        /**
          * "Apply Auto Expo only" batch mode. When true, the coordinator runs
          * [RawAutoExposure.analyse] on THIS file's decoded preview and folds
          * the derived exposure/highlights/shadows/whites/blacks (+ tonemap
@@ -2076,7 +2082,11 @@ class RawV3Coordinator(private val context: Context) {
         // concatenate (layer i at offset i·W·H) so Stage C applies the same
         // per-region adjustments the GL preview shows. All layers share the
         // dims of the first decoded PNG; mismatched sizes are skipped.
-        val maskBundle = decodeMaskLayers(options.maskLayerPaths)
+        val maskBundle = if (options.maskLayerBitmaps != null) {
+            encodeMaskLayerBitmaps(options.maskLayerBitmaps)
+        } else {
+            decodeMaskLayers(options.maskLayerPaths)
+        }
         // Route A (Camera Color Profile): derive a per-channel auto-matched curve
         // from THIS file's embedded JPEG preview and compose it UNDER the user's
         // tone curve, so the export adopts the in-camera colour while keeping full
@@ -2198,34 +2208,16 @@ class RawV3Coordinator(private val context: Context) {
                 val maskSide = exportBest?.second ?: 0
                 val maskH = exportBest?.third ?: maskSide
                                 val exportDepth = _depthMap.value?.takeIf { !it.isEmpty }
-                var exportFocus = 0.5f
-                if (exportDepth != null) {
-                    val dm = exportDepth
-                    val samples = ArrayList<Float>(4096)
-                    val subj = exportBest?.first
-                    val sw = exportBest?.second ?: 0
-                    val sh = exportBest?.third ?: sw
-                    if (subj != null && sw > 0 && sh > 0) {
-                        if (sw == dm.width && sh == dm.height) {
-                            for (i in dm.depth.indices) if (subj[i] > 0.5f) samples.add(dm.depth[i])
-                        } else {
-                            for (y in 0 until dm.height) {
-                                val my = ((y + 0.5f) * sh / dm.height).toInt().coerceIn(0, sh - 1)
-                                for (x in 0 until dm.width) {
-                                    val mx = ((x + 0.5f) * sw / dm.width).toInt().coerceIn(0, sw - 1)
-                                    if (subj[my * sw + mx] > 0.5f) samples.add(dm.depth[y * dm.width + x])
-                                }
-                            }
-                        }
-                    }
-                    if (samples.isNotEmpty()) {
-                        samples.sort()
-                        exportFocus = samples[samples.size / 2]
-                    } else {
-                        val sorted = dm.depth.copyOf().also { it.sort() }
-                        exportFocus = sorted[sorted.size / 2]
-                    }
-                }
+                val exportFocus = if (exportDepth != null) {
+                    BokehFocusPlane.solve(
+                        subject = exportBest?.first,
+                        subjectW = exportBest?.second ?: 0,
+                        subjectH = exportBest?.third ?: 0,
+                        depth = exportDepth.depth,
+                        depthW = exportDepth.width,
+                        depthH = exportDepth.height,
+                    )
+                } else 0.5f
                 val ok = RawV3Engine.renderGradedOffscreen(
                     stageATifPath = stageATif.absolutePath,
                     actionParams = paramsArr,
@@ -2329,30 +2321,14 @@ class RawV3Coordinator(private val context: Context) {
                 depthMapH         = _depthMap.value?.takeIf { !it.isEmpty }?.height ?: 0,
                 focusDepth        = run {
                     val dm = _depthMap.value?.takeIf { !it.isEmpty } ?: return@run 0.5f
-                    val samples = ArrayList<Float>(4096)
-                    val subj = exportBest?.first
-                    val sw = exportBest?.second ?: 0
-                    val sh = exportBest?.third ?: sw
-                    if (subj != null && sw > 0 && sh > 0) {
-                        if (sw == dm.width && sh == dm.height) {
-                            for (i in dm.depth.indices) if (subj[i] > 0.5f) samples.add(dm.depth[i])
-                        } else {
-                            for (y in 0 until dm.height) {
-                                val my = ((y + 0.5f) * sh / dm.height).toInt().coerceIn(0, sh - 1)
-                                for (x in 0 until dm.width) {
-                                    val mx = ((x + 0.5f) * sw / dm.width).toInt().coerceIn(0, sw - 1)
-                                    if (subj[my * sw + mx] > 0.5f) samples.add(dm.depth[y * dm.width + x])
-                                }
-                            }
-                        }
-                    }
-                    if (samples.isNotEmpty()) {
-                        samples.sort()
-                        samples[samples.size / 2]
-                    } else {
-                        val sorted = dm.depth.copyOf().also { it.sort() }
-                        sorted[sorted.size / 2]
-                    }
+                    BokehFocusPlane.solve(
+                        subject = exportBest?.first,
+                        subjectW = exportBest?.second ?: 0,
+                        subjectH = exportBest?.third ?: 0,
+                        depth = dm.depth,
+                        depthW = dm.width,
+                        depthH = dm.height,
+                    )
                 },
                 maskLayers      = maskBundle?.data,
                 maskLayerW      = maskBundle?.w ?: 0,
@@ -3521,33 +3497,48 @@ class RawV3Coordinator(private val context: Context) {
 
     private fun decodeMaskLayers(paths: List<String>): MaskLayerBundle? {
         if (paths.isEmpty()) return null
-        val bitmaps = paths.take(4).mapNotNull { p ->
+        // Keep a failed path as a hole. Compacting shifted every later
+        // layer onto the previous slot's adjustments.
+        val bitmaps = paths.take(4).map { p ->
             runCatching {
                 com.RAZStudio.StudioRoom.feature.photo_editor.raw.RawMaskStorage.loadFromPath(p)
             }.getOrNull()
         }
-        if (bitmaps.isEmpty()) return null
-        // Cap the working size so a 24MP mask doesn't blow memory; the kernel
-        // bilinearly samples by uv so a downscaled mask is fine.
+        return packMaskBitmaps(bitmaps)
+    }
+
+    /**
+     * Same packing as [decodeMaskLayers], from the bitmaps the canvas already
+     * uploaded. Null entries stay as transparent planes so layer indexes match
+     * the adjustment slots. Inputs are not recycled — the preview still owns them.
+     */
+    private fun encodeMaskLayerBitmaps(
+        layers: List<android.graphics.Bitmap?>,
+    ): MaskLayerBundle? = packMaskBitmaps(layers.take(4))
+
+    private fun packMaskBitmaps(
+        bitmaps: List<android.graphics.Bitmap?>,
+    ): MaskLayerBundle? {
+        val seed = bitmaps.firstOrNull { it != null } ?: return null
         val maxSide = 1024
-        val first = bitmaps[0]
-        val scale = minOf(maxSide.toFloat() / first.width, maxSide.toFloat() / first.height, 1f)
-        val w = (first.width * scale).toInt().coerceAtLeast(1)
-        val h = (first.height * scale).toInt().coerceAtLeast(1)
+        val scale = minOf(maxSide.toFloat() / seed.width, maxSide.toFloat() / seed.height, 1f)
+        val w = (seed.width * scale).toInt().coerceAtLeast(1)
+        val h = (seed.height * scale).toInt().coerceAtLeast(1)
         val plane = w * h
         val count = bitmaps.size
         val out = FloatArray(plane * count)
         val px = IntArray(plane)
         for (i in 0 until count) {
-            val scaled = if (bitmaps[i].width != w || bitmaps[i].height != h)
-                android.graphics.Bitmap.createScaledBitmap(bitmaps[i], w, h, true)
-            else bitmaps[i]
+            val src = bitmaps[i] ?: continue
+            val scaled = if (src.width != w || src.height != h)
+                android.graphics.Bitmap.createScaledBitmap(src, w, h, true)
+            else src
             scaled.getPixels(px, 0, w, 0, 0, w, h)
             val base = plane * i
             for (j in 0 until plane) {
-                out[base + j] = ((px[j] ushr 24) and 0xFF) / 255f  // alpha → [0,1]
+                out[base + j] = ((px[j] ushr 24) and 0xFF) / 255f
             }
-            if (scaled !== bitmaps[i]) scaled.recycle()
+            if (scaled !== src) scaled.recycle()
         }
         return MaskLayerBundle(out, w, h, count)
     }

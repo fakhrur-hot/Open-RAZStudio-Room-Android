@@ -1158,6 +1158,42 @@ class RawEditorComponent @AssistedInject internal constructor(
         persistActionsDebounced()
     }
 
+    /** Live pinch on the preview while Move flare is on. Size stays 0.1..5. */
+    fun updateLensFlareSize(size: Float) {
+        val fxTab = com.RAZStudio.StudioRoom.feature.photo_editor
+            .presentation.raw.components.TAB_EFFECTS
+        val idxHit = actions.indexOfFirst {
+            it.id != RawAction.ORIGINAL_ID && it.maskPath == null && it.tabIndex == fxTab &&
+                it.macro.lensFlare.brightness > 0f
+        }
+        val idx = if (idxHit >= 0) idxHit else actions.indexOfFirst {
+            it.id != RawAction.ORIGINAL_ID && it.maskPath == null && it.tabIndex == fxTab
+        }
+        if (idx < 0) return
+        val old = actions[idx]
+        actions[idx] = old.copy(
+            macro = old.macro.copy(
+                lensFlare = old.macro.lensFlare.copy(size = size.coerceIn(0.1f, 5f)),
+            ),
+        )
+        rebuildShaderParams()
+        persistActionsDebounced()
+    }
+
+    fun currentLensFlareSize(): Float {
+        val fxTab = com.RAZStudio.StudioRoom.feature.photo_editor
+            .presentation.raw.components.TAB_EFFECTS
+        val idxHit = actions.indexOfFirst {
+            it.id != RawAction.ORIGINAL_ID && it.maskPath == null && it.tabIndex == fxTab &&
+                it.macro.lensFlare.brightness > 0f
+        }
+        val idx = if (idxHit >= 0) idxHit else actions.indexOfFirst {
+            it.id != RawAction.ORIGINAL_ID && it.maskPath == null && it.tabIndex == fxTab
+        }
+        if (idx < 0) return 1f
+        return actions[idx].macro.lensFlare.size
+    }
+
     /**
      * Re-insert [action] at [originalIndex] in the stack — used by
      * the Actions-tap-to-edit Cancel path so the restored card lands
@@ -1665,6 +1701,51 @@ class RawEditorComponent @AssistedInject internal constructor(
      * Called whenever the action stack changes so Apply doesn't leave a
      * stale texture.
      */
+    /**
+     * The ordered mask stack the canvas uploads: committed layers (node
+     * composite when [RawAction.maskNodes] is set, otherwise the PNG cache),
+     * then the live in-flight bitmap. Export must pass this same list.
+     */
+    internal fun canvasMaskBitmaps(): List<android.graphics.Bitmap?> {
+        val committedActions = RawV3ActionReplay.maskLayers(actions.toList())
+        val published = masking.maskLayerBitmaps.value
+        val committed = committedActions.mapIndexed { i, action ->
+            published.getOrNull(i) ?: bitmapForMaskAction(action)
+        }
+        // publishMaskLayers copies the last committed bitmap into maskBitmap.
+        // That copy is not a new layer. Append only a distinct in-flight bitmap,
+        // in the same bottom-to-top order applyMaskLayers uses.
+        val live = masking.maskBitmap.value
+        val inflight = live != null && live !== committed.lastOrNull()
+        val stacked = if (inflight) committed + live else committed
+        if (stacked.size > com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.ShaderParams.MASK_LAYER_COUNT) {
+            android.util.Log.w(
+                TAG,
+                "mask stack ${stacked.size} exceeds 4; keeping the newest 4",
+            )
+        }
+        return stacked.takeLast(
+            com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.ShaderParams.MASK_LAYER_COUNT,
+        )
+    }
+
+    private fun bitmapForMaskAction(action: com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.RawAction): android.graphics.Bitmap? {
+        if (action.maskNodes.isNotEmpty()) {
+            val neutral = neutralBitmap
+            if (neutral != null) {
+                return com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.rebuildCompositeFromNodes(
+                    neutral = neutral,
+                    nodes = action.maskNodes,
+                    modelMaskResolver = { cls -> resolveMaskForClass(cls) },
+                    edgeMaskResolver = { masking.segmentationMasks.value?.edgeMask },
+                )
+            }
+        }
+        return action.maskPath?.let {
+            com.RAZStudio.StudioRoom.feature.photo_editor.raw.RawMaskStorage.loadFromPath(it)
+        }
+    }
+
     private fun publishTopmostMaskBitmap(list: List<RawAction>) {
         val layerActions = RawV3ActionReplay.maskLayers(list)
         if (layerActions.isEmpty()) {
@@ -1674,24 +1755,7 @@ class RawEditorComponent @AssistedInject internal constructor(
             }
             return
         }
-        val bitmaps = layerActions.map { action ->
-            if (action.maskNodes.isNotEmpty()) {
-                // M12.2c.6 — Rebuild from graph. Center of "User Action -> MaskNode -> MaskGraph"
-                neutralBitmap?.let { neutral ->
-                    com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.rebuildCompositeFromNodes(
-                        neutral = neutral,
-                        nodes = action.maskNodes,
-                        modelMaskResolver = { cls -> resolveMaskForClass(cls) },
-                        edgeMaskResolver = { masking.segmentationMasks.value?.edgeMask }
-                    )
-                }
-            } else {
-                action.maskPath?.let {
-                    com.RAZStudio.StudioRoom.feature.photo_editor.raw
-                        .RawMaskStorage.loadFromPath(it)
-                }
-            }
-        }
+        val bitmaps = layerActions.map { bitmapForMaskAction(it) }
         masking.publishMaskLayers(bitmaps)
     }
 
@@ -2376,6 +2440,7 @@ class RawEditorComponent @AssistedInject internal constructor(
                             resolvedLutIntensity = params.lutIntensity.coerceIn(0f, 1f),
                             autoBrightFactor = autoBrightFactor,
                             shaderParams = params,
+                maskLayerBitmaps = canvasMaskBitmaps(),
                             cameraMatchLutOverride = cameraMatchLut,
                             directOutputFile = out,
                         ),
@@ -2561,6 +2626,7 @@ class RawEditorComponent @AssistedInject internal constructor(
                     directOutputFile = tmp,
                     autoBrightFactor = autoBrightFactor,
                     shaderParams = params,
+                maskLayerBitmaps = canvasMaskBitmaps(),
                 ),
             )
             if (result !is RawV3Coordinator.ExportResult.Success) return null
@@ -2732,6 +2798,7 @@ class RawEditorComponent @AssistedInject internal constructor(
                 resolvedLutIntensity = lutIntensity,
                 autoBrightFactor = autoBrightFactor,
                 shaderParams = params,
+                maskLayerBitmaps = canvasMaskBitmaps(),
                 // Route A: hand the export the EXACT camera-match curve the live
                 // preview is using, so the save matches the canvas (no recompute
                 // off a downscaled embedded JPEG → no duller/less-saturated drift).

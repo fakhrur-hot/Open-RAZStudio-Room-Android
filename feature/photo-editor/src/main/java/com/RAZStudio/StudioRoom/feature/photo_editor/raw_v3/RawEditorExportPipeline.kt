@@ -94,6 +94,8 @@ object RawEditorExportPipeline {
         forceSubjectDetection: Boolean = false,
         autoBrightFactor: Float = 1f,
         shaderParams: ShaderParams? = null,
+        /** Canvas mask stack, including the in-flight layer. Null = decode paths. */
+        maskLayerBitmaps: List<android.graphics.Bitmap?>? = null,
         // Route A: the editor's exact camera-match curve (preview's), passed so
         // the save uses it verbatim instead of recomputing (preview == save).
         cameraMatchLutOverride: ByteArray? = null,
@@ -182,6 +184,7 @@ object RawEditorExportPipeline {
             lutCubeFile = lutFile,
             lutIntensity = lutIntensity,
             maskLayerPaths = maskLayerPaths,
+            maskLayerBitmaps = maskLayerBitmaps,
             autoExposure = autoExposure,
             aeBaked = aeBaked,
             aeSubjectProtection = aeSubjectProtection,

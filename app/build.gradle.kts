@@ -172,6 +172,10 @@ android {
             keepDebugSymbols.add("**/*.so")
             pickFirsts.add("lib/*/libcoder.so")
             pickFirsts.add("**/libc++_shared.so")
+            // Project rebuild (lib/libaums-jni) wins over the 4 KB AAR copies.
+            // Subproject native libs are merged before external AARs.
+            pickFirsts.add("**/libusb-lib.so")
+            pickFirsts.add("**/liberrno-lib.so")
             pickFirsts.add("**/libdatstore_shared_counter.so")
             useLegacyPackaging = true
         }
@@ -191,7 +195,7 @@ android {
 }
 
 base {
-    archivesName = "Open_RAZStudio_Room-${android.defaultConfig.versionName}"
+    archivesName = "RAZStudio_Room-${android.defaultConfig.versionName}"
 }
 
 aboutLibraries {

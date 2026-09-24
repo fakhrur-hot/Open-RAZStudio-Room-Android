@@ -478,7 +478,30 @@ fun RawEditorContent(component: RawEditorComponent) {
     fun setMaskColorFeather(v: Float) = component.masking.setMaskColorFeather(v)
     fun setMaskColorTolerance(v: Float) = component.masking.setMaskColorTolerance(v)
 
+    /** Refuse a fifth mask before any in-flight layer is created. */
+    fun beginMaskEditOrWarn(): Boolean {
+        val publishedLast = component.masking.maskLayerBitmaps.value.lastOrNull()
+        val paintingNew = maskBitmap != null && maskBitmap !== publishedLast
+        val continuing = paintingNew ||
+            deltaMacro.maskLumSpread > 0f ||
+            primaryIsLuma || primaryIsChroma ||
+            includedMaskClasses.isNotEmpty() ||
+            primaryMaskClass != null
+        if (continuing) return true
+        val committed = component.masking.maskLayerBitmaps.value.count { it != null }
+        if (committed >= com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.ShaderParams.MASK_LAYER_COUNT) {
+            android.widget.Toast.makeText(
+                context,
+                "Maximum 4 masks supported. Delete a mask before creating another.",
+                android.widget.Toast.LENGTH_LONG,
+            ).show()
+            return false
+        }
+        return true
+    }
+
     fun bakeInvertedLuminance(target: Float, spread: Float, feather: Float) {
+        if (!beginMaskEditOrWarn()) return
         val neutral = component.neutralBitmap ?: return
         maskJob?.cancel()
         maskJob = scope.launch(Dispatchers.Default) {
@@ -1020,7 +1043,7 @@ fun RawEditorContent(component: RawEditorComponent) {
                                         ch.consume()
                                     }
                                 }
-                                if (!didTransform && strokePoints.isNotEmpty()) {
+                                if (!didTransform && strokePoints.isNotEmpty() && beginMaskEditOrWarn()) {
                                     if (strokePoints.size == 1) {
                                         val p = strokePoints[0]
                                         bmCanvas.drawLine(p.first, p.second, p.first, p.second, paint)
@@ -1160,16 +1183,29 @@ fun RawEditorContent(component: RawEditorComponent) {
                             }
                             awaitEachGesture {
                                 val down = awaitFirstDown(requireUnconsumed = false)
-                                val (nx, ny) = screenToNorm(down.position)
-                                component.updateLensFlarePosition(nx * 2f - 1f, ny * 2f - 1f)
                                 down.consume()
+                                var pinchBase = 0f
+                                var sizeAtPinch = 1f
                                 while (true) {
                                     val evt = awaitPointerEvent()
-                                    val ch = evt.changes.firstOrNull { it.id == down.id } ?: break
-                                    if (!ch.pressed) break
-                                    val (mx, my) = screenToNorm(ch.position)
-                                    component.updateLensFlarePosition(mx * 2f - 1f, my * 2f - 1f)
-                                    ch.consume()
+                                    val pressed = evt.changes.filter { it.pressed }
+                                    if (pressed.isEmpty()) break
+                                    if (pressed.size >= 2) {
+                                        val dist = (pressed[1].position - pressed[0].position).getDistance()
+                                        if (pinchBase <= 0f) {
+                                            pinchBase = dist.coerceAtLeast(1f)
+                                            sizeAtPinch = component.currentLensFlareSize()
+                                        } else {
+                                            val next = sizeAtPinch * (dist / pinchBase)
+                                            component.updateLensFlareSize(next)
+                                        }
+                                        pressed.forEach { it.consume() }
+                                    } else {
+                                        pinchBase = 0f
+                                        val (mx, my) = screenToNorm(pressed[0].position)
+                                        component.updateLensFlarePosition(mx * 2f - 1f, my * 2f - 1f)
+                                        pressed[0].consume()
+                                    }
                                 }
                             }
                         }
@@ -1277,6 +1313,7 @@ fun RawEditorContent(component: RawEditorComponent) {
                                                 tapXSrc = cx, tapYSrc = cy,
                                                 radiusSrcPx = rSrc,
                                                 masks = segmentationMasksV3OuterScope,
+                                                protectBitmap = maskBitmap,
                                             )
                                         runCatching {
                                             com.RAZStudio.opencv_tools.spot_heal.SpotHealer.heal(
@@ -1518,6 +1555,9 @@ fun RawEditorContent(component: RawEditorComponent) {
                     // alongside the Mask tab port (segmentation is
                     // already wired by M12.2a but the brush UI isn't).
                     val stageAPath by component.stageATifPathFlow.collectAsState()
+                    androidx.compose.runtime.LaunchedEffect(stageAPath) {
+                        if (!stageAPath.isNullOrEmpty()) component.ensureSegmentation()
+                    }
                     val previewDims by component.previewDimsFlow.collectAsState()
                     val params      by component.shaderParamsFlow.collectAsState()
                     val lutPath     by component.lutCubePathFlow.collectAsState()
@@ -1534,7 +1574,7 @@ fun RawEditorContent(component: RawEditorComponent) {
                             macro           = composedMacro,
                             stageATifPath   = path,
                             lutCubePath     = lutPath,
-                            brushMaskLayers = maskLayersForBake,
+                            brushMaskLayers = component.canvasMaskBitmaps(),
                             toneCurveLut    = toneCurveLut,
                             knownSrcWidth   = dims?.first ?: 0,
                             knownSrcHeight  = dims?.second ?: 0,
@@ -1652,10 +1692,7 @@ fun RawEditorContent(component: RawEditorComponent) {
                                 // during a fresh session is achieved by zeroing the
                                 // COMMITTED layers' params (see effectiveParams
                                 // above), not by dropping their textures.
-                                brushMaskLayers = if (maskBitmap != null)
-                                    (committedMaskLayers + maskBitmap).takeLast(4)
-                                else
-                                    committedMaskLayers,
+                                brushMaskLayers = component.canvasMaskBitmaps(),
                                 onAhbBound = { ahb -> component.setStageBAhb(ahb) },
                                 onImageSize = { w, h ->
                                     if (h > 0) imageAspect = w.toFloat() / h.toFloat()
@@ -2162,14 +2199,24 @@ fun RawEditorContent(component: RawEditorComponent) {
         },
         onHealCancel = { component.healing.cancelHeal() },
         onSaveEditAsLut = { name -> component.exportEditAsLut(name) },
-        onMaskModeActive = { setIsMaskModeActive(it) },
+        onMaskModeActive = {
+            if (it && !beginMaskEditOrWarn()) return@RawEditorPanel
+            setIsMaskModeActive(it)
+        },
         onShowMaskOverlayChange = { newShow ->
+            if (newShow && !beginMaskEditOrWarn()) return@RawEditorPanel
             setIsMaskModeActive(newShow)
             if (!newShow) setBrushMode(MaskBrushMode.None)
         },
-        onBrushModeChange = { setBrushMode(it) },
+        onBrushModeChange = {
+            if (it != MaskBrushMode.None &&
+                !beginMaskEditOrWarn()
+            ) return@RawEditorPanel
+            setBrushMode(it)
+        },
         onSharpSpreadChange = { setSharpSpread(it) },
         onFillSharp = {
+            if (!beginMaskEditOrWarn()) return@RawEditorPanel
             android.util.Log.d("MaskInstance", "GRAPH ADD SharpSubject spread=$sharpSpread")
             component.masking.pushMaskNode(
                 MaskNode(
@@ -2296,6 +2343,7 @@ fun RawEditorContent(component: RawEditorComponent) {
             component.masking.clearMaskGraph()
         },
         onFillSubject = {
+            if (!beginMaskEditOrWarn()) return@RawEditorPanel
             val isPrime = primaryMaskClass == null &&
                 !primaryIsLuma && !primaryIsChroma &&
                 deltaMacro.maskLumSpread <= 0f && maskColorSamples.isEmpty()
@@ -2330,6 +2378,7 @@ fun RawEditorContent(component: RawEditorComponent) {
         // Background = everything EXCEPT the subject (invert-of-subject):
         // "select all but the person" in one tap.
         onFillBackground = {
+            if (!beginMaskEditOrWarn()) return@RawEditorPanel
             val isPrime = primaryMaskClass == null &&
                 !primaryIsLuma && !primaryIsChroma &&
                 deltaMacro.maskLumSpread <= 0f && maskColorSamples.isEmpty()
@@ -2407,6 +2456,7 @@ fun RawEditorContent(component: RawEditorComponent) {
             }
         },
         onFillDetectedClass = { cls ->
+            if (!beginMaskEditOrWarn()) return@RawEditorPanel
             val isPrime = primaryMaskClass == null &&
                 !primaryIsLuma && !primaryIsChroma &&
                 deltaMacro.maskLumSpread <= 0f && maskColorSamples.isEmpty()
@@ -2478,6 +2528,7 @@ fun RawEditorContent(component: RawEditorComponent) {
             component.masking.clearMaskGraph()
         },
         onAddLuma = {
+            if (!beginMaskEditOrWarn()) return@RawEditorPanel
             val hasBitmapBase = maskBitmap != null ||
                 includedMaskClasses.isNotEmpty() || primaryMaskClass != null
             val combine = when {
@@ -2523,6 +2574,7 @@ fun RawEditorContent(component: RawEditorComponent) {
             }
         },
         onAddChroma = {
+            if (!beginMaskEditOrWarn()) return@RawEditorPanel
             val hasBitmapBase = maskBitmap != null ||
                 includedMaskClasses.isNotEmpty() || primaryMaskClass != null ||
                 deltaMacro.maskLumSpread > 0f
