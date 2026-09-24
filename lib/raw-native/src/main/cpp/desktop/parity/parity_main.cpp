@@ -56,7 +56,7 @@ constexpr int H = 256;
 // blob[kParamCount]` on the stack, and every param above 409 silently read
 // back as 0 — so a case exercising one of them PASSED while testing
 // nothing at all (both sides were no-ops and therefore agreed).
-constexpr int kParamCount = 461;   // ShaderParams.kt FLOAT_COUNT
+constexpr int kParamCount = 501;   // ShaderParams.kt FLOAT_COUNT
 
 // ── Synthetic test image ─────────────────────────────────────────────────────
 // Gamma-encoded sRGB in [0,1], the domain Stage A's FP16 cache holds and both

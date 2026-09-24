@@ -67,6 +67,11 @@ struct ShaderParams {
     float ortonStrength  = 0.f; // [209] 0..1 — Orton soft-focus bloom
     float mistTightness  = 0.55f; // [447] Pro-Mist mip1↔mip2 bias
     float mistHalation   = 0.f;   // [448] R/B channel offset 0..1
+    float opticalSpread    = 0.f; // [461] 0..1 extra spread. 0 = no extra samples
+    float opticalHalation  = 0.f; // [462] 0..1 red-weighted contribution
+    float opticalDirection = 0.f; // [463] 0 Off, 1 Horizontal, 2 Radial
+    float highlightStart   = 0.78f; // [484]
+    float highlightEnd     = 0.98f; // [485]
     float bloomRadius    = 8.f; // [205] 0..24  — Vogel-disc sample radius
     float bloomShape     = 1.f; // [206] 0.4..1.6 — anamorphic ratio (1 = circle)
     float filmRolloff    = 0.f; // [207] 0..1   — film-style highlight shoulder
@@ -104,6 +109,7 @@ struct ShaderParams {
     float clarityLift      = 0.f;  // slot 408 (clarityLift) — img.ly midtone pop coupling
     float centerPop        = 0.f;  // [252] radial-masked clarity
     float toneCurveLumaMode = 0.f; // [210] 0=per-channel, 1=luma-only L curve
+    float filmHighlightKnee = 0.f;  // [499] 0..1, luma shoulder after the tone LUT
 
     // ── PREQ-Port additions ──────────────────────────────────────────────────
     float hslFull[24]      = {0};  // [253..276] 8 anchors × (h,s,l)
@@ -114,6 +120,7 @@ struct ShaderParams {
     float detailGrainRoughness = 0.f; // [341]
     float detailSharpenMask    = 0.f; // [342]
     float colorDensity         = 0.f; // [343]
+    float filmSeparation       = 0.f; // [500] OKLCh chroma −1..+1
     float skintoneWarm         = 0.f; // [344]
     float skintoneSmooth       = 0.f; // [345]
     float skintoneLuma         = 0.f; // [346]
@@ -157,6 +164,15 @@ struct ShaderParams {
     float lensFlareSize        = 1.f;   // [430]
     float lensFlareSpread      = 1.f;   // [431]
     float lensFlareWarmth      = 0.f;   // [435]
+    float lensFlareDistance    = 1.f;   // [464] 0 far .. 1 near
+    float lensFlareHood        = 0.f;   // [465] 0..1
+    float sceneDistance        = 0.5f;  // [466]
+    float shadowStrength       = 0.f;   // [467]
+    float shadowSoftness       = 0.5f;  // [468]
+    float starburst            = 0.f;   // [480]
+    float irisBlades           = 0.f;   // [481]
+    float irisRotation         = 0.f;   // [482]
+    float irisRoundness        = 1.f;   // [483]
     // OpenShot ColorShift (horizontal RGB split).
     float colorShiftRedX       = 0.f;   // [432]
     float colorShiftGreenX     = 0.f;   // [433]
@@ -292,6 +308,10 @@ struct ShaderParams {
     float filmGrain       = 0.f;   // [153] [0..1] amount
     float filmGrainSize   = 0.5f;  // [154] [0..1] block size
     float filmGrainWash   = 0.f;   // [156] [0..1] faded-film wash-out
+    float grainEx[13] = {0.f,0.f,0.f,0.f,0.f,0.f, 0.f,1.f,1.f,1.f, 0.f,1.f,0.f};
+    // [486] structure [487] chroma [488] hiSuppress [489] shadowBoost [490] edge
+    // [491] seed [492] cloud [493] shadowCurve [494] midCurve [495] hiCurve
+    // [496] lightInfluence [497] shadowResponse [498] relightSuppress
     // slots 155 (uniformity) and 209 (style) removed.
 
     // ── Per-segment levels (Normalize for 3Dlut) ────────────────────────
@@ -329,7 +349,7 @@ struct ShaderParams {
     // Kept in lockstep with ShaderParams.kt FLOAT_COUNT. This had drifted
     // to 410 while Kotlin was already sending 435, which is exactly the
     // kind of gap that makes a slot look free when it is not.
-    static constexpr int FLOAT_COUNT = 461;  // highest used slot [460] jpegRefineDetail
+    static constexpr int FLOAT_COUNT = 501;  // [500] filmSeparation
     static ShaderParams fromFloatArray(const float* arr, int count);
 };
 
@@ -739,6 +759,8 @@ private:
     int    bloomBaseH_     = 0;
     GLint  uBloomDownSrcLoc_ = -1;
     GLint  uBloomDownThresholdLoc_ = -1;
+    GLint  uBloomHighlightStartLoc_ = -1;
+    GLint  uBloomHighlightEndLoc_ = -1;
     GLint  uBloomUpSrcLoc_   = -1;
     GLint  uBloomUpRadiusLoc_ = -1;
     GLint  uBloomUpWeightLoc_ = -1;
@@ -800,6 +822,12 @@ private:
     GLint uOrtonStrengthLoc_  = -1;
     GLint uMistTightnessLoc_  = -1;
     GLint uMistHalationLoc_   = -1;
+    GLint uOpticalSpreadLoc_    = -1;
+    GLint uOpticalHalationLoc_  = -1;
+    GLint uOpticalDirectionLoc_ = -1;
+    GLint uHighlightStartLoc_ = -1;
+    GLint uHighlightEndLoc_ = -1;
+    GLint uOpticalDensityLoc_   = -1;
     GLint uBloomRadiusLoc_    = -1;
     GLint uBloomShapeLoc_     = -1;
     GLint uFilmRolloffLoc_    = -1;
@@ -975,6 +1003,7 @@ private:
     GLint  uToneCurveTexLoc_     = -1;
     GLint  uToneCurveEnabledLoc_ = -1;
     GLint  uToneCurveLumaModeLoc_ = -1;
+    GLint  uFilmHighlightKneeLoc_ = -1;
 
     // ── Vintage FX overlays (units selected by shader capability config) ─
     GLuint fxVintageMistTex_   = 0;
@@ -996,6 +1025,7 @@ private:
     GLint  uFilmGrainLoc_       = -1;
     GLint  uFilmGrainSizeLoc_   = -1;
     GLint  uFilmGrainWashLoc_   = -1;
+    GLint  uGrainExLoc_         = -1;
     GLint  uGrainSeedLoc_       = -1;
     GLint  uImageSizeLoc_       = -1;
 
@@ -1022,6 +1052,7 @@ private:
     GLint  uDetailSharpenMaskLoc_    = -1;
     // Color
     GLint  uColorDensityLoc_        = -1;
+    GLint  uFilmSeparationLoc_      = -1;
     GLint  uSkintoneLoc_            = -1;  // vec3 (warm, smooth, luma)
     // Tonal
     GLint  uMidtoneDetailsLoc_      = -1;
@@ -1062,6 +1093,16 @@ private:
     GLint  uLensFlareSizeLoc_       = -1;
     GLint  uLensFlareSpreadLoc_     = -1;
     GLint  uLensFlareWarmthLoc_     = -1;
+    GLint  uLensFlareDistanceLoc_   = -1;
+    GLint  uLensFlareHoodLoc_       = -1;
+    GLint  uSceneDistanceLoc_       = -1;
+    GLint  uShadowStrengthLoc_      = -1;
+    GLint  uShadowSoftnessLoc_      = -1;
+    GLint  uStarburstLoc_            = -1;
+    GLint  uIrisBladesLoc_           = -1;
+    GLint  uIrisRotationLoc_         = -1;
+    GLint  uIrisRoundnessLoc_        = -1;
+    GLint  uShadowAspectLoc_        = -1;
     GLint  uColorShiftRedXLoc_      = -1;
     GLint  uColorShiftGreenXLoc_    = -1;
     GLint  uColorShiftBlueXLoc_     = -1;
@@ -1111,6 +1152,11 @@ private:
     float lastBloomGlow_       = 0.f;
     float lastBloomTight_      = -1.f;
     float lastBloomHalation_   = -1.f;
+    float lastOpticalSpread_    = 0.f;
+    float lastOpticalHalation_  = 0.f;
+    float lastOpticalDirection_ = 0.f;
+    float lastHighlightStart_ = 0.78f;
+    float lastHighlightEnd_ = 0.98f;
     float lastNrSlot147_       = 0.f;
     float lastNrSlot148_       = 0.f;
 

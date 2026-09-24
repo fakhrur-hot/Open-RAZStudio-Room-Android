@@ -20,7 +20,6 @@ package com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.component
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -43,7 +42,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.RAZStudio.StudioRoom.core.resources.R
-import com.RAZStudio.StudioRoom.core.ui.widget.enhanced.EnhancedChip
 import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.UserMacro
 
 @Composable
@@ -94,44 +92,14 @@ internal fun RawColorTab(
     val effectiveKelvin = (effectiveAsShot + macro.whiteBalance).coerceIn(2000, 12000)
 
     Column(modifier = modifier) {
-        // Color Pop strength — Off / Low / Med / High (replaces the old on/off).
-        // Scales the whole effect (auto-WB stretch + Lab-L lift + chroma boost);
-        // lower levels lift brightness less. High == the original full effect.
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
-            Text(
-                text = stringResource(R.string.raw_smart_color_enhance),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.height(6.dp))
-            val current = macro.smartColorEnhance
-            // Bucket the stored strength to the nearest level for the selected chip.
-            val selectedValue = when {
-                current <= 0f                       -> 0f
-                current <= UserMacro.COLOR_POP_LOW  -> UserMacro.COLOR_POP_LOW
-                current <= UserMacro.COLOR_POP_MED  -> UserMacro.COLOR_POP_MED
-                else                                -> UserMacro.COLOR_POP_HIGH
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(
-                    "Off"  to 0f,
-                    "Low"  to UserMacro.COLOR_POP_LOW,
-                    "Med"  to UserMacro.COLOR_POP_MED,
-                    "High" to UserMacro.COLOR_POP_HIGH,
-                ).forEach { (label, value) ->
-                    EnhancedChip(
-                        selected = selectedValue == value,
-                        onClick  = { onMacroChange(macro.copy(smartColorEnhance = value)) },
-                        label    = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                        selectedColor          = MaterialTheme.colorScheme.primaryContainer,
-                        selectedContentColor   = MaterialTheme.colorScheme.onPrimaryContainer,
-                        unselectedContentColor = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-        }
+        RawSliderRow(
+            label = stringResource(R.string.raw_smart_color_enhance),
+            value = macro.smartColorEnhance * 100f,
+            valueRange = 0f..100f,
+            step = 1f,
+            onValueChange = { onMacroChange(macro.copy(smartColorEnhance = it / 100f)) },
+            displayValue = "${(macro.smartColorEnhance * 100f).toInt()}",
+        )
         // AI Color Enhance toggle — shows/hides the per-image AI-fusion
         // (Zero-DCE + histogram) auto-enhance card (_ai_color_enhance).
         Row(
@@ -280,6 +248,18 @@ internal fun RawColorTab(
                 .padding(top = 8.dp, bottom = 4.dp),
         )
         ColorGradingSection(macro = macro, onMacroChange = onMacroChange)
+        Spacer(Modifier.height(8.dp))
+        RawSliderRow(
+            label = "Separation",
+            value = macro.filmResponse.separation,
+            valueRange = -100f..100f,
+            step = 1f,
+            onValueChange = {
+                onMacroChange(macro.copy(filmResponse = macro.filmResponse.copy(separation = it)))
+            },
+            displayValue = (if (macro.filmResponse.separation > 0f) "+" else "") +
+                macro.filmResponse.separation.toInt(),
+        )
 
         TabResetButton(RawTabId.Color, macro, onMacroChange)
     }

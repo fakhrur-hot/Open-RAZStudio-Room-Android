@@ -177,6 +177,7 @@ struct ApplyMacroParams {
     float hslFull[24]      = {};   // [253..276] 8 anchors × (hShift,sShift,lShift)
     float detailGrainRoughness = 0.f; // [341]
     float colorDensity     = 0.f;  // [343]
+    float filmSeparation   = 0.f;  // [500] OKLCh chroma −1..+1
     float skintoneWarm     = 0.f;  // [344]
     float skintoneSmooth   = 0.f;  // [345]
     float skintoneLuma     = 0.f;  // [346]
@@ -215,6 +216,11 @@ struct ApplyMacroParams {
     // Filmic / Pro-Mist bloom (append-only ABI).
     float mistTightness      = 0.55f; // [447] mip1↔mip2 bias
     float mistHalation       = 0.f;   // [448] R/B channel offset 0..1
+    float opticalSpread      = 0.f;   // [461]
+    float opticalHalation    = 0.f;   // [462]
+    float opticalDirection   = 0.f;   // [463]
+    float highlightStart     = 0.78f; // [484]
+    float highlightEnd       = 0.98f; // [485]
 
     // OpenShot lens flare (procedural additive).
     float lensFlareX          = -0.5f; // [400]
@@ -223,6 +229,15 @@ struct ApplyMacroParams {
     float lensFlareSize       = 1.f;   // [430]
     float lensFlareSpread     = 1.f;   // [431]
     float lensFlareWarmth     = 0.f;   // [435]
+    float lensFlareDistance   = 1.f;   // [464] 0 far .. 1 near
+    float lensFlareHood       = 0.f;   // [465] 0..1
+    float sceneDistance       = 0.5f;  // [466] 0 far .. 1 near
+    float shadowStrength      = 0.f;   // [467] 0..1
+    float shadowSoftness      = 0.5f;  // [468] 0..1
+    float starburst           = 0.f;   // [480] 0..1
+    float irisBlades          = 0.f;   // [481]
+    float irisRotation        = 0.f;   // [482]
+    float irisRoundness       = 1.f;   // [483]
     // OpenShot ColorShift (horizontal RGB split, uv-fraction offset).
     float colorShiftRedX      = 0.f;   // [432]
     float colorShiftGreenX    = 0.f;   // [433]
@@ -309,6 +324,9 @@ struct ApplyMacroParams {
     // export kernel did not, so a photo curved in Luma mode saved with visibly
     // different saturation than the preview (fixed 2026-09-07).
     bool toneCurveLumaMode = false;
+    // Slot [499]. Curves-tab highlight shoulder, 0..1. Applied to luma after
+    // the tone LUT. 0 skips it.
+    float filmHighlightKnee = 0.f;
 };
 
 /** Optional U2Net subject mask for Stage C. Row-major [0,1] floats.
@@ -515,5 +533,12 @@ struct VintageFxBake {
 };
 VintageFxBake& vintageFxBake();
 void setVintageFxBake(bool film, const uint8_t* bytes, int nbytes, int width, int height);
+
+/** In-place RGB flare for a caller-owned bitmap. Intensity 0 is a no-op. */
+void applyLensFlareImage(float* rgb, int w, int h,
+                         float fx, float fy, float bright, float size, float spread,
+                         float warmth, float distanceZ, float hood,
+                         float starburst = 0.f, float blades01 = 0.f,
+                         float irisRot = 0.f, float roundness = 1.f);
 
 }  // namespace raw_v3

@@ -35,6 +35,7 @@ import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.FilmResponse
 import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.HslExtended
 import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.ColorWheel
 import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.LensFlare
+import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.SceneShadow
 import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.MaskToneRegions
 import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.UserMacro
 import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.VignetteEffect
@@ -463,6 +464,15 @@ object SidecarXmpSerializer {
         put("lensFlareSize",       m.lensFlare.size.toDouble())
         put("lensFlareSpread",     m.lensFlare.spread.toDouble())
         put("lensFlareWarmth",     m.lensFlare.warmth.toDouble())
+        put("lensFlareDistance",   m.lensFlare.distance.toDouble())
+        put("lensFlareHood",       m.lensFlare.hood.toDouble())
+        put("lensFlareStarburst",  m.lensFlare.starburst.toDouble())
+        put("lensFlareBlades",     m.lensFlare.blades.toDouble())
+        put("lensFlareRotation",   m.lensFlare.rotation.toDouble())
+        put("lensFlareRoundness",  m.lensFlare.roundness.toDouble())
+        put("sceneDistance",       m.sceneShadow.distance.toDouble())
+        put("shadowStrength",      m.sceneShadow.strength.toDouble())
+        put("shadowSoftness",      m.sceneShadow.softness.toDouble())
         put("colorShiftRedX",      m.colorShift.redX.toDouble())
         put("colorShiftGreenX",    m.colorShift.greenX.toDouble())
         put("colorShiftBlueX",     m.colorShift.blueX.toDouble())
@@ -599,6 +609,7 @@ object SidecarXmpSerializer {
         put("filmGrayBlue", m.filmResponse.grayBlue.toDouble())
         put("filmGrayPurple", m.filmResponse.grayPurple.toDouble())
         put("filmGrayMagenta", m.filmResponse.grayMagenta.toDouble())
+        put("filmSeparation", m.filmResponse.separation.toDouble())
         put("cgGlobalR", m.cgGlobal.r.toDouble())
         put("cgGlobalG", m.cgGlobal.g.toDouble())
         put("cgGlobalB", m.cgGlobal.b.toDouble())
@@ -820,6 +831,17 @@ object SidecarXmpSerializer {
                 size       = obj.optFloat("lensFlareSize",       d.lensFlare.size),
                 spread     = obj.optFloat("lensFlareSpread",     d.lensFlare.spread),
                 warmth     = obj.optFloat("lensFlareWarmth",     d.lensFlare.warmth),
+                distance   = obj.optFloat("lensFlareDistance",   d.lensFlare.distance),
+                hood       = obj.optFloat("lensFlareHood",       d.lensFlare.hood),
+                starburst  = obj.optFloat("lensFlareStarburst",  d.lensFlare.starburst),
+                blades     = obj.optFloat("lensFlareBlades",     d.lensFlare.blades),
+                rotation   = obj.optFloat("lensFlareRotation",   d.lensFlare.rotation),
+                roundness  = obj.optFloat("lensFlareRoundness",  d.lensFlare.roundness),
+            ),
+            sceneShadow = SceneShadow(
+                distance = obj.optFloat("sceneDistance",  d.sceneShadow.distance),
+                strength = obj.optFloat("shadowStrength", d.sceneShadow.strength),
+                softness = obj.optFloat("shadowSoftness", d.sceneShadow.softness),
             ),
             colorShift = ColorShift(
                 redX   = obj.optFloat("colorShiftRedX",   d.colorShift.redX),
@@ -954,6 +976,7 @@ object SidecarXmpSerializer {
                 grayBlue    = obj.optFloat("filmGrayBlue", d.filmResponse.grayBlue),
                 grayPurple  = obj.optFloat("filmGrayPurple", d.filmResponse.grayPurple),
                 grayMagenta = obj.optFloat("filmGrayMagenta", d.filmResponse.grayMagenta),
+                separation  = obj.optFloat("filmSeparation", d.filmResponse.separation),
             ),
             cgHighlights = ColorWheel(
                 r = obj.optFloat("cgHighlightsR", d.cgHighlights.r),

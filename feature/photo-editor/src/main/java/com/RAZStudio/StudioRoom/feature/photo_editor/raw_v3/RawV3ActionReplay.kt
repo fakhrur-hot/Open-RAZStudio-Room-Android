@@ -165,15 +165,19 @@ object RawV3ActionReplay {
      * renderer only has 4 brush-mask units). The editor uploads each PNG to
      * the matching layer index.
      */
-    fun maskLayers(actions: List<RawAction>): List<RawAction> =
-        actions.filter { it.isVisible && it.maskPath != null }
-            // Newer-wins policy: actions list is oldest-first (newest just
-            // before Original sentinel). `.takeLast(N)` keeps the N most
-            // recent masks; oldest silently fall off when more than
-            // MASK_LAYER_COUNT exist. Previously `.take(N)` kept the OLDEST,
-            // producing the "I painted a new mask but nothing changed in
-            // the preview" symptom.
-            .takeLast(ShaderParams.MASK_LAYER_COUNT)
+    fun maskLayers(actions: List<RawAction>): List<RawAction> {
+        val all = actions.filter { it.isVisible && it.maskPath != null }
+        // The renderer has 4 brush units. A 5th mask is refused in the editor.
+        // If a stack still has more, keep indexes 0..3 (do not reshuffle).
+        if (all.size > ShaderParams.MASK_LAYER_COUNT) {
+            android.util.Log.w(
+                "RawV3ActionReplay",
+                "mask cap ${ShaderParams.MASK_LAYER_COUNT}; ${all.size - ShaderParams.MASK_LAYER_COUNT} oldest layer(s) not rendered",
+            )
+        }
+        // Safety only. The editor refuses a 5th mask before an inflight layer exists.
+        return all.takeLast(ShaderParams.MASK_LAYER_COUNT)
+    }
 
     /**
      * Overlay each masked action's Mask-tab adjustments onto its layer slot.
@@ -412,7 +416,7 @@ object RawV3ActionReplay {
             vigCenterY     = m.vignetteCenterY.coerceIn(0f, 1f),
             vigFeather     = m.vignetteFeather.coerceIn(0f, 1f),
             vigIntensity   = m.vignetteIntensity.coerceIn(0f, 1f),
-            vigEffect      = m.vignetteSegmentation.ordinal,
+            vigEffect      = m.vignetteSegmentation.ordinal + if (m.vignetteInvert) 10 else 0,
             // ── M12.2b.2 Gradient ───────────────────────────────────────
             gradAngle      = m.gradientAngle,
             gradTop        = packGradientSide(
@@ -534,6 +538,37 @@ object RawV3ActionReplay {
             cinematic            = floatArrayOf(
                 (m.mistTightness / 100f).coerceIn(0f, 1f),
                 (m.mistHalation / 100f).coerceIn(0f, 1f),
+                m.lensFlare.distance.coerceIn(0f, 1f),
+                m.lensFlare.hood.coerceIn(0f, 1f),
+                (m.sceneShadow.distance / 100f).coerceIn(0f, 1f),
+                (m.sceneShadow.strength / 100f).coerceIn(0f, 1f),
+                (m.sceneShadow.softness / 100f).coerceIn(0f, 1f),
+                m.highlightStart.coerceIn(0.2f, 0.98f),
+                m.highlightEnd.coerceIn(0.3f, 1f),
+                m.grainEmulsion.getOrElse(0) { 0f },
+                m.grainEmulsion.getOrElse(1) { 0f },
+                m.grainEmulsion.getOrElse(2) { 0f },
+                m.grainEmulsion.getOrElse(3) { 0f },
+                m.grainEmulsion.getOrElse(4) { 0f },
+                m.grainEmulsion.getOrElse(5) { 0f },
+                m.grainEmulsion.getOrElse(6) { 0f },
+                m.grainEmulsion.getOrElse(7) { 1f },
+                m.grainEmulsion.getOrElse(8) { 1f },
+                m.grainEmulsion.getOrElse(9) { 1f },
+                m.grainEmulsion.getOrElse(10) { 0f },
+                m.grainEmulsion.getOrElse(11) { 1f },
+                m.grainEmulsion.getOrElse(12) { 0f },
+                (m.filmCurve.highlightKnee / 100f).coerceIn(0f, 1f),
+                (m.filmResponse.separation / 100f).coerceIn(-1f, 1f),
+            ),
+            optical              = floatArrayOf(
+                (m.opticalSpread() / 100f).coerceIn(0f, 1f),
+                (m.opticalHalation() / 100f).coerceIn(0f, 1f),
+                m.opticalDirection().coerceIn(0f, 2f),
+                m.lensFlare.starburst.coerceIn(0f, 1f),
+                m.lensFlare.blades.coerceIn(0f, 1f),
+                m.lensFlare.rotation.coerceIn(0f, 1f),
+                m.lensFlare.roundness.coerceIn(0f, 1f),
             ),
             bloomShape           = m.bloomShape.coerceIn(0.4f, 1.6f),
             filmRolloff          = m.filmRolloff.coerceIn(0f, 1f),

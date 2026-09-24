@@ -84,6 +84,7 @@ fun UserMacro.resetTab(tab: RawTabId): UserMacro = when (tab) {
         saturation   = 0f,
         vibrance     = 0f,
         colorDensity = 0f,
+        filmResponse = filmResponse.copy(separation = 0f),
         smartColorEnhance = 0f,   // Color Pop level chips
         whiteBalance = 0,
         tint         = 0f,
@@ -126,6 +127,7 @@ fun UserMacro.resetTab(tab: RawTabId): UserMacro = when (tab) {
         bloomRadius      = 0f,
         mistTightness    = 55f,
         mistHalation     = 0f,
+        optical          = floatArrayOf(0f, 0f, 0f),
         cinematicMistTier = 0,
         bokehBlur        = 0,    // Bokeh — moved here from the Local/Mask tab
         fxBlurStyle      = 0,

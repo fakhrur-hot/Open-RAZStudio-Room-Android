@@ -454,15 +454,11 @@ internal fun RawAdjustmentPanel(
                     filmResponse = d.filmResponse.copy(fillLight = m.filmResponse.fillLight)))
             }
             TAB_COLOR_TOOLS -> {
-                // Color Pop strength (Off/Low/Med/High). Only registers a card when
-                // not Off (0); the label carries the level so the Actions tab is clear.
                 if (m.smartColorEnhance > 0f) {
-                    val lvl = when {
-                        m.smartColorEnhance <= UserMacro.COLOR_POP_LOW -> "Low"
-                        m.smartColorEnhance <= UserMacro.COLOR_POP_MED -> "Med"
-                        else                                           -> "High"
-                    }
-                    add("Color Pop $lvl", d.copy(smartColorEnhance = m.smartColorEnhance))
+                    add(
+                        "Color Pop ${(m.smartColorEnhance * 100f).toInt()}",
+                        d.copy(smartColorEnhance = m.smartColorEnhance),
+                    )
                 }
                 // White balance + tint live in the Color tab UI (RawColorTab),
                 // so they must register here — not only under TAB_TONE_COLOR.
@@ -472,6 +468,9 @@ internal fun RawAdjustmentPanel(
                 addF(m.saturation,    "Saturation", scale=100f, single=d.copy(saturation=m.saturation))
                 addF(m.vibrance,      "Vibrance",   scale=100f, single=d.copy(vibrance=m.vibrance))
                 addF(m.colorDensity,  "Density",    single=d.copy(colorDensity=m.colorDensity))
+                addF(m.filmResponse.separation, "Separation", single=d.copy(
+                    filmResponse = d.filmResponse.copy(separation = m.filmResponse.separation),
+                ))
                 addF(m.skintoneWarm,  "Sk Warm",    single=d.copy(skintoneWarm=m.skintoneWarm))
                 addF(m.skintoneSmooth,"Sk Smooth",  single=d.copy(skintoneSmooth=m.skintoneSmooth))
                 addF(m.skintoneLuma,  "Sk Luma",    single=d.copy(skintoneLuma=m.skintoneLuma))
@@ -545,12 +544,14 @@ internal fun RawAdjustmentPanel(
                 // (feather/intensity/center/segmentation) so nothing is dropped.
                 val hasVig = m.vignetteAmount != d.vignetteAmount ||
                     m.vignetteSegmentation != d.vignetteSegmentation ||
-                    m.vignetteEffect != d.vignetteEffect
+                    m.vignetteEffect != d.vignetteEffect ||
+                    m.vignetteInvert != d.vignetteInvert
                 if (hasVig) add("Vignette ${(m.vignetteAmount).toInt()}", d.copy(
                     vignetteAmount=m.vignetteAmount, vignetteFeather=m.vignetteFeather,
                     vignetteIntensity=m.vignetteIntensity, vignetteEffect=m.vignetteEffect,
                     vignetteCenterX=m.vignetteCenterX, vignetteCenterY=m.vignetteCenterY,
                     vignetteCenterAutoSnapped=m.vignetteCenterAutoSnapped,
+                    vignetteInvert=m.vignetteInvert,
                     vignetteSegmentation=m.vignetteSegmentation,
                 ))
             }
@@ -651,7 +652,8 @@ internal fun RawAdjustmentPanel(
             TAB_EFFECTS -> {
                 // Bloom card carries density-tier params + fused glow + protect.
                 if (m.ortonStrength != 0f || m.bloomExcludeSubject || m.cinematicMistTier != 0 ||
-                    m.mistHalation != 0f || m.fxGlowStrength != 0f || m.fxGlowWarmth != 0f
+                    m.mistHalation != 0f || m.fxGlowStrength != 0f || m.fxGlowWarmth != 0f ||
+                    m.opticalSpread() != 0f || m.opticalHalation() != 0f || m.opticalDirection() != 0f
                 ) {
                     add(
                         "Bloom ${fv(m.ortonStrength, 100f, 0)}",
@@ -667,6 +669,7 @@ internal fun RawAdjustmentPanel(
                             fxGlowStrength = m.fxGlowStrength,
                             fxGlowSpread = m.fxGlowSpread,
                             fxGlowWarmth = m.fxGlowWarmth,
+                            optical = m.optical.copyOf(),
                         ),
                     )
                 }
@@ -674,6 +677,8 @@ internal fun RawAdjustmentPanel(
                 addF(m.pushPull,        "Push/Pull", decimals=1, single=d.copy(pushPull=m.pushPull))
                 if (m.bokehBlur != d.bokehBlur) add("Bokeh ${m.bokehBlur}", d.copy(bokehBlur=m.bokehBlur))
                 if (m.lensFlare.brightness > 0f) add("Lens Flare", d.copy(lensFlare=m.lensFlare))
+                if (m.sceneShadow.strength != 0f || m.sceneShadow.distance != 50f || m.sceneShadow.softness != 50f)
+                    add("Light Source", d.copy(sceneShadow = m.sceneShadow))
                 if (m.colorShift.redX != 0f || m.colorShift.greenX != 0f || m.colorShift.blueX != 0f)
                     add("Color Shift", d.copy(colorShift=m.colorShift))
                                 // Vintage Amount/Vig were missing from cards → live/export stayed 0 when
@@ -693,7 +698,7 @@ internal fun RawAdjustmentPanel(
                 addF(m.sharpness,       "Sharpness",  single=d.copy(sharpness=m.sharpness))
                 addF(m.clarity,         "Clarity",scale=100f, single=d.copy(clarity=m.clarity))
                 addF(m.texture,         "Texture", scale=100f, single=d.copy(texture=m.texture))
-                addF(m.filmGrain,       "Grain",   scale=100f, single=d.copy(filmGrain=m.filmGrain,filmGrainSize=m.filmGrainSize,filmGrainWashOut=m.filmGrainWashOut))
+                addF(m.filmGrain,       "Grain",   scale=100f, single=d.copy(filmGrain=m.filmGrain,filmGrainSize=m.filmGrainSize,filmGrainWashOut=m.filmGrainWashOut,grainEmulsion=m.grainEmulsion.copyOf()))
                 addF(m.luminanceNR,     "Luma NR", scale=100f, single=d.copy(luminanceNR=m.luminanceNR))
                 addF(m.colorNR,         "Color NR",scale=100f, single=d.copy(colorNR=m.colorNR))
                 addF(m.blueNR,          "Blue NR", scale=100f, single=d.copy(blueNR=m.blueNR))
@@ -1095,6 +1100,7 @@ internal fun RawAdjustmentPanel(
                             onSegmentationNeeded = onSegmentationNeeded,
                             subjectSegBusy = subjectSegBusy,
                             subjectDetected = subjectDetected,
+                            masksReady = segmentationMasks != null,
                             imageLongSide = imageLongSide,
                             isLensFlareMoveMode = isLensFlareMoveMode,
                             onLensFlareMoveModeChange = onLensFlareMoveModeChange,

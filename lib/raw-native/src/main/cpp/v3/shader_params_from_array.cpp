@@ -63,6 +63,11 @@ ShaderParams ShaderParams::fromFloatArray(const float* arr, int count) {
     p.bloomShape     = getOr(206, 1.f);
     p.mistTightness  = getOr(447, 0.55f);
     p.mistHalation   = getOr(448, 0.f);
+    p.opticalSpread    = getOr(461, 0.f);
+    p.opticalHalation  = getOr(462, 0.f);
+    p.opticalDirection = getOr(463, 0.f);
+    p.highlightStart   = getOr(484, 0.78f);
+    p.highlightEnd     = getOr(485, 0.98f);
     p.filmRolloff    = getOr(207, 0.f);
     p.gamutCompress  = getOr(237, 0.f);
     p.bloomExcludeSubject = getOr(238, 0.f);
@@ -95,6 +100,7 @@ ShaderParams ShaderParams::fromFloatArray(const float* arr, int count) {
     p.workspaceSpace   = (int)getOr(235, 1.f);  // 1 = sRGB default
     p.lutAuthoredSpace = (int)getOr(236, 0.f);  // 0 = Rec.709 default
     p.toneCurveLumaMode = getOr(210, 0.f);
+    p.filmHighlightKnee = getOr(499, 0.f);
     p.lightTabOpacity = getOr(57, 1.f);
     p.colorTabOpacity = getOr(58, 1.f);
     p.xmpTabOpacity   = getOr(59, 1.f);
@@ -182,6 +188,19 @@ ShaderParams ShaderParams::fromFloatArray(const float* arr, int count) {
     p.filmGrain     = getOr(153, 0.f);
     p.filmGrainSize = getOr(154, 0.5f);
     p.filmGrainWash = getOr(156, 0.f);
+    p.grainEx[0]  = getOr(486, 0.f);
+    p.grainEx[1]  = getOr(487, 0.f);
+    p.grainEx[2]  = getOr(488, 0.f);
+    p.grainEx[3]  = getOr(489, 0.f);
+    p.grainEx[4]  = getOr(490, 0.f);
+    p.grainEx[5]  = getOr(491, 0.f);
+    p.grainEx[6]  = getOr(492, 0.f);
+    p.grainEx[7]  = getOr(493, 1.f);
+    p.grainEx[8]  = getOr(494, 1.f);
+    p.grainEx[9]  = getOr(495, 1.f);
+    p.grainEx[10] = getOr(496, 0.f);
+    p.grainEx[11] = getOr(497, 1.f);
+    p.grainEx[12] = getOr(498, 0.f);
     // slots 155 (uniformity) and 209 (style) removed.
     // Per-segment levels (Normalize for 3Dlut).
     p.whitesSubject    = getOr(194, 0.f);
@@ -216,6 +235,7 @@ ShaderParams ShaderParams::fromFloatArray(const float* arr, int count) {
     p.detailGrainRoughness = getOr(341, 0.f);
     p.detailSharpenMask    = getOr(342, 0.f);
     p.colorDensity         = getOr(343, 0.f);
+    p.filmSeparation       = getOr(500, 0.f);
     p.skintoneWarm         = getOr(344, 0.f);
     p.skintoneSmooth       = getOr(345, 0.f);
     p.skintoneLuma         = getOr(346, 0.f);
@@ -257,6 +277,17 @@ ShaderParams ShaderParams::fromFloatArray(const float* arr, int count) {
     p.lensFlareSize        = getOr(430, 1.f);
     p.lensFlareSpread      = getOr(431, 1.f);
     p.lensFlareWarmth      = getOr(435, 0.f);
+    p.lensFlareDistance    = getOr(464, 1.f);
+    p.lensFlareHood        = getOr(465, 0.f);
+    p.lensFlareDistance    = getOr(464, 1.f);
+    p.lensFlareHood        = getOr(465, 0.f);
+    p.sceneDistance        = getOr(466, 0.5f);
+    p.shadowStrength       = getOr(467, 0.f);
+    p.shadowSoftness       = getOr(468, 0.5f);
+    p.starburst            = getOr(480, 0.f);
+    p.irisBlades           = getOr(481, 0.f);
+    p.irisRotation         = getOr(482, 0.f);
+    p.irisRoundness        = getOr(483, 1.f);
     p.colorShiftRedX       = getOr(432, 0.f);
     p.colorShiftGreenX     = getOr(433, 0.f);
     p.colorShiftBlueX      = getOr(434, 0.f);

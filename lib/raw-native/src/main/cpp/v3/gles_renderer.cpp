@@ -433,6 +433,8 @@ bool GlesRenderer::createProgram() {
             } else {
                 uBloomDownSrcLoc_       = glGetUniformLocation(bloomDownProg_, "uBloomDownSrc");
                 uBloomDownThresholdLoc_ = glGetUniformLocation(bloomDownProg_, "uBloomDownThreshold");
+                uBloomHighlightStartLoc_ = glGetUniformLocation(bloomDownProg_, "uHighlightStart");
+                uBloomHighlightEndLoc_ = glGetUniformLocation(bloomDownProg_, "uHighlightEnd");
             }
         }
         if (vs) glDeleteShader(vs);
@@ -982,6 +984,8 @@ void GlesRenderer::runKarisBloomPass(float thresholdLuma,
     glBindTexture(GL_TEXTURE_2D, texture_);
     if (uBloomDownSrcLoc_       >= 0) glUniform1i(uBloomDownSrcLoc_, 0);
     if (uBloomDownThresholdLoc_ >= 0) glUniform1f(uBloomDownThresholdLoc_, thresholdLuma);
+    if (uBloomHighlightStartLoc_ >= 0) glUniform1f(uBloomHighlightStartLoc_, params_.highlightStart);
+    if (uBloomHighlightEndLoc_ >= 0) glUniform1f(uBloomHighlightEndLoc_, params_.highlightEnd);
     // Subject-exclusion plumbing — only meaningful on the mip-0 threshold
     // pass. Bind the U2Net subject mask on unit 1 and the Sobel edge mask
     // on unit 2 so the threshold shader can apply (1 - subject) gating
@@ -1126,6 +1130,16 @@ void GlesRenderer::cacheUniformLocations() {
     uLensFlareSizeLoc_       = L("uLensFlareSize");
     uLensFlareSpreadLoc_     = L("uLensFlareSpread");
     uLensFlareWarmthLoc_     = L("uLensFlareWarmth");
+    uLensFlareDistanceLoc_   = L("uLensFlareDistance");
+    uLensFlareHoodLoc_       = L("uLensFlareHood");
+    uSceneDistanceLoc_       = L("uSceneDistance");
+    uShadowStrengthLoc_      = L("uShadowStrength");
+    uShadowSoftnessLoc_      = L("uShadowSoftness");
+    uStarburstLoc_           = L("uStarburst");
+    uIrisBladesLoc_          = L("uIrisBlades");
+    uIrisRotationLoc_        = L("uIrisRotation");
+    uIrisRoundnessLoc_       = L("uIrisRoundness");
+    uShadowAspectLoc_        = L("uShadowAspect");
     uColorShiftRedXLoc_      = L("uColorShiftRedX");
     uColorShiftGreenXLoc_    = L("uColorShiftGreenX");
     uColorShiftBlueXLoc_     = L("uColorShiftBlueX");
@@ -1140,6 +1154,12 @@ void GlesRenderer::cacheUniformLocations() {
     uClarityAmountLoc_    = L("uClarityAmount");
     uCenterPopLoc_        = L("uCenterPop");
     uBloomTexLoc_       = L("uBloomTex");
+    uOpticalSpreadLoc_    = L("uOpticalSpread");
+    uOpticalHalationLoc_  = L("uOpticalHalation");
+    uOpticalDirectionLoc_ = L("uOpticalDirection");
+    uHighlightStartLoc_ = L("uHighlightStart");
+    uHighlightEndLoc_ = L("uHighlightEnd");
+    uOpticalDensityLoc_   = L("uOpticalDensity");
     uWorkspaceSpaceLoc_   = L("uWorkspaceSpace");
     uLutAuthoredSpaceLoc_ = L("uLutAuthoredSpace");
     uLightTabOpacityLoc_ = L("uLightTabOpacity");
@@ -1222,11 +1242,13 @@ void GlesRenderer::cacheUniformLocations() {
     uToneCurveTexLoc_     = L("uToneCurveTex");
     uToneCurveEnabledLoc_ = L("uToneCurveEnabled");
     uToneCurveLumaModeLoc_ = L("uToneCurveLumaMode");
+    uFilmHighlightKneeLoc_ = L("uFilmHighlightKnee");
 
     // Film grain (cinematic 3D noise).
     uFilmGrainLoc_      = L("uFilmGrain");
     uFilmGrainSizeLoc_  = L("uFilmGrainSize");
     uFilmGrainWashLoc_  = L("uFilmGrainWash");
+    uGrainExLoc_        = L("uGrainEx[0]");
     uGrainSeedLoc_      = L("uGrainSeed");
     uImageSizeLoc_      = L("uImageSize");
 
@@ -1261,6 +1283,7 @@ void GlesRenderer::cacheUniformLocations() {
     uDetailGrainRoughnessLoc_ = L("uDetailGrainRoughness");
     uDetailSharpenMaskLoc_    = L("uDetailSharpenMask");
     uColorDensityLoc_        = L("uColorDensity");
+    uFilmSeparationLoc_      = L("uFilmSeparation");
     uSkintoneLoc_            = L("uSkintone");
     uMidtoneDetailsLoc_      = L("uMidtoneDetails");
     uLowFreqMidLoc_          = L("uLowFreqMid");
@@ -1445,7 +1468,12 @@ void GlesRenderer::updateDirtyFlags(const ShaderParams& p) {
         p.bloomRadius    != lastBloomRadius_ ||
         p.fxGlowStrength != lastBloomGlow_   ||
         p.mistTightness  != lastBloomTight_  ||
-        p.bloomShape     != lastBloomHalation_) {
+        p.bloomShape     != lastBloomHalation_ ||
+        p.opticalSpread  != lastOpticalSpread_ ||
+        p.opticalHalation != lastOpticalHalation_ ||
+        p.opticalDirection != lastOpticalDirection_ ||
+        p.highlightStart != lastHighlightStart_ ||
+        p.highlightEnd != lastHighlightEnd_) {
         bloomPassDirty_    = true;
         softDiffPassDirty_ = true;
         lastBloomOrton_    = p.ortonStrength;
@@ -1453,6 +1481,11 @@ void GlesRenderer::updateDirtyFlags(const ShaderParams& p) {
         lastBloomGlow_     = p.fxGlowStrength;
         lastBloomTight_    = p.mistTightness;
         lastBloomHalation_ = p.bloomShape; // tracks shape (name legacy)
+        lastOpticalSpread_ = p.opticalSpread;
+        lastOpticalHalation_ = p.opticalHalation;
+        lastOpticalDirection_ = p.opticalDirection;
+        lastHighlightStart_ = p.highlightStart;
+        lastHighlightEnd_ = p.highlightEnd;
     }
     // NR pass: driven by NR slot values (set via setNrSlots, not ShaderParams).
     if (nrSlot147_ != lastNrSlot147_ ||
@@ -2135,6 +2168,15 @@ void GlesRenderer::pushUniforms() {
     if (uFilmGrayMixLoc_    >= 0) glUniform1fv(uFilmGrayMixLoc_, 8, params_.filmGrayMix);
     if (uMistTightnessLoc_  >= 0) glUniform1f(uMistTightnessLoc_,  params_.mistTightness);
     if (uMistHalationLoc_   >= 0) glUniform1f(uMistHalationLoc_,   params_.mistHalation);
+    if (uOpticalSpreadLoc_    >= 0) glUniform1f(uOpticalSpreadLoc_,    params_.opticalSpread);
+    if (uOpticalHalationLoc_  >= 0) glUniform1f(uOpticalHalationLoc_,  params_.opticalHalation);
+    if (uOpticalDirectionLoc_ >= 0) glUniform1f(uOpticalDirectionLoc_, params_.opticalDirection);
+    if (uHighlightStartLoc_ >= 0) glUniform1f(uHighlightStartLoc_, params_.highlightStart > 0.f ? params_.highlightStart : 0.78f);
+    if (uHighlightEndLoc_ >= 0) glUniform1f(uHighlightEndLoc_, params_.highlightEnd > params_.highlightStart ? params_.highlightEnd : 0.98f);
+    if (uOpticalDensityLoc_   >= 0) {
+        const int longSide = std::max(texW_, texH_);
+        glUniform1f(uOpticalDensityLoc_, opticalSpreadDensity(longSide > 0 ? longSide : 2048));
+    }
     if (uGamutCompressLoc_  >= 0) glUniform1f(uGamutCompressLoc_,  params_.gamutCompress);
     if (uCgGlobalTintLoc_ >= 0)
         glUniform3f(uCgGlobalTintLoc_,
@@ -2147,6 +2189,19 @@ void GlesRenderer::pushUniforms() {
     if (uLensFlareSizeLoc_       >= 0) glUniform1f(uLensFlareSizeLoc_,       params_.lensFlareSize);
     if (uLensFlareSpreadLoc_     >= 0) glUniform1f(uLensFlareSpreadLoc_,     params_.lensFlareSpread);
     if (uLensFlareWarmthLoc_     >= 0) glUniform1f(uLensFlareWarmthLoc_,     params_.lensFlareWarmth);
+    if (uLensFlareDistanceLoc_   >= 0) glUniform1f(uLensFlareDistanceLoc_,   params_.lensFlareDistance);
+    if (uLensFlareHoodLoc_       >= 0) glUniform1f(uLensFlareHoodLoc_,       params_.lensFlareHood);
+    if (uSceneDistanceLoc_       >= 0) glUniform1f(uSceneDistanceLoc_,       params_.sceneDistance);
+    if (uShadowStrengthLoc_      >= 0) glUniform1f(uShadowStrengthLoc_,      params_.shadowStrength);
+    if (uShadowSoftnessLoc_      >= 0) glUniform1f(uShadowSoftnessLoc_,      params_.shadowSoftness);
+    if (uStarburstLoc_           >= 0) glUniform1f(uStarburstLoc_,           params_.starburst);
+    if (uIrisBladesLoc_          >= 0) glUniform1f(uIrisBladesLoc_,          params_.irisBlades);
+    if (uIrisRotationLoc_        >= 0) glUniform1f(uIrisRotationLoc_,        params_.irisRotation);
+    if (uIrisRoundnessLoc_       >= 0) glUniform1f(uIrisRoundnessLoc_,       params_.irisRoundness);
+    if (uShadowAspectLoc_        >= 0) {
+        float aspect = (texH_ > 0) ? float(texW_) / float(texH_) : 1.f;
+        glUniform1f(uShadowAspectLoc_, aspect);
+    }
     if (uColorShiftRedXLoc_      >= 0) glUniform1f(uColorShiftRedXLoc_,      params_.colorShiftRedX);
     if (uColorShiftGreenXLoc_    >= 0) glUniform1f(uColorShiftGreenXLoc_,    params_.colorShiftGreenX);
     if (uColorShiftBlueXLoc_     >= 0) glUniform1f(uColorShiftBlueXLoc_,     params_.colorShiftBlueX);
@@ -2267,11 +2322,13 @@ void GlesRenderer::pushUniforms() {
     if (uToneCurveTexLoc_     >= 0) glUniform1i(uToneCurveTexLoc_, 9);
     if (uToneCurveEnabledLoc_ >= 0) glUniform1i(uToneCurveEnabledLoc_, toneCurveReady_ ? 1 : 0);
     if (uToneCurveLumaModeLoc_ >= 0) glUniform1i(uToneCurveLumaModeLoc_, params_.toneCurveLumaMode > 0.5f ? 1 : 0);
+    if (uFilmHighlightKneeLoc_ >= 0) glUniform1f(uFilmHighlightKneeLoc_, params_.filmHighlightKnee);
 
     // Film grain (cinematic 3D noise — procedural).
     if (uFilmGrainLoc_     >= 0) glUniform1f(uFilmGrainLoc_,     params_.filmGrain);
     if (uFilmGrainSizeLoc_ >= 0) glUniform1f(uFilmGrainSizeLoc_, params_.filmGrainSize);
     if (uFilmGrainWashLoc_ >= 0) glUniform1f(uFilmGrainWashLoc_, params_.filmGrainWash);
+    if (uGrainExLoc_ >= 0) glUniform1fv(uGrainExLoc_, 13, params_.grainEx);
     if (uGrainSeedLoc_     >= 0) glUniform1f(uGrainSeedLoc_,     kGrainSeed);
     // Grain reference grid: a FIXED resolution (aspect-matched) shared with the
     // Stage C export so preview + file sample identical noise coords.
@@ -2336,6 +2393,7 @@ void GlesRenderer::pushUniforms() {
     if (uDetailGrainRoughnessLoc_ >= 0) glUniform1f(uDetailGrainRoughnessLoc_, params_.detailGrainRoughness);
     if (uDetailSharpenMaskLoc_    >= 0) glUniform1f(uDetailSharpenMaskLoc_,    params_.detailSharpenMask);
     if (uColorDensityLoc_  >= 0) glUniform1f(uColorDensityLoc_,  params_.colorDensity);
+    if (uFilmSeparationLoc_ >= 0) glUniform1f(uFilmSeparationLoc_, params_.filmSeparation);
     if (uSkintoneLoc_      >= 0) glUniform3f(uSkintoneLoc_, params_.skintoneWarm, params_.skintoneSmooth, params_.skintoneLuma);
     if (uMidtoneDetailsLoc_>= 0) glUniform1f(uMidtoneDetailsLoc_, params_.midtoneDetails);
     // uLowFreqMid sampler removed (exceeds 16-unit limit)
@@ -2647,8 +2705,9 @@ bool GlesRenderer::renderFrame() {
 
     // ── Karis bloom pre-pass ────────────────────────────────────────
     //   Glow samples uBloomTex independently of Orton — gate on either.
+    const bool opticalActive = params_.opticalSpread > 1e-4f || params_.opticalHalation > 1e-4f;
     const bool bloomTexNeeded =
-        (ortonActive && params_.bloomRadius > 0.0f) || glowActive;
+        (ortonActive && params_.bloomRadius > 0.0f) || glowActive || opticalActive;
     const bool bloomDirtyNow = bloomEnabled_ && bloomTexNeeded && bloomPassDirty_;
     if (bloomDirtyNow) {
         bloomPassDirty_ = false;
@@ -2980,8 +3039,9 @@ bool GlesRenderer::snapshotGradedToAhb(AHardwareBuffer* dst) {
         runBokehBlurPass(radiusPx);
     }
     // Karis bloom pyramid for the snapshot export — mirrors the live path.
+    const bool snapOptical = params_.opticalSpread > 1e-4f || params_.opticalHalation > 1e-4f;
     const bool snapBloomNeeded =
-        (snapOrton && params_.bloomRadius > 0.f) || snapGlow;
+        (snapOrton && params_.bloomRadius > 0.f) || snapGlow || snapOptical;
     if (snapBloomNeeded) {
         const float threshold  = 0.65f;
         const float bloomR = (params_.bloomRadius > 0.f) ? params_.bloomRadius : 8.f;
@@ -3238,8 +3298,9 @@ bool GlesRenderer::snapshotGradedToBitmap(int outW, int outH, uint8_t* outRgba) 
             radiusPx = 4.0f;
         runBokehBlurPass(radiusPx);
     }
+    const bool snapOptical2 = params_.opticalSpread > 1e-4f || params_.opticalHalation > 1e-4f;
     const bool snapBloomNeeded2 =
-        (snapOrton && params_.bloomRadius > 0.f) || snapGlow2;
+        (snapOrton && params_.bloomRadius > 0.f) || snapGlow2 || snapOptical2;
     if (snapBloomNeeded2) {
         const float threshold  = 0.65f;
         const float bloomR = (params_.bloomRadius > 0.f) ? params_.bloomRadius : 8.f;

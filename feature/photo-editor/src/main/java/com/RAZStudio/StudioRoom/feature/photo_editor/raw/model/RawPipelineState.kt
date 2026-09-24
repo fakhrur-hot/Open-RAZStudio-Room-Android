@@ -243,10 +243,12 @@ data class FilmResponse(
     val grayBlue: Float = 0f,
     val grayPurple: Float = 0f,
     val grayMagenta: Float = 0f,
+    /** -100..+100. OKLCh chroma spread. Nested here so UserMacro gains no constructor param. */
+    val separation: Float = 0f,
 ) {
     /** True when this holder would change nothing, so callers can skip work. */
     val isNeutral: Boolean
-        get() = recovery == 0f && fillLight == 0f && !monochrome
+        get() = recovery == 0f && fillLight == 0f && !monochrome && separation == 0f
 
     /** The eight mixer channels in Adobe band order. */
     fun grayChannels(): FloatArray = floatArrayOf(
@@ -269,6 +271,7 @@ data class FilmResponse(
         grayBlue    = if (delta.grayBlue    != 0f) delta.grayBlue    else grayBlue,
         grayPurple  = if (delta.grayPurple  != 0f) delta.grayPurple  else grayPurple,
         grayMagenta = if (delta.grayMagenta != 0f) delta.grayMagenta else grayMagenta,
+        separation  = if (delta.separation  != 0f) delta.separation  else separation,
     )
 }
 
@@ -316,6 +319,19 @@ data class FilmCurve(
 }
 
 /**
+ * Phase 1 cast shadow. One constructor param on UserMacro.
+ * UI units are 0..100. Strength 0 skips the pass.
+ */
+data class SceneShadow(
+    /** 0 = far, long shadow. 100 = near, short shadow. */
+    val distance: Float = 50f,
+    /** 0 skips offset, blur, and composite. */
+    val strength: Float = 0f,
+    /** Extra blur on top of the distance term. */
+    val softness: Float = 50f,
+)
+
+/**
  * OpenShot-style procedural lens flare (ported from libopenshot LensFlare.cpp).
  * Additive core + glow + rings + halo + ghost line along the (x,y)→center axis.
  * Nested holder so [UserMacro] spends one constructor param (dex register
@@ -334,6 +350,18 @@ data class LensFlare(
     val spread: Float = 1f,
     /** Flare colour temperature: 0 = warm-white, 1 = yellow→orange sunset. */
     val warmth: Float = 0f,
+    /** 0 = far off-axis interaction, 1 = near. Grading abstraction, not meters. */
+    val distance: Float = 1f,
+    /** 0 = no hood, 1 = maximum. UI shows 0..100. */
+    val hood: Float = 0f,
+    /** Spike brightness. 0 hides the starburst. UI shows 0..100. */
+    val starburst: Float = 0f,
+    /** 0 = circle. 0.25..1 maps to 5..8 blades. */
+    val blades: Float = 0f,
+    /** Iris rotation. UI shows 0..100. */
+    val rotation: Float = 0f,
+    /** 1 keeps a circle. UI shows 0..100. */
+    val roundness: Float = 1f,
 )
 
 /**
@@ -386,11 +414,7 @@ data class UserMacro(
     val claheHighlightsBoost: Float = 0f,
     // JPEG Refine (Dual Reconstruction Lite). UI 0–100. Strength 0 = no-op.
     val jpegRefine: JpegRefineMacro = JpegRefineMacro(),
-    // Color Pop ("Smart Color Enhancement") STRENGTH in [0..1]: 0 = off,
-    // 1 = full effect. Off/Low/Med/High in the UI map to 0 / 0.4 / 0.7 / 1.0
-    // (see COLOR_POP_* below). The GL preview + Stage C export blend the full
-    // effect (auto-WB stretch + Lab-L lift + adaptive a/b chroma boost) toward
-    // the original by this strength, so lower = subtler pop (less brightness).
+    // Color Pop strength in [0..1]. UI slider is 0..100. Chroma only.
     val smartColorEnhance: Float = 0f,
     /**
      * Lives next to the CLAHE controls in the UI but routes through the
@@ -439,6 +463,24 @@ data class UserMacro(
      * R/B channel offset when sampling the bloom pyramid.
      */
     val mistHalation: Float = 0f,
+    /**
+     * Optical Spread grade. UI 0..100 for spread and halation. Direction is
+     * 0 Off, 1 Horizontal, 2 Radial. Packed so the data-class constructor
+     * stays under the dex register ceiling. Defaults are off.
+     */
+    val optical: FloatArray = floatArrayOf(0f, 0f, 0f),
+    /** Bloom and spread highlight knee. Defaults match the fixed 0.78–0.98 gate. */
+    val highlightStart: Float = 0.78f,
+    val highlightEnd: Float = 0.98f,
+    /**
+     * Emulsion grain pack. 0 structure, 1 chroma, 2 highlight suppression,
+     * 3 shadow boost, 4 edge bias, 5 seed, 6 cloudiness,
+     * 7 shadow curve, 8 mid curve, 9 highlight curve,
+     * 10 light influence, 11 shadow response, 12 relight suppression.
+     */
+    val grainEmulsion: FloatArray = floatArrayOf(
+        0f, 0f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 0f, 1f, 0f,
+    ),
     /**
      * Last Pro-Mist preset chip (0=Off/manual … 4=1/2). UI only; native
      * reads [mistTightness]/[mistHalation]/orton/glow.
@@ -618,6 +660,8 @@ data class UserMacro(
      * can drag the center freely from that point using 'Move center'.
      */
     val vignetteCenterAutoSnapped: Boolean = false,
+    /** When true, vignette amount falls off in the center instead of the corners. */
+    val vignetteInvert: Boolean = false,
     // Interactive tone curves — 4 channels [L, R, G, B], each 5 y-values at x=0,0.25,0.5,0.75,1
     // Default (identity diagonal) means no curve adjustment.
     val toneCurvePoints: List<List<Float>> = DEFAULT_CURVE_POINTS,
@@ -785,6 +829,7 @@ data class UserMacro(
 
     // FX tab: OpenShot lens flare (nested holder → 1 constructor param).
     val lensFlare:    LensFlare = LensFlare(),
+    val sceneShadow:  SceneShadow = SceneShadow(),
     // FX tab: OpenShot ColorShift RGB split (horizontal, nested holder).
     val colorShift:   ColorShift = ColorShift(),
 
@@ -882,12 +927,6 @@ data class UserMacro(
          * a default tone, it can land here without changing call sites.
          */
         val CAMERA_STYLE_FINISH: UserMacro = UserMacro()
-
-        // Color Pop strength levels (Off/Low/Med/High radio in RawColorTab).
-        // High = the original full-strength effect (backward compatible).
-        const val COLOR_POP_LOW  = 0.4f
-        const val COLOR_POP_MED  = 0.7f
-        const val COLOR_POP_HIGH = 1.0f
 
         /**
          * Scene-adaptive smart defaults — histogram heuristics applied once when
@@ -1052,6 +1091,13 @@ data class UserMacro(
             ortonStrength        = if (delta.ortonStrength        != 0f) delta.ortonStrength        else ortonStrength,
             mistTightness        = if (delta.mistTightness        != 55f) delta.mistTightness        else mistTightness,
             mistHalation         = if (delta.mistHalation         != 0f) delta.mistHalation         else mistHalation,
+            optical              = if (delta.optical.any { it != 0f }) delta.optical.copyOf() else optical.copyOf(),
+            grainEmulsion        = if (grainPackActive(delta.grainEmulsion)) delta.grainEmulsion.copyOf() else grainEmulsion.copyOf(),
+            sceneShadow          = if (delta.sceneShadow.strength != 0f ||
+                                        delta.sceneShadow.distance != 50f ||
+                                        delta.sceneShadow.softness != 50f) delta.sceneShadow else sceneShadow,
+            highlightStart       = if (delta.highlightStart != 0.78f) delta.highlightStart else highlightStart,
+            highlightEnd         = if (delta.highlightEnd != 0.98f) delta.highlightEnd else highlightEnd,
             cinematicMistTier    = if (delta.cinematicMistTier    != 0) delta.cinematicMistTier    else cinematicMistTier,
             // Bloom radius / shape — "non-default" means user actually
             // touched the slider. Compare against the constructor defaults
@@ -1130,6 +1176,7 @@ data class UserMacro(
             // Sticky: once the auto-snap has fired (delta or base has it set),
             // keep the flag set so subsequent merges don't re-snap.
             vignetteCenterAutoSnapped = vignetteCenterAutoSnapped || delta.vignetteCenterAutoSnapped,
+            vignetteInvert = if (delta.vignetteAmount != 0f || delta.vignetteInvert) delta.vignetteInvert else vignetteInvert,
             toneCurvePoints = if (useDeltaCurves) delta.toneCurvePoints else toneCurvePoints,
             // Whole-holder replace when the delta carries any non-default film
             // parametric (same pattern as toneCurvePoints).
@@ -1345,5 +1392,31 @@ data class UserMacro(
     fun withLinkedSharpness(sharpnessUi: Float): UserMacro {
         val s = sharpnessUi.coerceIn(0f, 100f)
         return copy(sharpness = s, smartSharpness = (s * 2f / 100f).coerceIn(0f, 1f))
+    }
+
+    fun opticalSpread(): Float = optical.getOrElse(0) { 0f }
+
+    private fun grainPackActive(g: FloatArray): Boolean {
+        val d = floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 0f, 1f, 0f)
+        for (i in d.indices) {
+            val v = g.getOrElse(i) { d[i] }
+            if (kotlin.math.abs(v - d[i]) > 1e-4f) return true
+        }
+        return false
+    }
+    fun opticalHalation(): Float = optical.getOrElse(1) { 0f }
+    fun opticalDirection(): Float = optical.getOrElse(2) { 0f }
+
+    fun withOptical(
+        spread: Float? = null,
+        halation: Float? = null,
+        direction: Float? = null,
+    ): UserMacro {
+        val next = optical.copyOf(7)
+        if (next.size > 6 && optical.size < 7) next[6] = 1f
+        if (spread != null) next[0] = spread
+        if (halation != null) next[1] = halation
+        if (direction != null) next[2] = direction
+        return copy(optical = next)
     }
 }

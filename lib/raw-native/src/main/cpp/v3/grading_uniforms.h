@@ -123,6 +123,7 @@ inline constexpr const char* kParityCriticalUniformNames[] = {
     "uCenterPop",
     "uHslFull",
     "uColorDensity",
+    "uFilmSeparation",
     "uSkintone",
     "uPushPull",
     "uCurvesEnabled",

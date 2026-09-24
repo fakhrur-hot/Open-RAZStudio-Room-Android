@@ -7,6 +7,7 @@
  */
 
 #include "apply_macro.h"
+#include "bloom_filmic.h"
 #include "v3_debug_log.h"
 
 #include <algorithm>
@@ -211,44 +212,34 @@ static inline void labToSrgbAM(float L, float A, float B,
     r = linearToSrgb1(lr); g = linearToSrgb1(lg); b = linearToSrgb1(lb);
 }
 // Chroma boost — mirrors GLSL smartBoostChroma() / SmartColorEnhancer.kt.
-static inline float smartBoostChromaAM(float chan) {
-    const float SAT_SCALE = 1.3f, THRESH = 80.0f, MAX_C = 127.0f;
-    float mag = fabsf(chan);
-    float scale;
-    if (mag >= THRESH) {
-        float excess = mag - THRESH;
-        scale = SAT_SCALE * (1.0f - excess / (MAX_C - THRESH));
-        if (scale < 1.0f) scale = 1.0f;
-    } else {
-        scale = SAT_SCALE;
-    }
-    float out = chan * scale;
-    return out < -128.0f ? -128.0f : (out > 127.0f ? 127.0f : out);
-}
-// Full Color Pop pass: per-channel auto-WB stretch → sigmoidal L boost →
-// adaptive a/b chroma boost. Mutates r,g,b in place (sRGB [0,1]).
 inline void applySmartColorEnhanceP(float& r, float& g, float& b,
                                     const ApplyMacroParams& p) {
     auto clamp01 = [](float x) { return x < 0.f ? 0.f : (x > 1.f ? 1.f : x); };
-    float rangeR = p.smartWbRMax - p.smartWbRMin; if (rangeR < 0.001f) rangeR = 0.001f;
-    float rangeG = p.smartWbGMax - p.smartWbGMin; if (rangeG < 0.001f) rangeG = 0.001f;
-    float rangeB = p.smartWbBMax - p.smartWbBMin; if (rangeB < 0.001f) rangeB = 0.001f;
-    float cr = clamp01((r - p.smartWbRMin) / rangeR);
-    float cg = clamp01((g - p.smartWbGMin) / rangeG);
-    float cb = clamp01((b - p.smartWbBMin) / rangeB);
-    float L, A, Bb; srgbToLabAM(cr, cg, cb, L, A, Bb);
-    float Ln = L / 100.0f;
-    // Highlight-protected L boost — MUST mirror applySmartColorEnhancement()
-    // in shader_sources.cpp (2026-08-28): taper the sigmoid lift above the
-    // upper midtones so Color Pop stops pumping highlights per step.
-    float hpT = (Ln - 0.60f) / 0.35f;
-    hpT = hpT < 0.f ? 0.f : (hpT > 1.f ? 1.f : hpT);
-    const float hlProtect = 1.0f - 0.85f * (hpT * hpT * (3.0f - 2.0f * hpT));
-    L = L + 15.0f * sinf(3.14159265f * Ln) * hlProtect;
-    if (L < 0.f) L = 0.f; else if (L > 100.f) L = 100.f;
-    A = smartBoostChromaAM(A);
-    Bb = smartBoostChromaAM(Bb);
+    float s = p.smartColorEnhance < 0.f ? 0.f : (p.smartColorEnhance > 1.f ? 1.f : p.smartColorEnhance);
+    float L, A, Bb; srgbToLabAM(clamp01(r), clamp01(g), clamp01(b), L, A, Bb);
+    float C = std::sqrt(A * A + Bb * Bb);
+    if (C < 0.5f) return;
+    float hue = std::atan2(Bb, A);
+    auto smooth = [](float e0, float e1, float x) {
+        float t = (x - e0) / (e1 - e0);
+        t = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
+        return t * t * (3.f - 2.f * t);
+    };
+    float skin = smooth(0.15f, 0.45f, hue) * (1.f - smooth(0.95f, 1.25f, hue));
+    float weak = 1.f - (C / 80.f < 1.f ? C / 80.f : 1.f);
+    if (weak < 0.f) weak = 0.f;
+    float scale = 1.f + 0.35f * s * weak * (1.f - 0.75f * skin);
+    A *= scale; Bb *= scale;
+    if (A < -128.f) A = -128.f; else if (A > 127.f) A = 127.f;
+    if (Bb < -128.f) Bb = -128.f; else if (Bb > 127.f) Bb = 127.f;
     float orr, og, ob; labToSrgbAM(L, A, Bb, orr, og, ob);
+    orr = clamp01(orr); og = clamp01(og); ob = clamp01(ob);
+    const float y0 = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+    const float y1 = 0.2126f * orr + 0.7152f * og + 0.0722f * ob;
+    if (y1 > 1e-4f) {
+        float kL = y0 / y1;
+        orr *= kL; og *= kL; ob *= kL;
+    }
     r = clamp01(orr); g = clamp01(og); b = clamp01(ob);
 }
 
@@ -857,18 +848,24 @@ void applyHsl12ShiftsP(float& r, float& g, float& b,
 
     Hsl in = rgbToHsl(clamp01(r), clamp01(g), clamp01(b));
 
+    // Six UI bands always sit in the basis. A hidden band joins both sums
+    // only when its H/S/L shift is non-zero. Mirrors GLSL applyHslShiftsP.
+    auto hiddenW = [&](const float* shift, float center) -> float {
+        if (shift[0] == 0.f && shift[1] == 0.f && shift[2] == 0.f) return 0.f;
+        return hueWeight(in.h, center);
+    };
     float wR  = hueWeight(in.h, HUE_RED);
     float wO  = hueWeight(in.h, HUE_ORANGE);
     float wY  = hueWeight(in.h, HUE_YELLOW);
-    float wYG = hueWeight(in.h, HUE_YELLOW_GREEN);
+    float wYG = hiddenW(hsl2_18 + 0,  HUE_YELLOW_GREEN);
     float wG  = hueWeight(in.h, HUE_GREEN);
-    float wSG = hueWeight(in.h, HUE_SPRING_GREEN);
+    float wSG = hiddenW(hsl2_18 + 3,  HUE_SPRING_GREEN);
     float wA  = hueWeight(in.h, HUE_AQUA);
-    float wSB = hueWeight(in.h, HUE_SKY_BLUE);
+    float wSB = hiddenW(hsl2_18 + 6,  HUE_SKY_BLUE);
     float wB  = hueWeight(in.h, HUE_BLUE);
-    float wPu = hueWeight(in.h, HUE_PURPLE);
-    float wMa = hueWeight(in.h, HUE_MAGENTA);
-    float wPi = hueWeight(in.h, HUE_PINK);
+    float wPu = hiddenW(hsl2_18 + 9,  HUE_PURPLE);
+    float wMa = hiddenW(hsl2_18 + 12, HUE_MAGENTA);
+    float wPi = hiddenW(hsl2_18 + 15, HUE_PINK);
     float totalW = std::max(1e-5f,
         wR + wO + wY + wYG + wG + wSG + wA + wSB + wB + wPu + wMa + wPi);
 
@@ -1075,8 +1072,22 @@ inline void lfLeakBlendP(float& r, float& g, float& b,
 }
 inline void applyLensFlareP(float& r, float& g, float& b, float u, float v,
                             float fx, float fy, float bright, float size, float spread,
-                            float warmth) {
+                            float warmth, float distanceZ, float hood,
+                            float starburst, float blades01, float irisRot, float roundness) {
     if (bright <= 0.f) return;
+    float z = distanceZ < 0.f ? 0.f : (distanceZ > 1.f ? 1.f : distanceZ);
+    if (!(z <= 1.f)) z = 1.f;
+    float hd = hood < 0.f ? 0.f : (hood > 1.f ? 1.f : hood);
+    if (!(hd <= 1.f)) hd = 0.f;
+    const float zEff = z * z;
+    const float primaryK = 1.f + (0.60f - 1.f) * hd;
+    const float ghostK = 1.f + (0.15f - 1.f) * hd;
+    const float veilAmt = std::pow(1.f - zEff, 2.f) * (1.f + (0.05f - 1.f) * hd);
+    // Same hood-on-spread curve as applyLensFlare: mix(1, 0.45, hood).
+    const float spreadH = spread * (1.f + (0.45f - 1.f) * hd);
+    const float ghostBoost = 1.f + std::pow(1.f - zEff, 1.5f);
+    const float reach = 1.65f + (1.f - 1.65f) * zEff;
+    const float haloReach = 1.80f + (1.f - 1.80f) * zEff;
     const float flx = fx * 0.5f + 0.5f;
     const float fly = fy * 0.5f + 0.5f;
     // Warmth 0 = soft warm-white; 1 = sunlight yellowish-orange → amber/peach.
@@ -1099,22 +1110,73 @@ inline void applyLensFlareP(float& r, float& g, float& b, float u, float v,
         float dx = u - ax, dy = v - ay; return std::sqrt(dx * dx + dy * dy);
     };
     const float d = dist(flx, fly);
-    const float scolor = 0.0375f * size, sglow = 0.078125f * size,
-                sinner = 0.1796875f * size, souter = 0.3359375f * size,
-                shalo = 0.084375f * size;
-    if (d < scolor) { float p = (scolor - d) / scolor; lfLeakBlendP(r, g, b, cr, cg, cb, p * p); }
-    if (d < sglow)  { float p = (sglow - d) / sglow;   lfLeakBlendP(r, g, b, cr, cg, cb, p * p * 0.6f); }
-    if (d < sinner) { float p = (sinner - d) / sinner; lfLeakBlendP(r, g, b, cr, cg, cb, p * p * 0.25f); }
-    if (d < souter) { float p = (souter - d) / souter; lfLeakBlendP(r, g, b, cr, cg, cb, p * 0.12f); }
+    const float scolor = 0.0375f * size * reach, sglow = 0.078125f * size * reach,
+                sinner = 0.1796875f * size * reach, souter = 0.3359375f * size * reach,
+                shalo = 0.084375f * size * haloReach;
+    if (d < scolor) { float p = (scolor - d) / scolor; lfLeakBlendP(r, g, b, cr, cg, cb, p * p * primaryK); }
+    if (d < sglow)  { float p = (sglow - d) / sglow;   lfLeakBlendP(r, g, b, cr, cg, cb, p * p * 0.6f * primaryK); }
+    if (d < sinner) { float p = (sinner - d) / sinner; lfLeakBlendP(r, g, b, cr, cg, cb, p * p * 0.25f * primaryK); }
+    if (d < souter) {
+        float p = (souter - d) / souter;
+        if (blades01 > 0.12f && roundness < 0.98f) {
+            int nb = (int)std::floor(4.f + blades01 * 4.f + 0.5f);
+            if (nb < 5) nb = 5; else if (nb > 8) nb = 8;
+            float ang = std::atan2(v - fly, u - flx) - irisRot * 6.2831853f;
+            float sector = 6.2831853f / float(nb);
+            float a = std::fmod(ang + sector * 0.5f, sector);
+            if (a < 0.f) a += sector;
+            a -= sector * 0.5f;
+            float poly = souter * std::cos(3.14159265f / float(nb)) / std::max(std::cos(a), 0.05f);
+            float edge = (d - poly * 0.9f) / std::max(poly * 0.1f, 1e-4f);
+            if (edge < 0.f) edge = 0.f; else if (edge > 1.f) edge = 1.f;
+            float inside = 1.f - edge;
+            float rnd = roundness < 0.f ? 0.f : (roundness > 1.f ? 1.f : roundness);
+            p *= inside + (1.f - inside) * rnd;
+        }
+        lfLeakBlendP(r, g, b, cr, cg, cb, p * 0.12f * primaryK);
+    }
     { float a = std::fabs(d - shalo) / (shalo * 0.15f);
       float p = 1.f - (a < 0.f ? 0.f : (a > 1.f ? 1.f : a));
-      lfLeakBlendP(r, g, b, cr, cg, cb, p * 0.2f); }
-    const float tcx = (0.5f - flx) * spread, tcy = (0.5f - fly) * spread;
-    for (int i = 0; i < 8; i++) {
-        float t = ((float)i - 3.f) * 0.28f;
-        float gx = flx + tcx * t, gy = fly + tcy * t;
+      lfLeakBlendP(r, g, b, cr, cg, cb, p * 0.2f * primaryK); }
+    if (blades01 > 0.12f && roundness < 0.98f && starburst > 0.001f) {
+        int nb = (int)std::floor(4.f + blades01 * 4.f + 0.5f);
+        if (nb < 5) nb = 5; else if (nb > 8) nb = 8;
+        float rndLen = roundness < 0.f ? 0.f : (roundness > 1.f ? 1.f : roundness);
+        float len = (0.025f + (0.16f - 0.025f) * rndLen) * (size > 0.35f ? size : 0.35f);
+        float width = len * 0.09f;
+        float rot = irisRot * 6.2831853f;
+        for (int k = 0; k < nb; k++) {
+            float ang = rot + float(k) * 6.2831853f / float(nb);
+            float dx = std::cos(ang), dy = std::sin(ang);
+            float rx = u - flx, ry = v - fly;
+            float along = rx * dx + ry * dy;
+            float across = std::fabs(rx * dy - ry * dx);
+            float headT = along / (len * 0.22f);
+            headT = headT < 0.f ? 0.f : (headT > 1.f ? 1.f : headT);
+            float head = headT * headT * (3.f - 2.f * headT);
+            float tailT = (along - len * 0.28f) / (len * 0.72f);
+            tailT = tailT < 0.f ? 0.f : (tailT > 1.f ? 1.f : tailT);
+            float tail = 1.f - tailT * tailT * (3.f - 2.f * tailT);
+            float sideT = (across - width * 0.2f) / (width * 0.8f);
+            sideT = sideT < 0.f ? 0.f : (sideT > 1.f ? 1.f : sideT);
+            float side = 1.f - sideT * sideT * (3.f - 2.f * sideT);
+            float sp = head * tail * side;
+            sp *= sp;
+            if (sp > 0.001f) lfLeakBlendP(r, g, b, cr, cg, cb, sp * starburst);
+        }
+    }
+    if (veilAmt > 0.001f) {
+        const float vr = souter * 1.6f * (1.f + (0.45f - 1.f) * hd);
+        float p = 1.f - d / vr;
+        if (p < 0.f) p = 0.f; else if (p > 1.f) p = 1.f;
+        lfLeakBlendP(r, g, b, cr, cg, cb, p * p * 0.18f * veilAmt);
+    }
+    const float coef[5] = {-1.8f, -0.8f, 0.4f, 1.2f, 2.0f};
+    const float tcx = (0.5f - flx) * spreadH, tcy = (0.5f - fly) * spreadH;
+    for (int i = 0; i < 5; i++) {
+        float gx = flx + tcx * coef[i], gy = fly + tcy * coef[i];
         float gd = dist(gx, gy);
-        float gr = (0.02f + 0.015f * std::fabs(t)) * size;
+        float gr = (0.015f + 0.008f * std::fabs(coef[i])) * size;
         if (gd < gr) {
             float p = (gr - gd) / gr;
             float gtr, gtg, gtb;
@@ -1125,7 +1187,7 @@ inline void applyLensFlareP(float& r, float& g, float& b, float u, float v,
                 gtg = 0.85f + (0.58f - 0.85f) * w;
                 gtb = 1.00f + (0.48f - 1.00f) * w;
             }
-            lfLeakBlendP(r, g, b, gtr, gtg, gtb, p * p * 0.35f);
+            lfLeakBlendP(r, g, b, gtr, gtg, gtb, p * p * 0.35f * ghostK * ghostBoost);
         }
     }
     r = sr + (r - sr) * bright;
@@ -1264,6 +1326,42 @@ inline void applyFxBlurP(float& r, float& g, float& b,
     r += (mixedR - r) * w;
     g += (mixedG - g) * w;
     b += (mixedB - b) * w;
+}
+
+// Film Separation. Mirrors GLSL applyFilmSeparation(). Chroma scale only.
+static inline void applyFilmSeparationP(float& r, float& g, float& b, float strength) {
+    if (strength == 0.f) return;
+    float lr = srgbToLinear1(r < 0.f ? 0.f : (r > 1.f ? 1.f : r));
+    float lg = srgbToLinear1(g < 0.f ? 0.f : (g > 1.f ? 1.f : g));
+    float lb = srgbToLinear1(b < 0.f ? 0.f : (b > 1.f ? 1.f : b));
+    float l = 0.4122214708f * lr + 0.5363325363f * lg + 0.0514459929f * lb;
+    float m = 0.2119034982f * lr + 0.6806995451f * lg + 0.1073969566f * lb;
+    float s = 0.0883024619f * lr + 0.2817188376f * lg + 0.6299787005f * lb;
+    float l_ = std::pow(l > 0.f ? l : 0.f, 1.f / 3.f);
+    float m_ = std::pow(m > 0.f ? m : 0.f, 1.f / 3.f);
+    float s_ = std::pow(s > 0.f ? s : 0.f, 1.f / 3.f);
+    float L  =  0.2104542553f * l_ + 0.7936177850f * m_ - 0.0040720468f * s_;
+    float A  =  1.9779984951f * l_ - 2.4285922050f * m_ + 0.4505937099f * s_;
+    float B  =  0.0259040371f * l_ + 0.7827717662f * m_ - 0.8086757660f * s_;
+    float up = smoothstep01(0.05f, 0.45f, L);
+    float mid = 0.33f + (1.f - 0.33f) * up;
+    float down = smoothstep01(0.55f, 0.95f, L);
+    float weight = mid + (0.50f - mid) * down;
+    float factor = 1.f + strength * weight * 0.75f;
+    if (factor < 0.f) factor = 0.f;
+    A *= factor;
+    B *= factor;
+    float l2 = L + 0.3963377774f * A + 0.2158037573f * B;
+    float m2 = L - 0.1055613458f * A - 0.0638541728f * B;
+    float s2 = L - 0.0894789779f * A - 1.2914855480f * B;
+    float lc = l2 * l2 * l2;
+    float mc = m2 * m2 * m2;
+    float sc = s2 * s2 * s2;
+    r =  4.0767416621f * lc - 3.3077115913f * mc + 0.2309699292f * sc;
+    g = -1.2684380046f * lc + 2.6097574011f * mc - 0.3413193965f * sc;
+    b = -0.0041960863f * lc - 0.7034186147f * mc + 1.7076147010f * sc;
+    linearToSrgb3(r, g, b);
+    r = clamp01(r); g = clamp01(g); b = clamp01(b);
 }
 
 // ── 3D LUT trilinear ────────────────────────────────────────────────────────
@@ -1533,6 +1631,7 @@ ApplyMacroParams ApplyMacroParams::fromFloatArray(const float* arr, int count) {
     for (int i = 0; i < 18; ++i) p.hsl[i] = get(10 + i);
     for (int i = 0; i < 18; ++i) p.hsl2[i] = get(211 + i);
     p.toneCurveLumaMode = get(210) > 0.5f;
+    p.filmHighlightKnee = get(499);
     p.lutEnabled   = get(29) > 0.5f;
     // slot[31] = LUT intensity in [0, 1]. Mirrors the GLSL shader's
     // `mix(c, lutColor, uLutIntensity)`. Pre-M11 .params sidecars left
@@ -1712,6 +1811,7 @@ ApplyMacroParams ApplyMacroParams::fromFloatArray(const float* arr, int count) {
     for (int i = 0; i < 24; ++i) p.hslFull[i] = getOr(253 + i, 0.f);
     p.detailGrainRoughness = getOr(341, 0.f);
     p.colorDensity      = getOr(343, 0.f);
+    p.filmSeparation    = getOr(500, 0.f);
     p.skintoneWarm      = getOr(344, 0.f);
     p.skintoneSmooth    = getOr(345, 0.f);
     p.skintoneLuma      = getOr(346, 0.f);
@@ -1746,12 +1846,26 @@ ApplyMacroParams ApplyMacroParams::fromFloatArray(const float* arr, int count) {
     p.fxGlowWarmth       = getOr(374, 0.f);
     p.mistTightness      = getOr(447, 0.55f);
     p.mistHalation       = getOr(448, 0.f);
+    p.opticalSpread      = getOr(461, 0.f);
+    p.opticalHalation    = getOr(462, 0.f);
+    p.opticalDirection   = getOr(463, 0.f);
+    p.highlightStart     = getOr(484, 0.78f);
+    p.highlightEnd       = getOr(485, 0.98f);
     p.lensFlareX          = getOr(400, -0.5f);
     p.lensFlareY          = getOr(401, -0.5f);
     p.lensFlareBrightness = getOr(409, 0.f);
     p.lensFlareSize       = getOr(430, 1.f);
     p.lensFlareSpread     = getOr(431, 1.f);
     p.lensFlareWarmth     = getOr(435, 0.f);
+    p.lensFlareDistance   = getOr(464, 1.f);
+    p.lensFlareHood       = getOr(465, 0.f);
+    p.sceneDistance       = getOr(466, 0.5f);
+    p.shadowStrength      = getOr(467, 0.f);
+    p.shadowSoftness      = getOr(468, 0.5f);
+    p.starburst           = getOr(480, 0.f);
+    p.irisBlades          = getOr(481, 0.f);
+    p.irisRotation        = getOr(482, 0.f);
+    p.irisRoundness       = getOr(483, 1.f);
     p.colorShiftRedX      = getOr(432, 0.f);
     p.colorShiftGreenX    = getOr(433, 0.f);
     p.colorShiftBlueX     = getOr(434, 0.f);
@@ -1953,21 +2067,6 @@ static void applyMacroPixelImpl(float* io, float u, float v,
                                 const ApplyMacroSubjectMask* atten = nullptr,
                                 const float* srcBuf = nullptr,
                                 int srcW = 0, int srcH = 0) {
-    // ── Smart Color Enhancement ("Color Pop", slots 384..390) ────────────────
-    // Applied FIRST on the input sRGB color — exactly as the GL preview does
-    // (gles_renderer main() blends it before any other op) — so the saved file
-    // matches the canvas. smartColorEnhance is a STRENGTH in [0..1] (Off/Low/Med/
-    // High = 0/0.4/0.7/1.0); blend the full effect toward the original by it.
-    if (p.smartColorEnhance > 0.f) {
-        const float orr = io[0], og = io[1], ob = io[2];
-        applySmartColorEnhanceP(io[0], io[1], io[2], p);
-        const float s = p.smartColorEnhance < 0.f ? 0.f
-                      : (p.smartColorEnhance > 1.f ? 1.f : p.smartColorEnhance);
-        io[0] = orr + (io[0] - orr) * s;
-        io[1] = og  + (io[1] - og ) * s;
-        io[2] = ob  + (io[2] - ob ) * s;
-    }
-
     // ── Purple-fringe desat (slot [449] Strong=2) — mirrors shader_sources.cpp.
     // Neighbour clip gate samples the SOURCE buffer at centre UV (±3 px),
     // while purpleScore uses the running pixel (post smart-color / geometry).
@@ -2030,7 +2129,9 @@ static void applyMacroPixelImpl(float* io, float u, float v,
     const bool hasSubjectMask = (mask && mask->data && mask->w > 0 && mask->h > 0);
     // Block Subject/Background-targeted vignette when mask is absent so it
     // doesn't apply to the entire frame (mirrors the GLSL fix for Cause 3).
-    const int vigEffectInt = int(p.vigEffect);
+    const int vigRaw = int(p.vigEffect);
+    const int vigEffectInt = vigRaw >= 10 ? vigRaw - 10 : vigRaw;
+    const bool vigInvert = vigRaw >= 10;
     const float vigGate = hasSubjectMask
         ? segGate(vigEffectInt, subjSq)
         : (vigEffectInt != 0 ? 0.f : 1.f);
@@ -2232,6 +2333,8 @@ static void applyMacroPixelImpl(float* io, float u, float v,
         t = t * t * (3.f - 2.f * t);
         float mask = t * (p.vigIntensity < 0.f ? 0.f
                         : (p.vigIntensity > 1.f ? 1.f : p.vigIntensity));
+        if (vigInvert) mask = (p.vigIntensity < 0.f ? 0.f
+                        : (p.vigIntensity > 1.f ? 1.f : p.vigIntensity)) - mask;
         // Fold the segmentation gate into the radial mask so feathering
         // works across both spatial AND semantic boundaries (matches GLSL).
         mask *= vigGate;
@@ -2443,13 +2546,15 @@ static void applyMacroPixelImpl(float* io, float u, float v,
                     const int dimH = (srcH > 0) ? srcH : blurH;
                     halaScale = halationProtectScaleP(mask, u, v, dimW, dimH);
                 }
-                const float hOff = p.mistHalation * 0.005f * halaScale;
+                const float hOff = p.mistHalation * 0.02f * halaScale;
                 float rR, rG, rB, cR, cG, cB, lR, lG, lB;
                 sampleBlurBuffer(bloomBuf, blurW, blurH, u + hOff, v, rR, rG, rB);
                 sampleBlurBuffer(bloomBuf, blurW, blurH, u,         v, cR, cG, cB);
                 sampleBlurBuffer(bloomBuf, blurW, blurH, u - hOff, v, lR, lG, lB);
-                bR = rR; bG = cG; bB = lB;
+                bR = rR * 0.45f + cR * 0.55f; bG = cG; bB = lB * 0.45f + cB * 0.55f;
             }
+            bR *= 1.f + p.fxGlowWarmth;
+            bB *= 1.f - p.fxGlowWarmth;
             applyOrtonP(r, g, b, bR, bG, bB, strengthHere);
         }
     }
@@ -2459,6 +2564,7 @@ static void applyMacroPixelImpl(float* io, float u, float v,
     //   v = 0 → headroom map only (identity [0,1], compress >1).
     //   v > 0 → boost LUT-result saturation in highlight territory.
     //   v < 0 → blend toward full Reinhard on HDR (creative knob).
+    applyFilmSeparationP(r, g, b, p.filmSeparation);
     const float hr = r, hg = g, hb = b;
     r = clamp01(r); g = clamp01(g); b = clamp01(b);
 
@@ -2595,6 +2701,29 @@ static void applyMacroPixelImpl(float* io, float u, float v,
             r = tcCh(0, r); g = tcCh(1, g); b = tcCh(2, b);
         }
     }
+    if (p.filmHighlightKnee > 0.001f) {
+        const float amount = p.filmHighlightKnee;
+        const float L = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+        float start = 0.62f - amount * 0.22f;
+        if (start < 0.35f) start = 0.35f;
+        if (start > 0.70f) start = 0.70f;
+        float Lp = L;
+        if (L > start) {
+            float t = (L - start) / (1.f - start);
+            if (t < 0.f) t = 0.f;
+            if (t > 1.f) t = 1.f;
+            Lp = start + (1.f - start) * powf(t, 1.f + amount * 2.4f);
+        }
+        const float dL = Lp - L;
+        r += dL; g += dL; b += dL;
+        if (r < 0.f) r = 0.f;
+        if (g < 0.f) g = 0.f;
+        if (b < 0.f) b = 0.f;
+    }
+
+    if (p.smartColorEnhance > 0.f) {
+        applySmartColorEnhanceP(r, g, b, p);
+    }
 
     // Phase-1 backport: pushPull → detailGrain → haxGrain → gamutCompress.
     // Pipeline order: after curves/LUT/WB-trims, before final write.
@@ -2645,7 +2774,7 @@ static void applyMacroPixelImpl(float* io, float u, float v,
                 const int dimH = (srcH > 0) ? srcH : blurH;
                 halaScale = halationProtectScaleP(mask, u, v, dimW, dimH);
             }
-            const float hOff = p.mistHalation * 0.005f * halaScale;
+            const float hOff = p.mistHalation * 0.02f * halaScale;
             float rR, rG, rB, cR, cG, cB, lR, lG, lB;
             sampleBlurBuffer(bloomBuf, blurW, blurH, u + hOff, v, rR, rG, rB);
             sampleBlurBuffer(bloomBuf, blurW, blurH, u,         v, cR, cG, cB);
@@ -2656,12 +2785,127 @@ static void applyMacroPixelImpl(float* io, float u, float v,
         applyGlowWithSpreadP(r, g, b, bR, bG, bB,
                              p.fxGlowStrength, p.fxGlowSpread, p.fxGlowWarmth);
     }
+    if ((srcBuf != nullptr && srcW > 0 && srcH > 0) ||
+        (bloomBuf != nullptr && blurW > 0 && blurH > 0)) {
+        if (p.opticalSpread > 1e-4f || p.opticalHalation > 1e-4f || p.mistHalation > 1e-4f) {
+        float rx, ry;
+        filmicOpticalSpreadRadii(p.opticalSpread, p.opticalDirection, rx, ry);
+        const int densSide = (srcW > 0) ? std::max(srcW, srcH) : std::max(blurW, blurH);
+        const float dens = opticalSpreadDensity(densSide);
+        rx *= dens;
+        ry *= dens;
+        auto pix = [&](float su, float sv, float& oR, float& oG, float& oB) {
+            if (srcBuf && srcW > 0 && srcH > 0) {
+                if (su < 0.f) su = 0.f; else if (su > 1.f) su = 1.f;
+                if (sv < 0.f) sv = 0.f; else if (sv > 1.f) sv = 1.f;
+                const float fx = su * float(srcW - 1);
+                const float fy = sv * float(srcH - 1);
+                const int x0 = (int)fx, y0 = (int)fy;
+                const float* p0 = srcBuf + (size_t(y0) * srcW + x0) * 3;
+                oR = p0[0]; oG = p0[1]; oB = p0[2];
+            } else {
+                sampleBlurBuffer(bloomBuf, blurW, blurH, su, sv, oR, oG, oB);
+            }
+            const float lum = 0.2126f * oR + 0.7152f * oG + 0.0722f * oB;
+            const float hs = p.highlightStart > 0.05f ? p.highlightStart : 0.78f;
+            float he = p.highlightEnd > hs ? p.highlightEnd : 0.98f;
+            float t = (lum - hs) / (he - hs);
+            t = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
+            const float gate = t * t * (3.f - 2.f * t);
+            oR *= gate; oG *= gate; oB *= gate;
+        };
+        auto rawL = [&](float su, float sv) -> float {
+            float oR, oG, oB;
+            if (srcBuf && srcW > 0 && srcH > 0) {
+                if (su < 0.f) su = 0.f; else if (su > 1.f) su = 1.f;
+                if (sv < 0.f) sv = 0.f; else if (sv > 1.f) sv = 1.f;
+                const float fx = su * float(srcW - 1);
+                const float fy = sv * float(srcH - 1);
+                const float* p0 = srcBuf + (size_t((int)fy) * srcW + (int)fx) * 3;
+                oR = p0[0]; oG = p0[1]; oB = p0[2];
+            } else {
+                sampleBlurBuffer(bloomBuf, blurW, blurH, su, sv, oR, oG, oB);
+            }
+            return 0.2126f * oR + 0.7152f * oG + 0.0722f * oB;
+        };
+        const float eL = rawL(u + 0.004f, v);
+        const float wL = rawL(u - 0.004f, v);
+        const float nL = rawL(u, v + 0.004f);
+        const float sL = rawL(u, v - 0.004f);
+        float contrast = std::max(std::max(eL, wL), std::max(nL, sL))
+                       - std::min(std::min(eL, wL), std::min(nL, sL));
+        float impT = (contrast - 0.03f) / 0.13f;
+        impT = impT < 0.f ? 0.f : (impT > 1.f ? 1.f : impT);
+        impT = impT * impT * (3.f - 2.f * impT);
+        const float importance = 0.08f + (1.f - 0.08f) * impT;
+        float cR, cG, cB, r0, g0, b0, r1, g1, b1, r2, g2, b2, r3, g3, b3;
+        pix(u, v, cR, cG, cB);
+        pix(u + rx, v, r0, g0, b0);
+        pix(u - rx, v, r1, g1, b1);
+        pix(u, v + ry, r2, g2, b2);
+        pix(u, v - ry, r3, g3, b3);
+        cR *= importance; cG *= importance; cB *= importance;
+        const float wR = 0.25f * (r0 + r1 + r2 + r3) * importance;
+        const float wG = 0.25f * (g0 + g1 + g2 + g3) * importance;
+        const float wB = 0.25f * (b0 + b1 + b2 + b3) * importance;
+        const float centerL = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+        float hImp = (importance - 0.45f) / 0.40f;
+        hImp = hImp < 0.f ? 0.f : (hImp > 1.f ? 1.f : hImp);
+        hImp = hImp * hImp * (3.f - 2.f * hImp);
+        const float hsUse = p.highlightStart > 0.05f ? p.highlightStart : 0.78f;
+        const float heUse = p.highlightEnd > hsUse ? p.highlightEnd : 0.98f;
+        float hLum = (centerL - hsUse) / (heUse - hsUse);
+        hLum = hLum < 0.f ? 0.f : (hLum > 1.f ? 1.f : hLum);
+        hLum = hLum * hLum * (3.f - 2.f * hLum);
+        opticalSpreadAdd(r, g, b, wR, wG, wB, cR, cG, cB,
+                         p.opticalSpread, std::max(p.opticalHalation, p.mistHalation) * hImp * hLum);
+        }
+    }
     applyDustP(r, g, b, u, v, p.fxDust, p.fxDustSize);
+    if (p.shadowStrength > 0.001f && hasSubjectMask && srcW > 0) {
+        float lx = p.lensFlareX, ly = p.lensFlareY;
+        float llen = std::sqrt(lx * lx + ly * ly);
+        if (llen < 0.0001f) { lx = 0.f; ly = -1.f; llen = 1.f; }
+        float sdx = -lx / llen, sdy = -ly / llen;
+        float d01 = p.sceneDistance < 0.f ? 0.f : (p.sceneDistance > 1.f ? 1.f : p.sceneDistance);
+        float soft = p.shadowSoftness < 0.f ? 0.f : (p.shadowSoftness > 1.f ? 1.f : p.shadowSoftness);
+        float travel = 0.15f + (0.02f - 0.15f) * d01;
+        float blurF = (0.03f + (0.006f - 0.03f) * d01) + soft * 0.02f;
+        float aspect = (srcH > 0) ? float(srcW) / float(srcH) : 1.f;
+        float ou = u - sdx * travel;
+        float ov = v - sdy * travel * aspect;
+        auto samp = [&](float su, float sv) {
+            if (su < 0.f) su = 0.f; else if (su > 1.f) su = 1.f;
+            if (sv < 0.f) sv = 0.f; else if (sv > 1.f) sv = 1.f;
+            return sampleSubjectMask(mask, su, sv);
+        };
+        float acc = samp(ou, ov) * 0.25f;
+        acc += samp(ou + blurF, ov) * 0.125f;
+        acc += samp(ou - blurF, ov) * 0.125f;
+        acc += samp(ou, ov + blurF * aspect) * 0.125f;
+        acc += samp(ou, ov - blurF * aspect) * 0.125f;
+        acc += samp(ou + blurF, ov + blurF * aspect) * 0.0625f;
+        acc += samp(ou + blurF, ov - blurF * aspect) * 0.0625f;
+        acc += samp(ou - blurF, ov + blurF * aspect) * 0.0625f;
+        acc += samp(ou - blurF, ov - blurF * aspect) * 0.0625f;
+        float bg = 1.f - samp(u, v);
+        float alpha = acc * p.shadowStrength;
+        if (alpha < 0.f) alpha = 0.f; else if (alpha > 1.f) alpha = 1.f;
+        alpha *= bg;
+        float keep = 1.f - alpha;
+        r *= keep; g *= keep; b *= keep;
+    }
     // Lens flare (procedural additive, above dust) — mirrors shader main().
-    if (p.lensFlareBrightness > 0.f) {
-        applyLensFlareP(r, g, b, u, v, p.lensFlareX, p.lensFlareY,
+    if (p.lensFlareBrightness > 0.f && mask && mask->data && mask->w > 0 && mask->h > 0) {
+        float fr = r, fg = g, fb = b;
+        applyLensFlareP(fr, fg, fb, u, v, p.lensFlareX, p.lensFlareY,
                         p.lensFlareBrightness, p.lensFlareSize, p.lensFlareSpread,
-                        p.lensFlareWarmth);
+                        p.lensFlareWarmth, p.lensFlareDistance, p.lensFlareHood,
+                        p.starburst, p.irisBlades, p.irisRotation, p.irisRoundness);
+        float bg = 1.f - sampleSubjectMask(mask, u, v);
+        r = r + (fr - r) * bg;
+        g = g + (fg - g) * bg;
+        b = b + (fb - b) * bg;
     }
 
     io[0] = r; io[1] = g; io[2] = b;
@@ -2780,6 +3024,23 @@ void applyMacroPixel(float* io, float u, float v,
     applyMacroPixelImpl(io, u, v, p, lut, mask, maskLayers, blurRgb, bloomRgb,
                         blurBuf, blurW, blurH, bloomBuf, atten,
                         srcBuf, srcW, srcH);
+}
+
+void applyLensFlareImage(float* rgb, int w, int h,
+                         float fx, float fy, float bright, float size, float spread,
+                         float warmth, float distanceZ, float hood,
+                         float starburst, float blades01, float irisRot, float roundness) {
+    if (!rgb || w < 1 || h < 1 || bright <= 0.f) return;
+    for (int y = 0; y < h; ++y) {
+        const float v = (h <= 1) ? 0.f : float(y) / float(h - 1);
+        float* row = rgb + size_t(y) * w * 3;
+        for (int x = 0; x < w; ++x) {
+            const float u = (w <= 1) ? 0.f : float(x) / float(w - 1);
+            applyLensFlareP(row[x * 3], row[x * 3 + 1], row[x * 3 + 2],
+                            u, v, fx, fy, bright, size, spread, warmth, distanceZ, hood,
+                            starburst, blades01, irisRot, roundness);
+        }
+    }
 }
 
 }  // namespace raw_v3

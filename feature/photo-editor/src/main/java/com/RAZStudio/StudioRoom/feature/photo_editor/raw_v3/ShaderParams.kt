@@ -272,7 +272,7 @@ data class ShaderParams(
     val lensFlareSize: Float = 1f,       // [430]  0.1..5 radius scale
     val lensFlareSpread: Float = 1f,     // [431]  0..1 ghost spread
     /** [435] Warmth 0..1 — was never written from Kotlin (native read zeros). */
-    val lensFlareWarmth: Float = 0f,
+    val lensFlareWarmth: Float = 0f,      // [435]  0..1
 
     // ── OpenShot ColorShift (horizontal RGB split; uv-fraction offset) ──
     val colorShiftRedX: Float = 0f,      // [432]  -0.1..0.1
@@ -302,8 +302,27 @@ data class ShaderParams(
      * argument-register ceiling (same idiom as [film]).
      *   [0] mistTightness 0..1 — bias Karis upsample toward mip1 (tight halo)
      *   [1] mistHalation  0..1 — R/B channel offset for optical scatter
+     *   [2] flare distance 0..1, default 1 (slot [464])
+     *   [3] flare hood 0..1, default 0 (slot [465])
+     *   [4] scene distance 0..1, default 0.5 (slot [466], UI 0..100)
+     *   [5] shadow strength 0..1, default 0 (slot [467])
+     *   [6] shadow softness 0..1, default 0.5 (slot [468])
+     * Packed here so these do not add ShaderParams constructor params.
+     * Slots [469..479] stay 0 in the float array (lighting reserve).
      */
-    val cinematic: FloatArray = floatArrayOf(0.55f, 0f),
+    val cinematic: FloatArray = floatArrayOf(0.55f, 0f, 1f, 0f, 0.5f, 0f, 0.5f, 0.78f, 0.98f),
+
+    /**
+     * Optical Spread [461..463] plus iris [480..483].
+     *   [0] amount 0..1
+     *   [1] halation 0..1
+     *   [2] direction 0 Off, 1 Horizontal, 2 Radial
+     *   [3] starburst 0..1 slot [480]
+     *   [4] blades 0..1 slot [481]
+     *   [5] rotation 0..1 slot [482]
+     *   [6] roundness 0..1 slot [483], default 1
+     */
+    val optical: FloatArray = floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 1f),
 
     // Center-Pop — radial-masked clarity, RapidRAW-style single slider.
     // [-1..+1]; positive pops center, negative softens center.
@@ -819,12 +838,41 @@ data class ShaderParams(
         a[430] = lensFlareSize
         a[431] = lensFlareSpread
         a[435] = lensFlareWarmth
+        a[464] = cinematic.getOrElse(2) { 1f }
+        a[465] = cinematic.getOrElse(3) { 0f }
+        a[466] = cinematic.getOrElse(4) { 0.5f }
+        a[467] = cinematic.getOrElse(5) { 0f }
+        a[468] = cinematic.getOrElse(6) { 0.5f }
+        a[484] = cinematic.getOrElse(7) { 0.78f }
+        a[485] = cinematic.getOrElse(8) { 0.98f }
+        a[486] = cinematic.getOrElse(9) { 0f }
+        a[487] = cinematic.getOrElse(10) { 0f }
+        a[488] = cinematic.getOrElse(11) { 0f }
+        a[489] = cinematic.getOrElse(12) { 0f }
+        a[490] = cinematic.getOrElse(13) { 0f }
+        a[491] = cinematic.getOrElse(14) { 0f }
+        a[492] = cinematic.getOrElse(15) { 0f }
+        a[493] = cinematic.getOrElse(16) { 1f }
+        a[494] = cinematic.getOrElse(17) { 1f }
+        a[495] = cinematic.getOrElse(18) { 1f }
+        a[496] = cinematic.getOrElse(19) { 0f }
+        a[497] = cinematic.getOrElse(20) { 1f }
+        a[498] = cinematic.getOrElse(21) { 0f }
+        a[499] = cinematic.getOrElse(22) { 0f }
+        a[500] = cinematic.getOrElse(23) { 0f }
         a[432] = colorShiftRedX
         a[433] = colorShiftGreenX
         a[434] = colorShiftBlueX
         for (i in 0 until 11) a[436 + i] = film[i]
         a[447] = cinematic.getOrElse(0) { 0.55f }
         a[448] = cinematic.getOrElse(1) { 0f }
+        a[461] = optical.getOrElse(0) { 0f }
+        a[462] = optical.getOrElse(1) { 0f }
+        a[463] = optical.getOrElse(2) { 0f }
+        a[480] = optical.getOrElse(3) { 0f }
+        a[481] = optical.getOrElse(4) { 0f }
+        a[482] = optical.getOrElse(5) { 0f }
+        a[483] = optical.getOrElse(6) { 1f }
         a[252] = centerPop
         // PREQ-Port slots [253..374]
         for (i in 0 until 24) a[253 + i] = hslFull[i]
@@ -1047,11 +1095,30 @@ data class ShaderParams(
         for (i in 0 until 12) a[240 + i] = cg[i]
         for (i in 0 until 4)  a[426 + i] = cg[12 + i]
         a[400] = lensFlareX; a[401] = lensFlareY; a[409] = lensFlareBrightness
-        a[430] = lensFlareSize; a[431] = lensFlareSpread; a[435] = lensFlareWarmth
+        a[430] = lensFlareSize; a[431] = lensFlareSpread;         a[435] = lensFlareWarmth
+        a[464] = cinematic.getOrElse(2) { 1f }; a[465] = cinematic.getOrElse(3) { 0f }
+        a[466] = cinematic.getOrElse(4) { 0.5f }; a[467] = cinematic.getOrElse(5) { 0f }; a[468] = cinematic.getOrElse(6) { 0.5f }
+        a[484] = cinematic.getOrElse(7) { 0.78f }; a[485] = cinematic.getOrElse(8) { 0.98f }
+        a[486] = cinematic.getOrElse(9) { 0f }; a[487] = cinematic.getOrElse(10) { 0f }
+        a[488] = cinematic.getOrElse(11) { 0f }; a[489] = cinematic.getOrElse(12) { 0f }
+        a[490] = cinematic.getOrElse(13) { 0f }; a[491] = cinematic.getOrElse(14) { 0f }
+        a[492] = cinematic.getOrElse(15) { 0f }; a[493] = cinematic.getOrElse(16) { 1f }
+        a[494] = cinematic.getOrElse(17) { 1f }; a[495] = cinematic.getOrElse(18) { 1f }
+        a[496] = cinematic.getOrElse(19) { 0f }; a[497] = cinematic.getOrElse(20) { 1f }
+        a[498] = cinematic.getOrElse(21) { 0f }
+        a[499] = cinematic.getOrElse(22) { 0f }
+        a[500] = cinematic.getOrElse(23) { 0f }
         a[432] = colorShiftRedX; a[433] = colorShiftGreenX; a[434] = colorShiftBlueX
         for (i in 0 until 11) a[436 + i] = film[i]
         a[447] = cinematic.getOrElse(0) { 0.55f }
         a[448] = cinematic.getOrElse(1) { 0f }
+        a[461] = optical.getOrElse(0) { 0f }
+        a[462] = optical.getOrElse(1) { 0f }
+        a[463] = optical.getOrElse(2) { 0f }
+        a[480] = optical.getOrElse(3) { 0f }
+        a[481] = optical.getOrElse(4) { 0f }
+        a[482] = optical.getOrElse(5) { 0f }
+        a[483] = optical.getOrElse(6) { 1f }
         a[252] = centerPop
         for (i in 0 until 24) a[253 + i] = hslFull[i]
         for (i in 0 until 16) a[277 + i] = curveMaster[i]
@@ -1142,9 +1209,11 @@ data class ShaderParams(
     }
 
     companion object {
-        // Append-only ABI. Highest used slot is [460] (jpegRefineDetail);
-        // next free is [461].
+        // Highest used slot is [483] (iris roundness). Next free is [484].
+        // [499] film highlight knee, 0..1, applied as a luma shoulder.
+        const val FLOAT_COUNT = 501  // [500] filmSeparation
         // JPEG Dual Reconstruction Lite [458..460] (native spatial; 0 = no-op).
+        // Optical Spread [461] amount, [462] halation, [463] direction.
         // lensFlare [400,401,409,430,431] + lensFlareWarmth [435],
         // colorShift [432,433,434],
         // film response [436..446], cinematic bloom [447..448],
@@ -1152,8 +1221,6 @@ data class ShaderParams(
         // lutBwForce [450], filmicLuma [451], oklabHlChroma [452]
         // (slot [453] reserved to keep these three clear of the 450+ vintage
         //  range they used to collide with),
-        // vintage [454..457] — mist intensity/scale and texture intensity/scale.
-        const val FLOAT_COUNT = 461
         const val XMP_BLOB_FLOAT_COUNT = 25
         /** Brush-mask layer count — matches GlesRenderer::kMaskLayers. */
         const val MASK_LAYER_COUNT = 4
@@ -1387,6 +1454,37 @@ data class ShaderParams(
                 cinematic = floatArrayOf(
                     if (arr.size > 447) arr[447].coerceIn(0f, 1f) else 0.55f,
                     if (arr.size > 448) arr[448].coerceIn(0f, 1f) else 0f,
+                    if (arr.size > 464) arr[464].coerceIn(0f, 1f) else 1f,
+                    if (arr.size > 465) arr[465].coerceIn(0f, 1f) else 0f,
+                    if (arr.size > 466) arr[466].coerceIn(0f, 1f) else 0.5f,
+                    if (arr.size > 467) arr[467].coerceIn(0f, 1f) else 0f,
+                    if (arr.size > 468) arr[468].coerceIn(0f, 1f) else 0.5f,
+                    if (arr.size > 484) arr[484].coerceIn(0.2f, 0.98f) else 0.78f,
+                    if (arr.size > 485) arr[485].coerceIn(0.3f, 1f) else 0.98f,
+                    if (arr.size > 486) arr[486].coerceIn(0f, 1f) else 0f,
+                    if (arr.size > 487) arr[487].coerceIn(0f, 1f) else 0f,
+                    if (arr.size > 488) arr[488].coerceIn(0f, 1f) else 0f,
+                    if (arr.size > 489) arr[489].coerceIn(0f, 1f) else 0f,
+                    if (arr.size > 490) arr[490].coerceIn(0f, 1f) else 0f,
+                    if (arr.size > 491) arr[491] else 0f,
+                    if (arr.size > 492) arr[492].coerceIn(0f, 1f) else 0f,
+                    if (arr.size > 493) arr[493].coerceIn(0f, 2f) else 1f,
+                    if (arr.size > 494) arr[494].coerceIn(0f, 2f) else 1f,
+                    if (arr.size > 495) arr[495].coerceIn(0f, 2f) else 1f,
+                    if (arr.size > 496) arr[496].coerceIn(0f, 1f) else 0f,
+                    if (arr.size > 497) arr[497].coerceIn(0f, 2f) else 1f,
+                    if (arr.size > 498) arr[498].coerceIn(0f, 1f) else 0f,
+                    if (arr.size > 499) arr[499].coerceIn(0f, 1f) else 0f,
+                    if (arr.size > 500) arr[500].coerceIn(-1f, 1f) else 0f,
+                ),
+                optical = floatArrayOf(
+                    if (arr.size > 461) arr[461].coerceIn(0f, 1f) else 0f,
+                    if (arr.size > 462) arr[462].coerceIn(0f, 1f) else 0f,
+                    if (arr.size > 463) arr[463].coerceIn(0f, 2f) else 0f,
+                    if (arr.size > 480) arr[480].coerceIn(0f, 1f) else 0f,
+                    if (arr.size > 481) arr[481].coerceIn(0f, 1f) else 0f,
+                    if (arr.size > 482) arr[482].coerceIn(0f, 1f) else 0f,
+                    if (arr.size > 483) arr[483].coerceIn(0f, 1f) else 1f,
                 ),
                 centerPop        = if (arr.size > 252) arr[252].coerceIn(-1f, 1f) else 0f,
                 // PREQ-Port: HSL Full — migrate from old hsl/hsl2 if hslFull is all-zero
@@ -1670,6 +1768,7 @@ fun ShaderParams.withUpdate(slot: Int, value: Float): ShaderParams = when (slot)
     341  -> copy(detailGrainRoughness = value.coerceIn(0f, 1f))
     342  -> copy(detailSharpenMask    = value.coerceIn(0f, 1f))
     343  -> copy(colorDensity         = value.coerceIn(-1f, 1f))
+    500  -> copy(cinematic = cinematic.copyOf(24).also { it[23] = value.coerceIn(-1f, 1f) })
     344  -> copy(skintoneWarm         = value.coerceIn(-0.5f, 0.5f))
     345  -> copy(skintoneSmooth       = value.coerceIn(0f, 1f))
     346  -> copy(skintoneLuma         = value.coerceIn(-0.5f, 0.5f))
@@ -1729,8 +1828,22 @@ fun ShaderParams.withUpdate(slot: Int, value: Float): ShaderParams = when (slot)
     in 436..446 -> copy(film = film.copyOf().also {
         it[slot - 436] = value.coerceIn(-1f, 1f)
     })
-    447  -> copy(cinematic = cinematic.copyOf().also { it[0] = value.coerceIn(0f, 1f) })
-    448  -> copy(cinematic = cinematic.copyOf().also { it[1] = value.coerceIn(0f, 1f) })
+    447  -> copy(cinematic = cinematic.copyOf(23).also { it[0] = value.coerceIn(0f, 1f) })
+    448  -> copy(cinematic = cinematic.copyOf(23).also { it[1] = value.coerceIn(0f, 1f) })
+    464  -> copy(cinematic = cinematic.copyOf(23).also { it[2] = value.coerceIn(0f, 1f) })
+    465  -> copy(cinematic = cinematic.copyOf(23).also { it[3] = value.coerceIn(0f, 1f) })
+    466  -> copy(cinematic = cinematic.copyOf(23).also { it[4] = value.coerceIn(0f, 1f) })
+    467  -> copy(cinematic = cinematic.copyOf(23).also { it[5] = value.coerceIn(0f, 1f) })
+    468  -> copy(cinematic = cinematic.copyOf(23).also { it[6] = value.coerceIn(0f, 1f); if (cinematic.size < 8) it[7] = 0.78f; if (cinematic.size < 9) it[8] = 0.98f })
+    484  -> copy(cinematic = cinematic.copyOf(23).also { if (cinematic.size < 8) it[7] = 0.78f; it[7] = value.coerceIn(0.2f, 0.98f); if (cinematic.size < 9) it[8] = 0.98f })
+    485  -> copy(cinematic = cinematic.copyOf(23).also { if (cinematic.size < 8) it[7] = 0.78f; if (cinematic.size < 9) it[8] = 0.98f; it[8] = value.coerceIn(0.3f, 1f) })
+    in 461..463 -> copy(optical = optical.copyOf(7).also {
+        val clamped = if (slot == 463) value.coerceIn(0f, 2f) else value.coerceIn(0f, 1f)
+        it[slot - 461] = clamped
+    })
+    in 480..483 -> copy(optical = optical.copyOf(7).also {
+        it[slot - 477] = value.coerceIn(0f, 1f)
+    })
     449  -> copy(purpleFringeMode     = value.toInt().coerceIn(0, 2))
     410  -> copy(maskHighlights       = value.coerceIn(-100f, 100f))
     411  -> copy(mask1Highlights      = value.coerceIn(-100f, 100f))

@@ -252,6 +252,7 @@ internal object RawActionSerializer {
         t("filmGrayBlue",                m.filmResponse.grayBlue)
         t("filmGrayPurple",              m.filmResponse.grayPurple)
         t("filmGrayMagenta",             m.filmResponse.grayMagenta)
+        t("filmSeparation",              m.filmResponse.separation)
         t("maskHighlights",              m.maskTone.highlights)
         t("maskShadows",                 m.maskTone.shadows)
         t("maskWhites",                  m.maskTone.whites)
@@ -585,6 +586,7 @@ internal object RawActionSerializer {
                 grayBlue    = f("filmGrayBlue"),
                 grayPurple  = f("filmGrayPurple"),
                 grayMagenta = f("filmGrayMagenta"),
+                separation  = f("filmSeparation"),
             ),
             maskTone          = MaskToneRegions(
                 highlights = f("maskHighlights"),

@@ -8,6 +8,7 @@
  */
 
 #include "grading_uniforms.h"
+#include "bloom_filmic.h"
 
 #include <GLES3/gl3.h>
 #include <android/log.h>
@@ -83,6 +84,15 @@ void pushGradingUniforms(unsigned int prog,
     glUniform1f(L("uBloomShape"),     params.bloomShape);
     glUniform1f(L("uMistTightness"),  params.mistTightness);
     glUniform1f(L("uMistHalation"),   params.mistHalation);
+    glUniform1f(L("uOpticalSpread"),    params.opticalSpread);
+    glUniform1f(L("uOpticalHalation"),  params.opticalHalation);
+    glUniform1f(L("uOpticalDirection"), params.opticalDirection);
+    glUniform1f(L("uHighlightStart"), params.highlightStart > 0.f ? params.highlightStart : 0.78f);
+    glUniform1f(L("uHighlightEnd"), params.highlightEnd > params.highlightStart ? params.highlightEnd : 0.98f);
+    {
+        const int longSide = std::max(in.texW, in.texH);
+        glUniform1f(L("uOpticalDensity"), opticalSpreadDensity(longSide > 0 ? longSide : 2048));
+    }
     glUniform1f(L("uFilmRolloff"),    params.filmRolloff);
     glUniform1f(L("uFilmicLuma"),     params.filmicLuma);
     glUniform1f(L("uOklabHlChroma"),  params.oklabHlChroma);
@@ -203,6 +213,7 @@ void pushGradingUniforms(unsigned int prog,
     glUniform1f(L("uDetailGrainRoughness"), params.detailGrainRoughness);
     glUniform1f(L("uDetailSharpenMask"),    params.detailSharpenMask);
     glUniform1f(L("uColorDensity"),  params.colorDensity);
+    glUniform1f(L("uFilmSeparation"), params.filmSeparation);
     glUniform3f(L("uSkintone"), params.skintoneWarm, params.skintoneSmooth,
                 params.skintoneLuma);
     glUniform1f(L("uMidtoneDetails"), params.midtoneDetails);
@@ -245,6 +256,16 @@ void pushGradingUniforms(unsigned int prog,
     glUniform1f(L("uLensFlareSize"),       params.lensFlareSize);
     glUniform1f(L("uLensFlareSpread"),     params.lensFlareSpread);
     glUniform1f(L("uLensFlareWarmth"),     params.lensFlareWarmth);
+    glUniform1f(L("uLensFlareDistance"),   params.lensFlareDistance);
+    glUniform1f(L("uLensFlareHood"),       params.lensFlareHood);
+    glUniform1f(L("uSceneDistance"),       params.sceneDistance);
+    glUniform1f(L("uShadowStrength"),      params.shadowStrength);
+    glUniform1f(L("uShadowSoftness"),      params.shadowSoftness);
+    glUniform1f(L("uStarburst"),           params.starburst);
+    glUniform1f(L("uIrisBlades"),          params.irisBlades);
+    glUniform1f(L("uIrisRotation"),        params.irisRotation);
+    glUniform1f(L("uIrisRoundness"),       params.irisRoundness);
+    glUniform1f(L("uShadowAspect"),        (in.texH > 0) ? float(in.texW) / float(in.texH) : 1.f);
     glUniform1f(L("uColorShiftRedX"),      params.colorShiftRedX);
     glUniform1f(L("uColorShiftGreenX"),    params.colorShiftGreenX);
     glUniform1f(L("uColorShiftBlueX"),     params.colorShiftBlueX);
@@ -269,6 +290,7 @@ void pushGradingUniforms(unsigned int prog,
     glUniform1i(L("uToneCurveTex"),     9);
     glUniform1i(L("uToneCurveEnabled"), in.toneCurveReady ? 1 : 0);
     glUniform1i(L("uToneCurveLumaMode"), params.toneCurveLumaMode > 0.5f ? 1 : 0);
+    glUniform1f(L("uFilmHighlightKnee"), params.filmHighlightKnee);
 
     // RGB curves (Fritsch-Carlson LUTs on units 12–15). Preview's cached
     // pushUniforms also sets this; offscreen must too or save drops curves.

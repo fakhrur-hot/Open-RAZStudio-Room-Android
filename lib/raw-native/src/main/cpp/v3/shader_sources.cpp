@@ -368,6 +368,12 @@ uniform float uSubjectBloom;
 // sampling uBloomTex (optical scatter — red spreads farther than blue).
 uniform float uMistTightness;  // [447] 0..1
 uniform float uMistHalation;   // [448] 0..1
+uniform float uOpticalSpread;    // [461] 0..1
+uniform float uOpticalHalation;  // [462] 0..1
+uniform float uOpticalDirection; // [463] 0 Off, 1 Horizontal, 2 Radial
+uniform float uHighlightStart;   // [484] default 0.78
+uniform float uHighlightEnd;     // [485] default 0.98
+uniform float uOpticalDensity;   // long-side curve, 1 = 2048 reference
 // Clarity (mid-radius local contrast, RapidRAW-style). Log-space gain
 // `final = c × exp2(log2(yc/yb) × amt)` with shadow+highlight protection.
 // Negative values soften (lerp toward the blurred mid-frequency layer).
@@ -407,6 +413,9 @@ uniform int   uToneCurveEnabled;
 // only — chroma is preserved by scaling the per-channel offset from luma.
 // When 0 (default), the existing per-channel master(channel(x)) path runs.
 uniform int   uToneCurveLumaMode;
+// Curves-tab highlight shoulder, 0..1. Applied to luma after the per-channel
+// LUT so a warm highlight is not pushed toward green.
+uniform float uFilmHighlightKnee;
 
 // ── PREQ-Port uniforms ────────────────────────────────────────────────────
 // HSL Full — 8 anchor vec3 array (hueShift, satShift, lumShift per anchor).
@@ -427,6 +436,7 @@ uniform float uDetailGrainRoughness;  // [341] Voronoi roughness blend 0..1
 uniform float uDetailSharpenMask;     // [342] Sobel-gated sharpening mask 0..1
 // Color
 uniform float uColorDensity;          // [343] mid-band saturation −1..+1
+uniform float uFilmSeparation;        // [500] OKLCh chroma separation −1..+1
 uniform vec3  uSkintone;              // [344..346] (warm, smooth, luma)
 // Tonal
 uniform float uMidtoneDetails;        // [347] midtone contrast −1..+1
@@ -473,6 +483,16 @@ uniform float uLensFlareBrightness; // [409] 0..1
 uniform float uLensFlareSize;       // [430] 0.1..3
 uniform float uLensFlareSpread;     // [431] 0..1
 uniform float uLensFlareWarmth;     // [435] 0=warm-white … 1=orange sunset
+uniform float uLensFlareDistance;   // [464] 0 far .. 1 near. Default 1.
+uniform float uLensFlareHood;       // [465] 0..1. Default 0.
+uniform float uStarburst;            // [480] 0..1 spike brightness
+uniform float uIrisBlades;           // [481] 0 = circle, else 5..8
+uniform float uIrisRotation;         // [482] 0..1
+uniform float uIrisRoundness;        // [483] 1 = circle
+uniform float uSceneDistance;        // [466] 0 far .. 1 near
+uniform float uShadowStrength;       // [467] 0..1. 0 skips the shadow.
+uniform float uShadowSoftness;       // [468] 0..1 extra blur fraction
+uniform float uShadowAspect;         // width / height, 1 if unknown
 uniform float uColorShiftRedX;      // [432] -0.1..0.1 uv-fraction
 uniform float uColorShiftGreenX;    // [433]
 uniform float uColorShiftBlueX;     // [434]
@@ -487,6 +507,7 @@ uniform float uFilmGrainSize;    // size [0..1] (noise frequency)
 uniform float uFilmGrainWash;    // wash-out [0..1]
 // uFilmGrainUnif and uFilmGrainStyle removed.
 uniform float uGrainSeed;        // fixed seed (same for preview + export)
+uniform float uGrainEx[13];      // emulsion pack, slots [486..498]
 uniform vec2  uImageSize;        // fixed reference grid (aspect-matched)
 
 // ── Haxademic film grain extension (Req 8, slots 375–378) ──────────────
@@ -572,40 +593,27 @@ vec3 labToXyz(vec3 lab) {
 vec3 srgbToLab(vec3 srgb) { return xyzToLab(linearRgbToXyz(srgbToLinear(srgb))); }
 vec3 labToSrgb(vec3 lab)  { return linearToSrgb(clamp(xyzToLinearRgb(labToXyz(lab)), 0.0, 1.0)); }
 
-// Chroma boost — mirrors SmartColorEnhancer.kt boostChroma().
-// Input: Lab a or b channel centered at 0 (shader convention [-128..+127]).
-float smartBoostChroma(float chan) {
-    const float SAT_SCALE = 1.3;
-    const float THRESH    = 80.0;
-    const float MAX_C     = 127.0;
-    float mag   = abs(chan);
-    float excess = max(mag - THRESH, 0.0);
-    float scale  = mix(SAT_SCALE,
-                       max(SAT_SCALE * (1.0 - excess / (MAX_C - THRESH)), 1.0),
-                       step(THRESH, mag));
-    return clamp(chan * scale, -128.0, 127.0);
-}
-
-// Full Smart Color Enhancement pass — GPU equivalent of SmartColorEnhancer.enhance().
-//   1. Per-channel min/max stretch (auto-WB) using thumbnail stats from uSmartWbMin/Max.
-//   2. Sigmoidal L boost: L_out = L_in + 15*sin(PI*L_in/100) in Lab [0..100].
-//   3. Adaptive chroma boost on Lab a/b.
-vec3 applySmartColorEnhancement(vec3 c) {
-    vec3 wbRange = max(uSmartWbMax - uSmartWbMin, vec3(0.001));
-    c = clamp((c - uSmartWbMin) / wbRange, 0.0, 1.0);
-    vec3 lab = srgbToLab(c);
-    float Ln = lab.x / 100.0;
-    // Highlight-protected L boost (2026-08-28). The raw sigmoid still adds
-    // +10.6 L at L=75 and +4.6 at L=90, so every Off/Low/Med/High step pushed
-    // highlights visibly brighter (user report: "increases highlights too
-    // much in every step"). Taper the lift above the upper midtones: full
-    // pop through L<=60, fading to 15% by L~95 — a slight lift survives,
-    // which is the wanted look. Chroma pop below is untouched.
-    float hlProtect = 1.0 - 0.85 * smoothstep(0.60, 0.95, Ln);
-    lab.x = clamp(lab.x + 15.0 * sin(3.14159265 * Ln) * hlProtect, 0.0, 100.0);
-    lab.y = smartBoostChroma(lab.y);
-    lab.z = smartBoostChroma(lab.z);
-    return clamp(labToSrgb(lab), 0.0, 1.0);
+// Color-only vibrance. Lab L is not written. Chroma magnitude is scaled;
+// hue (a/b direction) stays. Weak chroma moves more. Skin hue moves least.
+vec3 applySmartColorEnhancement(vec3 c, float strength) {
+    float s = clamp(strength, 0.0, 1.0);
+    vec3 lab = srgbToLab(clamp(c, 0.0, 1.0));
+    float a = lab.y;
+    float b = lab.z;
+    float C = length(vec2(a, b));
+    if (C < 0.5) return c;
+    float hue = atan(b, a);
+    float skin = smoothstep(0.15, 0.45, hue) * (1.0 - smoothstep(0.95, 1.25, hue));
+    float weak = 1.0 - clamp(C / 80.0, 0.0, 1.0);
+    float scale = 1.0 + 0.35 * s * weak * (1.0 - 0.75 * skin);
+    float k = scale;
+    lab.y = clamp(a * k, -128.0, 127.0);
+    lab.z = clamp(b * k, -128.0, 127.0);
+    vec3 outc = clamp(labToSrgb(lab), 0.0, 1.0);
+    float y0 = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    float y1 = dot(outc, vec3(0.2126, 0.7152, 0.0722));
+    if (y1 > 1e-4) outc *= y0 / y1;
+    return clamp(outc, 0.0, 1.0);
 }
 
 vec3 applyExposureContrastP(vec3 c, float expVal, float contrastVal) {
@@ -779,6 +787,23 @@ float oklabChromaMul(float L) {
     float hlMul = mix(1.0, 0.40, hl);
     // Blend mid boost only where not yet in deep highlight
     return mix(midBoost, hlMul, hl);
+}
+
+// Film Separation. Scales OKLab chroma only (a,b equally, so hue is untouched).
+// Weight: shadows ~0.33, midtones 1, highlights ~0.50. strength is −1..+1.
+// MUST stay bit-mirrored by applyFilmSeparationP() in apply_macro.cpp.
+float filmSeparationWeight(float L) {
+    float mid = mix(0.33, 1.0, smoothstep(0.05, 0.45, L));
+    return mix(mid, 0.50, smoothstep(0.55, 0.95, L));
+}
+vec3 applyFilmSeparation(vec3 c, float strength) {
+    if (strength == 0.0) return c;
+    vec3 lin = srgbToLinear(clamp(c, 0.0, 1.0));
+    vec3 lab = linearToOklab(lin);
+    float factor = max(0.0, 1.0 + strength * filmSeparationWeight(lab.x) * 0.75);
+    lab.y *= factor;
+    lab.z *= factor;
+    return clamp(linearToSrgb(oklabToLinear(lab)), 0.0, 1.0);
 }
 
 vec3 applyOklabHlChroma(vec3 c, float strength) {
@@ -1036,18 +1061,22 @@ vec3 applyHslShiftsP(vec3 c,
     vec3 hsl = rgbToHsl(clamp(c, 0.0, 1.0));
     float h = hsl.x, s = hsl.y, l = hsl.z;
 
+    // Six UI bands always sit in the basis. A hidden band (YG/SG/SB/Pu/Ma/Pi)
+    // joins numerator and denominator only when its H/S/L shift is non-zero,
+    // so a zero preset anchor cannot dilute the visible blend. A non-zero
+    // Purple/Magenta/Pink still competes.
     float wR  = hueWeight(h, HUE_RED);
     float wO  = hueWeight(h, HUE_ORANGE);
     float wY  = hueWeight(h, HUE_YELLOW);
-    float wYG = hueWeight(h, HUE_YELLOW_GREEN);
+    float wYG = any(notEqual(rYG, vec3(0.0))) ? hueWeight(h, HUE_YELLOW_GREEN) : 0.0;
     float wG  = hueWeight(h, HUE_GREEN);
-    float wSG = hueWeight(h, HUE_SPRING_GREEN);
+    float wSG = any(notEqual(rSG, vec3(0.0))) ? hueWeight(h, HUE_SPRING_GREEN) : 0.0;
     float wA  = hueWeight(h, HUE_AQUA);
-    float wSB = hueWeight(h, HUE_SKY_BLUE);
+    float wSB = any(notEqual(rSB, vec3(0.0))) ? hueWeight(h, HUE_SKY_BLUE) : 0.0;
     float wB  = hueWeight(h, HUE_BLUE);
-    float wPu = hueWeight(h, HUE_PURPLE);
-    float wMa = hueWeight(h, HUE_MAGENTA);
-    float wPi = hueWeight(h, HUE_PINK);
+    float wPu = any(notEqual(rPu, vec3(0.0))) ? hueWeight(h, HUE_PURPLE) : 0.0;
+    float wMa = any(notEqual(rMa, vec3(0.0))) ? hueWeight(h, HUE_MAGENTA) : 0.0;
+    float wPi = any(notEqual(rPi, vec3(0.0))) ? hueWeight(h, HUE_PINK) : 0.0;
     float totalW = max(1e-5,
         wR + wO + wY + wYG + wG + wSG + wA + wSB + wB + wPu + wMa + wPi);
 
@@ -1382,8 +1411,26 @@ vec3 lfLeakBlend(vec3 dst, vec3 tint, float p) {
     return mix(dst, leak, p);
 }
 vec3 applyLensFlare(vec3 c, vec2 uv, float fx, float fy,
-                    float bright, float size, float spread, float warmth) {
+                    float bright, float size, float spread, float warmth,
+                    float distanceZ, float hood,
+                    float starburst, float blades01, float irisRot, float roundness) {
     if (bright <= 0.0) return c;
+    float z = clamp(distanceZ, 0.0, 1.0);
+    if (!(z <= 1.0)) z = 1.0;
+    float hd = clamp(hood, 0.0, 1.0);
+    if (!(hd <= 1.0)) hd = 0.0;
+    float zEff = z * z;
+    float primaryK = mix(1.0, 0.60, hd);
+    float ghostK = mix(1.0, 0.15, hd);
+    float veilAmt = pow(1.0 - zEff, 2.0) * mix(1.0, 0.05, hd);
+    // Hood cuts rays outside the field of view, so the ghost chain and veil
+    // tighten. In-frame primary radii stay. Hood 0 leaves spread unchanged.
+    // 0.45 is the floor: a matched hood cannot enter the picture, so it does
+    // not collapse in-frame ghosts to a point.
+    float spreadH = spread * mix(1.0, 0.45, hd);
+    float ghostBoost = 1.0 + pow(1.0 - zEff, 1.5);
+    float reach = mix(1.65, 1.0, zEff);
+    float haloReach = mix(1.80, 1.0, zEff);
     vec2 flare = vec2(fx * 0.5 + 0.5, fy * 0.5 + 0.5);   // -1..1 → 0..1
     // Warmth 0 = soft warm-white; 1 = sunlight yellowish-orange → amber/peach.
     float w = clamp(warmth, 0.0, 1.0);
@@ -1394,32 +1441,107 @@ vec3 applyLensFlare(vec3 c, vec2 uv, float fx, float fy,
     col = mix(col, vec3(1.00, 0.55, 0.42), w * 0.22); // soft peach/rose edge
     vec3 o = c;
     float d = distance(uv, flare);
-    float scolor = 0.0375   * size;
-    float sglow  = 0.078125 * size;
-    float sinner = 0.1796875 * size;
-    float souter = 0.3359375 * size;
-    float shalo  = 0.084375  * size;
-    if (d < scolor) { float p = (scolor - d) / scolor; o = lfLeakBlend(o, col, p * p); }
-    if (d < sglow)  { float p = (sglow - d) / sglow;   o = lfLeakBlend(o, col, p * p * 0.6); }
-    if (d < sinner) { float p = (sinner - d) / sinner; o = lfLeakBlend(o, col, p * p * 0.25); }
-    if (d < souter) { float p = (souter - d) / souter; o = lfLeakBlend(o, col, p * 0.12); }
-    { float p = 1.0 - clamp(abs(d - shalo) / (shalo * 0.15), 0.0, 1.0); o = lfLeakBlend(o, col, p * 0.2); }
-    vec2 toC = (vec2(0.5) - flare) * spread;
-    for (int i = 0; i < 8; i++) {
-        float t = (float(i) - 3.0) * 0.28;
-        vec2 gpos = flare + toC * t;
+    float scolor = 0.0375   * size * reach;
+    float sglow  = 0.078125 * size * reach;
+    float sinner = 0.1796875 * size * reach;
+    float souter = 0.3359375 * size * reach;
+    float shalo  = 0.084375  * size * haloReach;
+    if (d < scolor) { float p = (scolor - d) / scolor; o = lfLeakBlend(o, col, p * p * primaryK); }
+    if (d < sglow)  { float p = (sglow - d) / sglow;   o = lfLeakBlend(o, col, p * p * 0.6 * primaryK); }
+    if (d < sinner) { float p = (sinner - d) / sinner; o = lfLeakBlend(o, col, p * p * 0.25 * primaryK); }
+    if (d < souter) {
+        float p = (souter - d) / souter;
+        if (blades01 > 0.12 && roundness < 0.98) {
+            int nb = int(clamp(floor(4.0 + blades01 * 4.0 + 0.5), 5.0, 8.0));
+            vec2 rel = uv - flare;
+            float ang = atan(rel.y, rel.x) - irisRot * 6.2831853;
+            float sector = 6.2831853 / float(nb);
+            float a = mod(ang + sector * 0.5, sector) - sector * 0.5;
+            float poly = souter * cos(3.14159265 / float(nb)) / max(cos(a), 0.05);
+            float inside = 1.0 - smoothstep(poly * 0.9, poly, d);
+            p *= mix(inside, 1.0, clamp(roundness, 0.0, 1.0));
+        }
+        o = lfLeakBlend(o, col, p * 0.12 * primaryK);
+    }
+    { float p = 1.0 - clamp(abs(d - shalo) / (shalo * 0.15), 0.0, 1.0); o = lfLeakBlend(o, col, p * 0.2 * primaryK); }
+    int blades = 0;
+    if (blades01 > 0.12) blades = int(clamp(floor(4.0 + blades01 * 4.0 + 0.5), 5.0, 8.0));
+    float rnd = clamp(roundness, 0.0, 1.0);
+    if (blades >= 5 && rnd < 0.98 && starburst > 0.001) {
+        float len = mix(0.025, 0.16, rnd) * max(size, 0.35);
+        float width = len * 0.09;
+        float rot = irisRot * 6.2831853;
+        for (int k = 0; k < 8; k++) {
+            if (k >= blades) break;
+            float ang = rot + float(k) * 6.2831853 / float(blades);
+            vec2 dir = vec2(cos(ang), sin(ang));
+            vec2 rel = uv - flare;
+            float along = dot(rel, dir);
+            float across = abs(rel.x * dir.y - rel.y * dir.x);
+            float head = smoothstep(0.0, len * 0.22, along);
+            float tail = 1.0 - smoothstep(len * 0.28, len, along);
+            float side = 1.0 - smoothstep(width * 0.2, width, across);
+            float sp = head * tail * side;
+            sp *= sp;
+            o = lfLeakBlend(o, col, sp * starburst);
+        }
+    }
+    if (veilAmt > 0.001) {
+        float vr = souter * 1.6 * mix(1.0, 0.45, hd);
+        float p = clamp(1.0 - d / vr, 0.0, 1.0);
+        o = lfLeakBlend(o, col, p * p * 0.18 * veilAmt);
+    }
+    vec2 axis = (vec2(0.5) - flare) * spreadH;
+    float coef[5] = float[5](-1.8, -0.8, 0.4, 1.2, 2.0);
+    for (int i = 0; i < 5; i++) {
+        vec2 gpos = flare + axis * coef[i];
         float gd = distance(uv, gpos);
-        float gr = (0.02 + 0.015 * abs(t)) * size;
+        float gr = (0.015 + 0.008 * abs(coef[i])) * size;
         if (gd < gr) {
             float p = (gr - gd) / gr;
             // Warmth pulls ghosts toward peach/amber; cool alternate stays bluish at w=0.
             vec3 gtWarm = (mod(float(i), 2.0) < 0.5)
                 ? mix(vec3(1.0, 0.85, 0.70), vec3(1.0, 0.62, 0.38), w)
                 : mix(vec3(0.70, 0.85, 1.00), vec3(1.0, 0.58, 0.48), w);
-            o = lfLeakBlend(o, gtWarm, p * p * 0.35);
+            o = lfLeakBlend(o, gtWarm, p * p * 0.35 * ghostK * ghostBoost);
         }
     }
     return mix(c, o, bright);
+}
+
+float sampleSubjectAt(vec2 uv) {
+    if (uSubjectMaskEnabled != 1) return 0.0;
+    vec2 m = mix(uSubjectMaskRect.xy, uSubjectMaskRect.zw, clamp(uv, 0.0, 1.0));
+    return clamp(texture(uSubjectMask, m).r, 0.0, 1.0);
+}
+
+// Phase 1 cast shadow. Linear fractions of width. Background mask is 1 - subject.
+vec3 applySceneShadow(vec3 c, vec2 uv) {
+    if (uShadowStrength <= 0.001 || uSubjectMaskEnabled != 1) return c;
+    float d = clamp(uSceneDistance, 0.0, 1.0);
+    float s = clamp(uShadowStrength, 0.0, 1.0);
+    float b = clamp(uShadowSoftness, 0.0, 1.0);
+    vec2 light = vec2(uLensFlareX, uLensFlareY);
+    if (length(light) < 0.0001) light = vec2(0.0, -1.0);
+    vec2 shadowDir = normalize(-light);
+    float aspect = uShadowAspect > 0.01 ? uShadowAspect : 1.0;
+    float travel = mix(0.15, 0.02, d);
+    float blurF = mix(0.03, 0.006, d) + b * 0.02;
+    vec2 stepUv = vec2(shadowDir.x * travel, shadowDir.y * travel * aspect);
+    vec2 origin = clamp(uv - stepUv, 0.0, 1.0);
+    vec2 rad = vec2(blurF, blurF * aspect);
+    float acc = sampleSubjectAt(origin) * 0.25;
+    acc += sampleSubjectAt(origin + vec2(rad.x, 0.0)) * 0.125;
+    acc += sampleSubjectAt(origin - vec2(rad.x, 0.0)) * 0.125;
+    acc += sampleSubjectAt(origin + vec2(0.0, rad.y)) * 0.125;
+    acc += sampleSubjectAt(origin - vec2(0.0, rad.y)) * 0.125;
+    acc += sampleSubjectAt(origin + rad) * 0.0625;
+    acc += sampleSubjectAt(origin + vec2(rad.x, -rad.y)) * 0.0625;
+    acc += sampleSubjectAt(origin + vec2(-rad.x, rad.y)) * 0.0625;
+    acc += sampleSubjectAt(origin - rad) * 0.0625;
+    float bg = 1.0 - sampleSubjectAt(uv);
+    float alpha = clamp(acc * s, 0.0, 1.0) * bg;
+    return c * (1.0 - alpha);
 }
 
 // PREQ-Port: PushPull — EV shift applied after grading
@@ -1686,6 +1808,35 @@ float cinematicGrain(vec2 texCoord, vec2 resolution, float seed, float size) {
     return n1 * 2.0 - 1.0;
 }
 
+vec2 grainGrid(vec2 resolution) {
+    float ls = max(max(resolution.x, resolution.y), 1.0);
+    float d = clamp(ls / 2048.0, 0.5, 2.5);
+    return vec2(2048.0 * d * (resolution.x / ls), 2048.0 * d * (resolution.y / ls));
+}
+
+float grainOctave(vec2 p, float seed) {
+    float offset = noise3D(vec3(p / 2.5, seed));
+    return noise3D(vec3(p, offset * 10.0));
+}
+
+vec3 emulsionGrain(vec2 uv, vec2 grid, float seed, float size, float structure, float chroma, float cloud) {
+    float multiplier = 1.0 + size * 2.0;
+    vec2 p = uv * (grid / multiplier);
+    float n1 = grainOctave(p, seed);
+    float n2 = grainOctave(p * 2.1, seed + 19.0);
+    float n3 = grainOctave(p * 4.3, seed + 47.0);
+    float n = n1 * 0.55 + n2 * 0.30 + n3 * 0.15;
+    float k = clamp(structure, 0.0, 1.0);
+    float cell = grainOctave(p * mix(0.35, 0.08, k), seed + 101.0);
+    float cluster = smoothstep(mix(0.35, 0.15, cloud), mix(0.75, 0.55, cloud), cell);
+    n *= mix(1.0, cluster, k);
+    float c = clamp(chroma, 0.0, 1.0);
+    float nr = n;
+    float ng = grainOctave(p * mix(1.0, 1.35, c), seed + 7.0);
+    float nb = grainOctave(p * mix(1.0, 0.72, c) + vec2(c * 3.0, 0.0), seed + 13.0);
+    return mix(vec3(n), vec3(nr, ng, nb), c) * 2.0 - 1.0;
+}
+
 // (Snapseed-style grain helpers removed — Cinematic 3D-noise path
 //  is the only grain implementation now.)
 
@@ -1881,15 +2032,6 @@ void main() {
         c.b = texture(uTex, vTexCoord + vec2(uColorShiftBlueX,  0.0)).b;
     } else {
         c = texture(uTex, vTexCoord).rgb;
-    }
-
-    // ── Smart Color Enhancement / "Color Pop" (slots [384..390]) ─────────
-    // uSmartColorEnhance is now a STRENGTH in [0..1] (Off/Low/Med/High =
-    // 0/0.4/0.7/1.0). Blend the full effect toward the original by it so lower
-    // levels lift brightness/saturation less. 1.0 == the original full effect.
-    if (uSmartColorEnhance > 0.0) {
-        vec3 enhanced = applySmartColorEnhancement(c);
-        c = mix(c, enhanced, clamp(uSmartColorEnhance, 0.0, 1.0));
     }
 
     // ── Purple-fringe desaturation pass ─────────────────────────────────
@@ -2238,22 +2380,15 @@ void main() {
     vec3 vigTab = img;
     // Block vignette when targeting Subject/Background but mask not yet loaded —
     // prevents it from wrongly affecting the entire frame until the mask arrives.
-    bool vigPendingMask = (uVigEffect != 0) && (uSubjectMaskEnabled == 0);
-    float vigGate = vigPendingMask ? 0.0 : subjectGate(uVigEffect);
+    bool vigPendingMask = (uVigEffect % 10 != 0) && (uSubjectMaskEnabled == 0);
+    float vigGate = vigPendingMask ? 0.0 : subjectGate(uVigEffect % 10);
     if (uVigAmount != 0.0 && uVigIntensity > 0.0 && vigGate > 0.0) {
         float r = distance(vTexCoord, uVigCenter);
-        // Vignette radius — half the diagonal of the unit square so the
-        // mask reaches the corners at r=1. The Vignette tab UI shows
-        // `feather` to the user with the "softness" convention (slider
-        // right = softer), but stores the v2-shaped inverted value in
-        // `macro.vignetteFeather` (where 0 = soft, 1 = hard). v3 reads
-        // the stored value directly, so to keep UI convention intact
-        // we re-invert here: `softness = 1 - stored`. The result:
-        // slider=0 → innerR=0.7 (hard ring), slider=1 → innerR=0 (soft).
         float softness = 1.0 - clamp(uVigFeather, 0.0, 1.0);
         float innerR = mix(0.7, 0.0, softness);
-        float outerR = 0.7071068;  // sqrt(2)/2 — corner of unit square
-        float mask = smoothstep(innerR, outerR, r) * clamp(uVigIntensity, 0.0, 1.0);
+        float outerR = 0.7071068;
+        float edge = smoothstep(innerR, outerR, r);
+        float mask = (uVigEffect >= 10 ? (1.0 - edge) : edge) * clamp(uVigIntensity, 0.0, 1.0);
         // Negative amount = darken (multiply <1); positive = lighten.
         // Per-channel multiplier keeps colour balance.
         // Gate the mask itself so Subject/Background fade smoothly.
@@ -2604,12 +2739,11 @@ void main() {
         // look like ~1/3 of frame). MUST mirror apply_macro.cpp.
         // Protect subject: kill / soft-ramp halation on subject + ~10% long-side
         // near band (halationProtectScale); Orton strength still uses inward feather.
-        float hOff = uMistHalation * 0.005 * halationProtectScale();
+        float hOff = uMistHalation * 0.02 * halationProtectScale();
         vec2 texelH = vec2(hOff, 0.0);
-        // Red bleeds wider (positive), blue opposite — classic film halation.
-        float bR = texture(uBloomTex, vTexCoord + texelH).r;
+        float bR = mix(texture(uBloomTex, vTexCoord).r, texture(uBloomTex, vTexCoord + texelH).r, 0.55);
         float bG = texture(uBloomTex, vTexCoord).g;
-        float bB = texture(uBloomTex, vTexCoord - texelH).b;
+        float bB = mix(texture(uBloomTex, vTexCoord).b, texture(uBloomTex, vTexCoord - texelH).b, 0.55);
         // Soft diffusion is pre-baked into uBloomTex (dedicated Gaussian plane
         // composited after Karis — see runSoftDiffBloomComposite). Sampling
         // uBlurTex here previously replaced chromatic/mist halation whenever
@@ -2623,6 +2757,8 @@ void main() {
         float warmGate = clamp(warmMag * 3.0, 0.0, 1.0);
         bloomSample.r *= 1.0 + 0.45 * warmGate;
         bloomSample.g *= 1.0 + 0.30 * warmGate;
+        bloomSample.r *= 1.0 + uFxGlowWarmth;
+        bloomSample.b *= 1.0 - uFxGlowWarmth;
 
         bloomSample = max(bloomSample, vec3(0.0));
 
@@ -2679,6 +2815,8 @@ void main() {
     //   LUT block via the v>0 branch). Mix base is clamped to [0,1]; LUT
     //   *sample coords* use headroom-aware mapping (identity on [0,1],
     //   compress only channels > 1) — see mapLutSampleCoord / FEATURES.md.
+    // Film Separation — after wheels / the rest of the grade, before the cube.
+    c = applyFilmSeparation(c, uFilmSeparation);
     vec3 hdrC = c;
     c = clamp(c, 0.0, 1.0);
 
@@ -2857,24 +2995,95 @@ void main() {
             c.b = texture(uToneCurveTex, vec2(clamp(c.b, 0.0, 1.0), 0.5)).b;
         }
     }
+    if (uFilmHighlightKnee > 0.001) {
+        float L = dot(c, vec3(0.2126, 0.7152, 0.0722));
+        float start = clamp(0.62 - uFilmHighlightKnee * 0.22, 0.35, 0.70);
+        float Lp = L;
+        if (L > start) {
+            float t = clamp((L - start) / (1.0 - start), 0.0, 1.0);
+            Lp = start + (1.0 - start) * pow(t, 1.0 + uFilmHighlightKnee * 2.4);
+        }
+        c += vec3(Lp - L);
+        c = max(c, vec3(0.0));
+    }
+
+    // Color Pop on the graded pixel, after the tone curve. Strength scales
+    // the lift itself. The frozen Stage A min/max stretch is not applied.
+    if (uSmartColorEnhance > 0.0) {
+        c = applySmartColorEnhancement(c, uSmartColorEnhance);
+    }
 
     // ── Film grain (blue-noise) + wash-out ──────────────────────────────
     //   Replaces the old CPU value-hash grain. Blue noise reads like organic
     //   film stock (no low-frequency clumping). Keyed on normalised image UV
     //   snapped to grain blocks → resolution-independent (preview == export).
     if (uFilmGrain > 0.0) {
-        // Cinematic 3D value-noise grain (only path; Snapseed-style and the
-        // midtone-uniformity blend were removed).
-        float bn = cinematicGrain(vTexCoord, uImageSize, uGrainSeed,
-                                  clamp(uFilmGrainSize, 0.0, 1.0));
-        float maxGrain = uFilmGrain * (40.0 / 255.0);
-        float lum = clamp(dot(c, vec3(0.299, 0.587, 0.114)), 0.0, 1.0);
-        // OpenShot FilmGrain tonal weighting (ported): grain persists in
-        // shadows (0.80) and highlights (0.55), peaks in midtones (1.0) —
-        // unlike the old midtone-only bump which zeroed grain at both ends.
-        float md   = clamp(1.0 - (lum - 0.5) * (lum - 0.5) * 4.0, 0.0, 1.0);
+        float amount = pow(clamp(uFilmGrain, 0.0, 1.0), 0.85);
+        float maxGrain = amount * (40.0 / 255.0);
+        vec2 grid = grainGrid(uImageSize);
+        float seed = uGrainEx[5] > 0.5 ? uGrainEx[5] : uGrainSeed;
+        float structure = uGrainEx[0];
+        float chroma = uGrainEx[1];
+        float hiSup = uGrainEx[2];
+        float shBoost = uGrainEx[3];
+        float edgeBias = uGrainEx[4];
+        float cloud = uGrainEx[6];
+        float shCurve = max(uGrainEx[7], 0.0);
+        float midCurve = max(uGrainEx[8], 0.0);
+        float hiCurve = max(uGrainEx[9], 0.0);
+        float lightInf = uGrainEx[10];
+        vec3 g;
+        bool emulsion = structure > 0.001 || chroma > 0.001 || cloud > 0.001;
+        if (emulsion) {
+            g = emulsionGrain(vTexCoord, grid, seed, clamp(uFilmGrainSize, 0.0, 1.0), structure, chroma, cloud);
+            if (hiSup > 0.001) {
+                vec3 blurG = emulsionGrain(vTexCoord + vec2(0.004, 0.0), grid, seed, uFilmGrainSize, structure, chroma, cloud)
+                           + emulsionGrain(vTexCoord - vec2(0.004, 0.0), grid, seed, uFilmGrainSize, structure, chroma, cloud)
+                           + emulsionGrain(vTexCoord + vec2(0.0, 0.004), grid, seed, uFilmGrainSize, structure, chroma, cloud)
+                           + emulsionGrain(vTexCoord - vec2(0.0, 0.004), grid, seed, uFilmGrainSize, structure, chroma, cloud);
+                blurG *= 0.25;
+                float hs = uHighlightStart;
+                float he = uHighlightEnd;
+                if (he <= hs + 0.001) { hs = 0.78; he = 0.98; }
+                float lumNow = clamp(dot(c, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
+                float hiGate = smoothstep(hs, he, lumNow);
+                g = mix(g, blurG, hiGate * hiSup);
+            }
+        } else {
+            g = vec3(cinematicGrain(vTexCoord, grid, seed, clamp(uFilmGrainSize, 0.0, 1.0)));
+        }
+        float lum = clamp(dot(c, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
+        float md = clamp(1.0 - (lum - 0.5) * (lum - 0.5) * 4.0, 0.0, 1.0);
+        float shadow = smoothstep(0.45, 0.05, lum);
+        float hs2 = uHighlightStart;
+        float he2 = uHighlightEnd;
+        if (he2 <= hs2 + 0.001) { hs2 = 0.78; he2 = 0.98; }
+        float highlight = smoothstep(hs2, he2, lum);
+        float vis = md * midCurve;
+        vis = mix(vis, max(vis, shadow * shCurve), shBoost);
+        vis *= mix(1.0, 1.0 - highlight * hiCurve, hiSup);
+        float eL = dot(texture(uTex, vTexCoord + vec2(0.004, 0.0)).rgb, vec3(0.2126, 0.7152, 0.0722));
+        float wL = dot(texture(uTex, vTexCoord - vec2(0.004, 0.0)).rgb, vec3(0.2126, 0.7152, 0.0722));
+        float nL = dot(texture(uTex, vTexCoord + vec2(0.0, 0.004)).rgb, vec3(0.2126, 0.7152, 0.0722));
+        float sL = dot(texture(uTex, vTexCoord - vec2(0.0, 0.004)).rgb, vec3(0.2126, 0.7152, 0.0722));
+        float contrast = max(max(eL, wL), max(nL, sL)) - min(min(eL, wL), min(nL, sL));
+        float edge = smoothstep(0.03, 0.16, contrast);
+        vis *= mix(1.0, mix(0.35, 1.0, edge), edgeBias);
+        float bloomL = texture(uBloomTex, vTexCoord).r;
+        float bloomMask = smoothstep(0.02, 0.35, bloomL);
+        vis *= mix(1.0, 1.0 - bloomMask, hiSup);
+        vis *= mix(1.0, 1.0 - bloomMask * uOpticalSpread * 0.7, hiSup);
+        vis *= mix(1.0, 1.0 - max(bloomL - texture(uBloomTex, vTexCoord).g, 0.0), hiSup);
+        if (lightInf > 0.001 && uSubjectMaskEnabled == 1) {
+            vec2 lightDir = normalize(vec2(uLensFlareX, uLensFlareY) + vec2(0.0001, 0.0001));
+            vec2 pixDir = normalize(vTexCoord - vec2(0.5));
+            float falloff = clamp(dot(pixDir, lightDir) * 0.5 + 0.5, 0.0, 1.0);
+            float lightMask = falloff * sampleSubjectAt(vTexCoord);
+            vis *= mix(1.0, 1.0 - lightMask, lightInf);
+        }
         float tone = clamp((1.0 - lum) * (1.0 - lum) * 0.80 + md * 1.0 + lum * lum * 0.55, 0.0, 2.0);
-        c += vec3(bn * maxGrain * tone);
+        if (shBoost < 0.001 && hiSup < 0.001 && edgeBias < 0.001 && lightInf < 0.001) vis = tone;
+        c += g * maxGrain * vis;
     }
     if (uFilmGrainWash > 0.0) {
         float lift   = uFilmGrainWash * (60.0 / 255.0);
@@ -2976,13 +3185,66 @@ void main() {
         vec3 glowBloom = vec3(gR, gG, gB);
         c = applyGlowWithSpread(c, glowBloom, uFxGlowStrength, uFxGlowSpread, uFxGlowWarmth);
     }
+    // Optical Spread contribution. Skipped entirely when both sliders are 0
+    // so the base bloom path takes no extra samples. Direction radii apply
+    // only here. MUST match opticalSpreadAdd in bloom_filmic.h.
+    if (uOpticalSpread > 0.001 || uOpticalHalation > 0.001) {
+        float amt = clamp(uOpticalSpread, 0.0, 1.0);
+        float hal = max(clamp(uOpticalHalation, 0.0, 1.0), clamp(uMistHalation, 0.0, 1.0));
+        float rx = 0.004;
+        float ry = 0.006;
+        if (amt > 0.001) {
+            if (uOpticalDirection > 1.5) { rx = 0.008; ry = 0.008; }
+            else if (uOpticalDirection > 0.5) { rx = 0.014; ry = 0.0035; }
+            float reach = 0.35 + amt * 2.65;
+            rx *= reach;
+            ry *= reach;
+        }
+        float dens = uOpticalDensity;
+        rx *= dens;
+        ry *= dens;
+        vec3 lumaW = vec3(0.2126, 0.7152, 0.0722);
+        vec3 hiSample = texture(uTex, vTexCoord).rgb;
+        float hiL = dot(hiSample, lumaW);
+        float eL = dot(texture(uTex, vTexCoord + vec2(0.004, 0.0)).rgb, lumaW);
+        float wL = dot(texture(uTex, vTexCoord - vec2(0.004, 0.0)).rgb, lumaW);
+        float nL = dot(texture(uTex, vTexCoord + vec2(0.0, 0.004)).rgb, lumaW);
+        float sL = dot(texture(uTex, vTexCoord - vec2(0.0, 0.004)).rgb, lumaW);
+        float contrast = max(max(eL, wL), max(nL, sL)) - min(min(eL, wL), min(nL, sL));
+        float hs = uHighlightStart;
+        float he = uHighlightEnd;
+        if (he <= hs + 0.001) { hs = 0.78; he = 0.98; }
+        float importance = mix(0.08, 1.0, smoothstep(0.03, 0.16, contrast));
+        float halaMask = smoothstep(0.45, 0.85, importance) * smoothstep(hs, he, hiL);
+        vec3 tight = hiSample * smoothstep(hs, he, hiL) * importance;
+        vec3 wide = vec3(0.0);
+        vec2 offs[4] = vec2[4](vec2(rx, 0.0), vec2(-rx, 0.0), vec2(0.0, ry), vec2(0.0, -ry));
+        for (int i = 0; i < 4; i++) {
+            vec3 s = texture(uTex, vTexCoord + offs[i]).rgb;
+            wide += s * smoothstep(hs, he, dot(s, lumaW)) * importance;
+        }
+        wide *= 0.25;
+        vec3 mid = max(tight - wide, vec3(0.0));
+        vec3 low = max(wide - mid * 0.65, vec3(0.0));
+        vec3 glow = low * amt + vec3(wide.r, wide.g * 0.45, wide.b * 0.15) * hal * halaMask;
+        float srcL = dot(c, lumaW);
+        float bloomL = dot(tight, lumaW);
+        float local = clamp(abs(srcL - bloomL) * 3.0, 0.0, 1.0);
+        float hg = smoothstep(0.45, 0.85, srcL);
+        glow *= max(local, hg);
+        c += glow * 0.65;
+    }
     // Dust
     c = applyDust(c, vTexCoord, uFxDust, uFxDustSize);
     // Lens flare (procedural additive, above dust)
-    if (uLensFlareBrightness > 0.0) {
-        c = applyLensFlare(c, vTexCoord, uLensFlareX, uLensFlareY,
+    c = applySceneShadow(c, vTexCoord);
+    if (uLensFlareBrightness > 0.0 && uSubjectMaskEnabled == 1) {
+        vec3 flared = applyLensFlare(c, vTexCoord, uLensFlareX, uLensFlareY,
                            uLensFlareBrightness, uLensFlareSize, uLensFlareSpread,
-                           uLensFlareWarmth);
+                           uLensFlareWarmth, uLensFlareDistance, uLensFlareHood,
+                           uStarburst, uIrisBlades, uIrisRotation, uIrisRoundness);
+        float bg = 1.0 - sampleSubjectAt(vTexCoord);
+        c = mix(c, flared, bg);
     }
 
     // Bayer ordered dither — hides 8-bit banding on smooth gradients. Per-channel
@@ -3111,6 +3373,8 @@ in  vec2 vTexCoord;
 out vec4 fragColor;
 uniform sampler2D uBloomDownSrc;
 uniform float     uBloomDownThreshold; // < 0 = no threshold, >= 0 = mip-0 highlight extract
+uniform float     uHighlightStart;
+uniform float     uHighlightEnd;
 // Subject-exclusion: when > 0.5 AND uBloomDownSubjectEnabled == 1 AND
 // the mip-0 threshold pass is active, multiply the extracted highlights
 // by (1 - subject_alpha) so subject pixels contribute ZERO to the
@@ -3166,10 +3430,20 @@ void main() {
         // was the milky wash; optical diffusion wraps light, it doesn't lift
         // the whole frame.
         float lum = dot(acc, vec3(0.2126, 0.7152, 0.0722));
-        float shadowGate    = smoothstep(0.20, 0.35, lum);
-        float highlightRamp = smoothstep(0.72, 0.96, lum);
-        float weight = shadowGate * (0.12 + 0.88 * highlightRamp);
-        acc *= weight;
+        float hs = uHighlightStart;
+        float he = uHighlightEnd;
+        if (he <= hs + 0.001) { hs = 0.78; he = 0.98; }
+        float weight = smoothstep(hs, he, lum);
+        float maxL = lum;
+        float minL = lum;
+        float la = dot(A, vec3(0.2126, 0.7152, 0.0722));
+        float lb = dot(B, vec3(0.2126, 0.7152, 0.0722));
+        float lc = dot(C, vec3(0.2126, 0.7152, 0.0722));
+        float ld = dot(D, vec3(0.2126, 0.7152, 0.0722));
+        maxL = max(maxL, max(max(la, lb), max(lc, ld)));
+        minL = min(minL, min(min(la, lb), min(lc, ld)));
+        float importance = mix(0.08, 1.0, smoothstep(0.03, 0.16, maxL - minL));
+        acc *= weight * importance;
 
         // Subject-exclusion in the pyramid pre-pass was REMOVED (2026-06-04)
         // in favour of compositing-time gating. The new behaviour: the
