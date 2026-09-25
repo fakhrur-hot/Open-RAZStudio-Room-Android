@@ -87,6 +87,7 @@ include(":feature:collage-maker")
 include(":feature:mesh-gradients")
 include(":feature:edit-exif")
 include(":feature:ai-enhance")
+
 include(":feature:root")
 
 include(":core:settings")

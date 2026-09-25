@@ -97,6 +97,17 @@ internal fun RawVignetteTab(
                     )
                 }
             }
+            if (macro.vignetteInvert) {
+                FilledIconButton(
+                    onClick = { onMacroChange(macro.copy(vignetteInvert = false)) },
+                    modifier = Modifier.size(40.dp),
+                ) { Text("I") }
+            } else {
+                OutlinedIconButton(
+                    onClick = { onMacroChange(macro.copy(vignetteInvert = true)) },
+                    modifier = Modifier.size(40.dp),
+                ) { Text("I") }
+            }
             Column {
                 Text(
                     text = stringResource(R.string.raw_vignette_center),
@@ -105,7 +116,8 @@ internal fun RawVignetteTab(
                             else MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    text = if (isVignetteCenterMode)
+                    text = if (macro.vignetteInvert) "Center falloff"
+                           else if (isVignetteCenterMode)
                         stringResource(R.string.raw_vignette_center_hint_active)
                     else
                         stringResource(R.string.raw_vignette_center_hint),

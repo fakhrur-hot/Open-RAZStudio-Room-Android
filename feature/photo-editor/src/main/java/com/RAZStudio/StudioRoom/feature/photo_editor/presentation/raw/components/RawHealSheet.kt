@@ -100,6 +100,8 @@ internal fun RawHealSheet(
     source: Bitmap,
     onDismiss: () -> Unit,
     onHealConfirmed: (Bitmap) -> Unit,
+    protectBitmap: Bitmap? = null,
+    segmentMasks: com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.RawV3SegmentationMasks? = null,
 ) {
     BackHandler(onBack = onDismiss)
     val context = LocalContext.current
@@ -398,6 +400,16 @@ internal fun RawHealSheet(
                                     maskBmp = mask
                                 }
                             }
+
+                            // Grazing a segment (≤10% of the hole) keeps that
+                            // object locked. Painting onto it (>10%) heals
+                            // as Snapseed / Lightroom Mobile: fill the stroke.
+                            mask = com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.heal
+                                .HealMaskBuilder.applySegmentProtect(
+                                    hole = mask,
+                                    protectBitmap = protectBitmap,
+                                    masks = segmentMasks,
+                                )
 
                             // 3) Deep inpaint (RAZGAN / MI-GAN) → TELEA fallback.
                             healStatus = "Filling…"

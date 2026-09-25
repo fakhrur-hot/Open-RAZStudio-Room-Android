@@ -195,7 +195,7 @@ private fun ColorWheelControl(
                 onChange = onChange,
                 onReset = onReset,
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxWidth(0.8f)
                     .aspectRatio(1f),
             )
         }

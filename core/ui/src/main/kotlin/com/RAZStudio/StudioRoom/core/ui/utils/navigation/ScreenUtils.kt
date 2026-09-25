@@ -102,6 +102,7 @@ import com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen.SonySync
 import com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen.GalleryWorkspace
 import com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen.AddToProject
 import com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen.GalleryProject
+import com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen.ShareExport
 import com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen.LutCreator
 import com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen.VideoEditor
 import com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen.ChecksumTools
@@ -250,6 +251,7 @@ internal fun Screen.simpleName(): String = when (this) {
     is GalleryWorkspace -> "Gallery_Workspace"
     is AddToProject -> "Add_To_Project"
     is GalleryProject -> "Gallery_Project"
+    is ShareExport -> "Share_Export"
     is LutCreator -> "LUT_Creator"
     is VideoEditor -> "Video_Editor"
 }
@@ -275,6 +277,7 @@ internal fun Screen.icon(): ImageVector? = when (this) {
     is GalleryWorkspace -> Icons.Outlined.ImageEdit
     is AddToProject -> Icons.Outlined.ImageEdit
     is GalleryProject -> Icons.Outlined.ImageEdit
+    is ShareExport -> Icons.Outlined.ImageEdit
     is LutCreator -> Icons.Outlined.Gradient
     is VideoEditor -> Icons.Outlined.ArtTrack
     is ApngTools -> Icons.Outlined.ApngBox
@@ -367,6 +370,7 @@ internal fun Screen.twoToneIcon(): ImageVector? = when (this) {
     is GalleryWorkspace -> Icons.TwoTone.ImageEdit
     is AddToProject -> Icons.TwoTone.ImageEdit
     is GalleryProject -> Icons.TwoTone.ImageEdit
+    is ShareExport -> Icons.TwoTone.ImageEdit
     is LutCreator -> Icons.Outlined.Gradient
     is VideoEditor -> Icons.Outlined.ArtTrack
     is ApngTools -> Icons.TwoTone.ApngBox

@@ -96,7 +96,9 @@ public:
         float tentRadiusPx,
         float* outRGB,
         float mistTightness = 0.55f,
-        float bloomShape = 1.f);
+        float bloomShape = 1.f,
+        float highlightStart = 0.78f,
+        float highlightEnd = 0.98f);
 
     /**
      * Checkpoint 3 — upload a Stage A band as the uber-shader's source texture.

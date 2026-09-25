@@ -49,6 +49,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.Checkbox
@@ -2576,29 +2578,66 @@ private fun ExifOverrideField(
             // Fixed override mode — show text field + revert button
             val ctx = LocalContext.current
             var justPicked by remember { mutableStateOf(false) }
-            OutlinedTextField(
-                value         = value,
-                onValueChange = { justPicked = false; onValueChange(it) },
-                modifier      = Modifier.fillMaxWidth(),
-                singleLine    = true,
-                textStyle     = MaterialTheme.typography.bodySmall,
-                placeholder   = { Text(placeholder, style = MaterialTheme.typography.bodySmall) },
-                trailingIcon  = {
-                    TextButton(onClick = { customMode = false; onValueChange("") }) {
-                        Text(stringResource(CoreR.string.watermark_as_per_exif), style = MaterialTheme.typography.labelSmall)
+            var brand by remember { mutableStateOf<String?>(null) }
+            var brandMenu by remember { mutableStateOf(false) }
+            val brands by androidx.compose.runtime.produceState(
+                initialValue = emptyList<String>(), lensAutocomplete,
+            ) {
+                this.value = if (!lensAutocomplete) emptyList()
+                else withContext(kotlinx.coroutines.Dispatchers.IO) { LensDatabase.brands(ctx) }
+            }
+            androidx.compose.foundation.layout.Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (lensAutocomplete) {
+                    Box {
+                        TextButton(onClick = { brandMenu = true }) {
+                            Text(
+                                brand ?: "All",
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                            )
+                        }
+                        DropdownMenu(expanded = brandMenu, onDismissRequest = { brandMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("All") },
+                                onClick = { brand = null; brandMenu = false },
+                            )
+                            brands.forEach { name ->
+                                DropdownMenuItem(
+                                    text = { Text(name, maxLines = 1) },
+                                    onClick = { brand = name; brandMenu = false },
+                                )
+                            }
+                        }
                     }
-                },
-            )
+                }
+                OutlinedTextField(
+                    value         = value,
+                    onValueChange = { justPicked = false; onValueChange(it) },
+                    modifier      = Modifier.weight(1f),
+                    singleLine    = true,
+                    textStyle     = MaterialTheme.typography.bodySmall,
+                    placeholder   = { Text(placeholder, style = MaterialTheme.typography.bodySmall) },
+                    trailingIcon  = {
+                        TextButton(onClick = { customMode = false; onValueChange("") }) {
+                            Text(stringResource(CoreR.string.watermark_as_per_exif), style = MaterialTheme.typography.labelSmall)
+                        }
+                    },
+                )
+            }
             // Lens autocomplete — appears once 3+ chars are typed; tap to fill.
             // Searched OFF the main thread: the corpus now merges the Lensfun
             // database (see LensDatabase.all), whose first load touches disk.
             if (lensAutocomplete && !justPicked) {
                 val query = value
+                val brandFilter = brand
                 val matches by androidx.compose.runtime.produceState(
-                    initialValue = emptyList<String>(), query,
+                    initialValue = emptyList<String>(), query, brandFilter,
                 ) {
                     this.value = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        LensDatabase.search(ctx, query)
+                        LensDatabase.search(ctx, query, brandFilter)
                     }
                 }
                 if (matches.isNotEmpty()) {

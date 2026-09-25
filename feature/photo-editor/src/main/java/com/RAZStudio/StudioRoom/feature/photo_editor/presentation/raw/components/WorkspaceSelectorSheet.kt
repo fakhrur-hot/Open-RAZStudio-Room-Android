@@ -929,20 +929,23 @@ fun WorkspaceSelectorSheet(
                     Box(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
                         OutlinedButton(
                             onClick = { brandExpanded = true },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                            shape = RoundedCornerShape(4.dp),
                         ) {
                             Text(
                                 text = if (lfManualBrand.isBlank())
-                                    "Lens brand  ▾"
-                                else "Brand · $lfManualBrand  ▾",
+                                    "Lens brand"
+                                else "Brand · $lfManualBrand",
                                 style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.weight(1f),
                                 textAlign = TextAlign.Start,
                             )
+                            Text("▾", style = MaterialTheme.typography.bodySmall)
                         }
                         androidx.compose.material3.DropdownMenu(
                             expanded = brandExpanded,
                             onDismissRequest = { brandExpanded = false },
+                            modifier = Modifier.fillMaxWidth(0.85f).heightIn(max = 300.dp),
                         ) {
                             brands.forEach { (brand, list) ->
                                 androidx.compose.material3.DropdownMenuItem(

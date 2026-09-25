@@ -1,0 +1,36 @@
+# Generated build output
+.gradle/
+**/build/
+**/.cxx/
+**/externalNativeBuild/
+
+# Large binaries and media
+*.apk
+*.aab
+*.so
+*.dll
+*.exe
+*.onnx
+*.tif
+*.tiff
+*.dng
+*.raw
+*.cr2
+*.nef
+*.arw
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.pcap
+
+# Logs and temporary evidence
+*.log
+*.tmp
+*_output.txt
+_tmp_*/
+
+# IDE and VCS metadata
+.git/
+.idea/
+.vscode/

@@ -16,7 +16,8 @@ void applyJpegDualRecon(
     int channels,
     float strength,
     float cleanBias,
-    float detailBias);
+    float detailBias,
+    float radiusScale = 1.f);
 
 }  // namespace raw_v3
 

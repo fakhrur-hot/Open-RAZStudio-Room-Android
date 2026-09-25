@@ -75,26 +75,85 @@ object LensDatabase {
      * "magic on 3rd character" rule). Word-prefix and full-prefix matches rank
      * above mid-string contains; capped at [limit]. Case/space-insensitive.
      */
-    fun search(ctx: Context, query: String, limit: Int = 12): List<String> {
-        val q = query.trim()
-        if (q.length < 3) return emptyList()
-        val ql = q.lowercase()
+    /**
+     * Brands present in the corpus. The nine common lens makers stay in that
+     * order; every other brand follows, A–Z.
+     */
+    fun brands(ctx: Context): List<String> {
+        val display = LinkedHashMap<String, String>()
+        for (name in all(ctx)) {
+            val brand = name.substringBefore(' ').trim()
+            if (brand.isEmpty()) continue
+            display.putIfAbsent(brand.lowercase(), brand)
+        }
+        val out = ArrayList<String>()
+        for (key in PRIORITY_BRANDS) {
+            display[key]?.let { out.add(it) }
+        }
+        val rest = display.keys
+            .filter { it !in PRIORITY_BRANDS }
+            .sorted()
+            .map { display[it]!! }
+        out.addAll(rest)
+        return out
+    }
+
+    fun search(ctx: Context, query: String, limit: Int = 12): List<String> =
+        search(ctx, query, brand = null, limit = limit)
+
+    /**
+     * Suggestions for a typed phrase. [brand] limits the list to names that
+     * start with that maker. Focal lengths (`50mm`, `24-70mm`) and apertures
+     * (`f/1.8`, `1.8`) are matched as their own tokens. "nifty fifty" is
+     * treated as 50mm f/1.8.
+     */
+    fun search(ctx: Context, query: String, brand: String?, limit: Int = 12): List<String> {
+        val parsed = parseQuery(query)
+        val brandKey = brand?.trim()?.lowercase().orEmpty()
+        if (parsed.needles.isEmpty() && brandKey.isEmpty()) return emptyList()
+        if (parsed.needles.isEmpty() && parsed.raw.length < 1) return emptyList()
         val all = all(ctx)
         val prefix = ArrayList<String>()
-        val wordStart = ArrayList<String>()
         val contains = ArrayList<String>()
         for (name in all) {
             val nl = name.lowercase()
-            when {
-                nl.startsWith(ql) -> prefix.add(name)
-                // token boundary: query starts a word within the name
-                nl.contains(" $ql") -> wordStart.add(name)
-                nl.contains(ql) -> contains.add(name)
-            }
+            if (brandKey.isNotEmpty() && !nl.startsWith(brandKey)) continue
+            if (parsed.needles.any { !nl.contains(it) }) continue
+            if (parsed.raw.isNotEmpty() && nl.startsWith(parsed.raw)) prefix.add(name)
+            else contains.add(name)
             if (prefix.size >= limit) break
         }
-        return (prefix + wordStart + contains).distinct().take(limit)
+        return (prefix + contains).distinct().take(limit)
     }
+
+    private data class ParsedQuery(val raw: String, val needles: List<String>)
+
+    private fun parseQuery(query: String): ParsedQuery {
+        var text = query.trim().lowercase()
+        for ((from, to) in SYNONYMS) text = text.replace(from, to)
+        val needles = ArrayList<String>()
+        val focal = Regex("""(\d{1,3}(?:\.\d+)?(?:-\d{1,3}(?:\.\d+)?)?)\s*mm""")
+        focal.findAll(text).forEach { needles.add(it.groupValues[1] + "mm") }
+        text = focal.replace(text, " ")
+        val aperture = Regex("""f\s*/?\s*(\d(?:\.\d+)?)|(?<![\d.])(\d\.\d)(?![\d.])""")
+        aperture.findAll(text).forEach { m ->
+            val n = m.groupValues[1].ifEmpty { m.groupValues[2] }
+            if (n.isNotEmpty()) needles.add(n)
+        }
+        text = aperture.replace(text, " ")
+        text.split(Regex("""\s+"""))
+            .filter { it.length >= 2 && it !in NOISE }
+            .forEach { needles.add(it) }
+        val raw = needles.joinToString(" ")
+        return ParsedQuery(raw, needles.distinct())
+    }
+
+    private val PRIORITY_BRANDS = listOf(
+        "canon", "sony", "nikon", "sigma", "tamron",
+        "tokina", "viltrox", "ttartisan", "7artisans",
+    )
+    private val SYNONYMS = listOf("nifty fifty" to "50mm f/1.8")
+    private val NOISE = setOf("fast", "prime", "lens", "camera", "the", "and")
 
     /**
      * Strip a leading brand word from [lens] when it duplicates the camera [make],

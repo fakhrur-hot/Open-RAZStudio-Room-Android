@@ -540,6 +540,10 @@ Every entry here shipped (or nearly shipped) a bug.
   and `fxGlowStrength` now marks the bloom pass dirty (otherwise the first glow
   edit had nothing to sample). **Anything new that samples a shared FBO must be
   added to that FBO's gate AND its dirty check.**
+- **Optical Spread is off unless Amount or Halation is above 0.** Direction
+  does not change the base Pro-Mist oval. The contribution samples happen
+  only inside that branch (GL and `apply_macro.cpp`). JPEG share must not
+  fold this into dual reconstruction.
 - **LUT ADV Film Response (Recovery / Fill Light) did nothing on the canvas.**
   Live preview still uses `GlesRenderer::pushUniforms()` (cached locations);
   export/snap uses `pushGradingUniforms()` which already uploaded

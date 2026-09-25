@@ -59,6 +59,7 @@ import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.screenLogic.Ph
 import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.RawDetailsEditorComponent
 import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.RawDetailsEditorContent
 import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.RawEditorContent
+import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.share.ShareExportScreen
 import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.RawEditorComponent
 import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw_8bit.Raw8BitEditorComponent
 import com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw_8bit.Raw8BitEditorContent
@@ -176,6 +177,14 @@ internal sealed interface NavigationChild {
     class PhotoEditor(private val component: PhotoEditorComponent) : NavigationChild {
         @Composable
         override fun Content() = PhotoEditorContent(component)
+    }
+
+    class ShareExport(
+        private val uris: List<android.net.Uri>,
+        private val onGoBack: () -> Unit,
+    ) : NavigationChild {
+        @Composable
+        override fun Content() = ShareExportScreen(uris = uris, onGoBack = onGoBack)
     }
 
     class RawEditor(private val component: RawEditorComponent) : NavigationChild {

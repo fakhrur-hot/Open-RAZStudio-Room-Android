@@ -233,6 +233,10 @@ screen blend with optional R/B halation. FX tab chips map 1/16…1/2 densities v
 `CinematicBloomProcessor` → slots [447]/[448]. Preview = export (same weights in
 `bloom_filmic.h` for live GL and Stage C).
 
+**Lens Distance and Hood (flare, 2026-09-23):** Slots [464] Distance (0 far, 1 near, default 1) and [465] Hood (0..1, default 0). Intensity 0 skips both. Equations use `zEff = z * z`. Hood scales primary, ghosts, and veil separately. Distance 1 and Hood 0 keep the previous flare.
+
+**Optical Spread (FX, 2026-09-23):** Amount, Halation, and Direction on the existing Karis bloom. Defaults are off and take no extra bloom samples. Direction (Off / Horizontal / Radial) changes only the Optical Spread contribution. Slots [461..463]. JPEG share runs the same composite after dual reconstruction on the bitmap that call site already has.
+
 ### LUT headroom map + stock pick defaults (2026-09)
 
 **Headroom-aware pre-LUT map:** sample coords are identity on the whole [0,1]

@@ -352,7 +352,9 @@ bool OffscreenSaveRenderer::computeKarisBloom(
         float tentRadiusPx,
         float* outRGB,
         float mistTightness,
-        float bloomShape)
+        float bloomShape,
+        float highlightStart,
+        float highlightEnd)
 {
     if (display_ == EGL_NO_DISPLAY || !srcRGB || !outRGB || srcW <= 0 || srcH <= 0) {
         LOGE("computeKarisBloom: not init or null args");
@@ -473,6 +475,10 @@ bool OffscreenSaveRenderer::computeKarisBloom(
         glBindTexture(GL_TEXTURE_2D, srcTex);
         if (srcLoc >= 0) glUniform1i(srcLoc, 0);
         if (thrLoc >= 0) glUniform1f(thrLoc, thresholdLuma);
+        GLint hsLoc = glGetUniformLocation(dnProg, "uHighlightStart");
+        GLint heLoc = glGetUniformLocation(dnProg, "uHighlightEnd");
+        if (hsLoc >= 0) glUniform1f(hsLoc, highlightStart > 0.05f ? highlightStart : 0.78f);
+        if (heLoc >= 0) glUniform1f(heLoc, highlightEnd > highlightStart ? highlightEnd : 0.98f);
         glBindFramebuffer(GL_FRAMEBUFFER, mipFbo[0]);
         glViewport(0, 0, mipW[0], mipH[0]);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -802,7 +808,8 @@ bool OffscreenSaveRenderer::renderGradedToRgba8(
     // ── Karis bloom plane (same GPU shaders as canvas) ──
     const bool ortonOn = sp.ortonStrength > 0.f || sp.subjectBloom > 0.f;
     const bool glowOn  = sp.fxGlowStrength > 0.f;
-    const bool bloomNeeded = (ortonOn && sp.bloomRadius > 0.f) || glowOn;
+    const bool bloomNeeded = (ortonOn && sp.bloomRadius > 0.f) || glowOn
+        || sp.opticalSpread > 1e-4f || sp.opticalHalation > 1e-4f;
     GLuint bloomTex = blackTex;
     std::vector<float> bloomOwned;
     GLuint bloomOwnedTex = 0;

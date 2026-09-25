@@ -38,6 +38,11 @@ dependencies {
     // Same JNI names as the AAR, rebuilt with 16 KB ELF alignment.
     implementation(project(":lib:libaums-jni"))
 
+    // Shared with Canon Sync's PTP/IP download path so both import pipelines
+    // write to disk identically (SafCaptureTarget: staging + atomic rename +
+    // buffered SAF sink) — the only difference is the source-side read (PTP
+    // stream vs. USB mass-storage / SAF input stream). See FileOpener.kt.
+    implementation(project(":feature:canon-sync"))
     implementation(project(":core:settings"))
     // okio is already on canon-sync's own classpath (transitively), but as
     // an `implementation` dep it isn't exposed to us as a consumer — declare

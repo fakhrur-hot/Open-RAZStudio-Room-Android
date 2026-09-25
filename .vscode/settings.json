@@ -1,0 +1,17 @@
+{
+    "cmake.sourceDirectory": "C:/Users/Public/Kiro/StudioRoom/Fixed16bit/lib/raw-native/libxml2-native",
+    "git.ignoreLimitWarning": true,
+    "java.configuration.runtimes": [
+        {
+            "name": "JavaSE-21",
+            "path": "C:\\Java\\jdk-21.0.12",
+            "default": true
+        }
+    ],
+    "java.jdt.ls.java.home": "C:\\Java\\jdk-21.0.12",
+    "java.import.gradle.java.home": "C:\\Java\\jdk-21.0.12",
+    "java.import.gradle.wrapper.enabled": true,
+    "java.import.generatesMetadataFilesAtProjectRoot": true,
+    "java.compile.nullAnalysis.mode": "automatic",
+    "java.configuration.updateBuildConfiguration": "automatic"
+}

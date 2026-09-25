@@ -525,7 +525,7 @@ internal class AndroidImageScaler @Inject constructor(
         }
     }
 
-    /** 3??3 median speck removal. Runs only on the still RAZSharp is about to scale. */
+    /** 3×3 median speck removal. Runs only on the still RAZSharp is about to scale. */
     private fun suppressHotPixels(src: Bitmap): Bitmap {
         val w = src.width
         val h = src.height

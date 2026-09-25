@@ -5,7 +5,7 @@ editor with a custom native pipeline. Package `com.RAZStudio.StudioRoom`,
 version 1.04. Single developer; APKs are built + adb-installed directly to a
 test device — there is no CI.
 
-Stuck, or a prompt to search, research, check, why, or find: follow `.cursor/skills/story-trace/SKILL.md` (index: root `SKILL.md`) before answering. Tiny budget first; stop at confidence ≥ 0.8. A file path is not evidence.
+Stuck, or a prompt to search, research, check, why, find, cache, persist, or survive pages: follow `.cursor/skills/story-trace/SKILL.md` (index: root `SKILL.md`). Tiny budget first; stop at confidence ≥ 0.8. State lifecycle before any design. A file path is not evidence.
 
 Deep-dive docs (read the one matching your task before editing):
 

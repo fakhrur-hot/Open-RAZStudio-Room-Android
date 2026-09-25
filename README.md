@@ -68,7 +68,7 @@ Premium-only (not in this release):
 
 | | |
 |---|---|
-| Version | 1.0.1-alpha |
+| Version | 1.0.1.4-alpha |
 | Package | `com.RAZStudio.StudioRoom` |
 | Min Android | 8.0 (API 26) |
 | ABI | arm64-v8a |
@@ -102,7 +102,7 @@ The app builds without optional assets; those features stay off until you add th
 cp local.properties.template local.properties
 # edit sdk.dir=
 ./gradlew :app:assembleFossDebug        # gradlew.bat on Windows
-adb install app/build/outputs/apk/foss/debug/Open_RAZStudio_Room-1.0.1-alpha-foss-arm64-v8a-debug.apk
+adb install app/build/outputs/apk/foss/debug/Open_RAZStudio_Room-1.0.1.4-alpha-foss-arm64-v8a-debug.apk
 ```
 
 Needs the Android SDK, NDK, and CMake.

@@ -42,11 +42,13 @@
 #include "lut3d.h"   // parseCubeFile — .cube ASCII/1D + .smcube binary
 #include "v3_debug_log.h"
 #include "offscreen_save_renderer.h"
+#include "bloom_filmic.h"
 #include "adobe_xmp_parser.h"
 #include "raw_v3_highlight_recovery.h"
 #include "guided_filter.h"
 #include "lmmse_demosaic.h"  // lmmse_demosaic_to_planes — used by self-test harness
 #include "film_sim.h"
+#include "jpeg_dual_recon.h"
 
 #define LOG_TAG "RawV3.JNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
@@ -354,8 +356,9 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeLe
     char row[768];
     for (jsize i = 0; i < n; ++i) {
         const auto& l = db->lenses[(size_t)i];
-        snprintf(row, sizeof(row), "%s\t%s\t%.3f\t%s",
-                 l.maker.c_str(), l.model.c_str(), l.cropFactor, l.mount.c_str());
+        snprintf(row, sizeof(row), "%s\t%s\t%.3f\t%s\t%.2f\t%.2f",
+                 l.maker.c_str(), l.model.c_str(), l.cropFactor, l.mount.c_str(),
+                 l.minFocal, l.maxFocal);
         env->SetObjectArrayElement(out, i, env->NewStringUTF(row));
     }
     return out;
@@ -901,6 +904,203 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeAp
     }
     AndroidBitmap_unlockPixels(env, jBitmap);
     return applied ? JNI_TRUE : JNI_FALSE;
+}
+
+// JPEG Dual Reconstruction Lite on a mutable ARGB_8888 bitmap. Used by the
+// share-export page only — not Stage B/C. Strength 0 leaves pixels unchanged.
+JNIEXPORT jboolean JNICALL
+Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeApplyJpegDualRecon(
+        JNIEnv* env, jobject /*thiz*/,
+        jobject jBitmap,
+        jfloat strength, jfloat clean, jfloat detail) {
+    if (jBitmap == nullptr || strength < 0.001f) return JNI_FALSE;
+    AndroidBitmapInfo info;
+    if (AndroidBitmap_getInfo(env, jBitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS)
+        return JNI_FALSE;
+    if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888 ||
+        info.width < 3 || info.height < 3)
+        return JNI_FALSE;
+    void* pixels = nullptr;
+    if (AndroidBitmap_lockPixels(env, jBitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS)
+        return JNI_FALSE;
+    const int W = int(info.width), H = int(info.height);
+    const size_t stride = info.stride;
+    std::vector<float> rgb(size_t(W) * H * 3);
+    const float inv255 = 1.f / 255.f;
+    for (int y = 0; y < H; ++y) {
+        const uint8_t* row = reinterpret_cast<const uint8_t*>(pixels) + size_t(y) * stride;
+        float* out = rgb.data() + size_t(y) * W * 3;
+        for (int x = 0; x < W; ++x) {
+            out[x * 3]     = row[x * 4]     * inv255;
+            out[x * 3 + 1] = row[x * 4 + 1] * inv255;
+            out[x * 3 + 2] = row[x * 4 + 2] * inv255;
+        }
+    }
+    raw_v3::applyJpegDualRecon<float>(
+        rgb.data(), W, H, W, 3, float(strength), float(clean), float(detail));
+    auto cl = [](float v) -> uint8_t {
+        int i = int(v * 255.f + 0.5f);
+        return uint8_t(i < 0 ? 0 : (i > 255 ? 255 : i));
+    };
+    for (int y = 0; y < H; ++y) {
+        uint8_t* row = reinterpret_cast<uint8_t*>(pixels) + size_t(y) * stride;
+        const float* in = rgb.data() + size_t(y) * W * 3;
+        for (int x = 0; x < W; ++x) {
+            row[x * 4]     = cl(in[x * 3]);
+            row[x * 4 + 1] = cl(in[x * 3 + 1]);
+            row[x * 4 + 2] = cl(in[x * 3 + 2]);
+        }
+    }
+    AndroidBitmap_unlockPixels(env, jBitmap);
+    return JNI_TRUE;
+}
+
+// Optical Spread on a mutable ARGB bitmap the caller already owns.
+// Runs after dual reconstruction. Does not enter that function.
+// Amount and halation at 0 leave pixels unchanged.
+JNIEXPORT jboolean JNICALL
+Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeApplyOpticalSpread(
+        JNIEnv* env, jobject /*thiz*/,
+        jobject jBitmap,
+        jfloat amount, jfloat halation, jfloat direction) {
+    if (jBitmap == nullptr || (amount < 0.001f && halation < 0.001f)) return JNI_FALSE;
+    AndroidBitmapInfo info;
+    if (AndroidBitmap_getInfo(env, jBitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS)
+        return JNI_FALSE;
+    if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888 || info.width < 3 || info.height < 3)
+        return JNI_FALSE;
+    void* pixels = nullptr;
+    if (AndroidBitmap_lockPixels(env, jBitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS)
+        return JNI_FALSE;
+    const int W = int(info.width), H = int(info.height);
+    const size_t stride = info.stride;
+    std::vector<float> rgb(size_t(W) * H * 3);
+    const float inv255 = 1.f / 255.f;
+    for (int y = 0; y < H; ++y) {
+        const uint8_t* row = reinterpret_cast<const uint8_t*>(pixels) + size_t(y) * stride;
+        float* out = rgb.data() + size_t(y) * W * 3;
+        for (int x = 0; x < W; ++x) {
+            out[x * 3]     = row[x * 4]     * inv255;
+            out[x * 3 + 1] = row[x * 4 + 1] * inv255;
+            out[x * 3 + 2] = row[x * 4 + 2] * inv255;
+        }
+    }
+    std::vector<float> bloom(size_t(W) * H * 3);
+    const float bloomR = 8.f;
+    const float baseTent = 1.0f + bloomR * 0.22f;
+    const float tent = baseTent * float(std::max(W, H)) / 1080.0f;
+    bool ok = false;
+    {
+        raw_v3::OffscreenSaveRenderer karis;
+        if (karis.init(W, H)) {
+            ok = karis.computeKarisBloom(rgb.data(), W, H, 0.65f, tent, bloom.data(), 0.55f, 1.f);
+            karis.release();
+        }
+    }
+    if (!ok) {
+        AndroidBitmap_unlockPixels(env, jBitmap);
+        return JNI_FALSE;
+    }
+    float rx, ry;
+    raw_v3::filmicOpticalSpreadRadii(amount, direction, rx, ry);
+    const float dens = raw_v3::opticalSpreadDensity(std::max(W, H));
+    rx *= dens;
+    ry *= dens;
+    auto sample = [&](float u, float v, float& r, float& g, float& b) {
+        if (u < 0.f) u = 0.f; else if (u > 1.f) u = 1.f;
+        if (v < 0.f) v = 0.f; else if (v > 1.f) v = 1.f;
+        const float fx = u * float(W - 1);
+        const float fy = v * float(H - 1);
+        const int x0 = int(fx), y0 = int(fy);
+        const int x1 = x0 + 1 < W ? x0 + 1 : x0;
+        const int y1 = y0 + 1 < H ? y0 + 1 : y0;
+        const float tx = fx - float(x0), ty = fy - float(y0);
+        auto at = [&](int x, int y, int c) { return bloom[(size_t(y) * W + x) * 3 + c]; };
+        r = (at(x0, y0, 0) * (1.f - tx) + at(x1, y0, 0) * tx) * (1.f - ty)
+          + (at(x0, y1, 0) * (1.f - tx) + at(x1, y1, 0) * tx) * ty;
+        g = (at(x0, y0, 1) * (1.f - tx) + at(x1, y0, 1) * tx) * (1.f - ty)
+          + (at(x0, y1, 1) * (1.f - tx) + at(x1, y1, 1) * tx) * ty;
+        b = (at(x0, y0, 2) * (1.f - tx) + at(x1, y0, 2) * tx) * (1.f - ty)
+          + (at(x0, y1, 2) * (1.f - tx) + at(x1, y1, 2) * tx) * ty;
+    };
+    for (int y = 0; y < H; ++y) {
+        float* row = rgb.data() + size_t(y) * W * 3;
+        const float v = (H <= 1) ? 0.f : float(y) / float(H - 1);
+        for (int x = 0; x < W; ++x) {
+            const float u = (W <= 1) ? 0.f : float(x) / float(W - 1);
+            float cR, cG, cB, r0, g0, b0, r1, g1, b1, r2, g2, b2, r3, g3, b3;
+            sample(u, v, cR, cG, cB);
+            sample(u + rx, v, r0, g0, b0);
+            sample(u - rx, v, r1, g1, b1);
+            sample(u, v + ry, r2, g2, b2);
+            sample(u, v - ry, r3, g3, b3);
+            raw_v3::opticalSpreadAdd(row[x * 3], row[x * 3 + 1], row[x * 3 + 2],
+                0.25f * (r0 + r1 + r2 + r3), 0.25f * (g0 + g1 + g2 + g3),
+                0.25f * (b0 + b1 + b2 + b3), cR, cG, cB, amount, halation);
+        }
+    }
+    auto cl = [](float v) -> uint8_t {
+        int i = int(v * 255.f + 0.5f);
+        return uint8_t(i < 0 ? 0 : (i > 255 ? 255 : i));
+    };
+    for (int y = 0; y < H; ++y) {
+        uint8_t* row = reinterpret_cast<uint8_t*>(pixels) + size_t(y) * stride;
+        const float* in = rgb.data() + size_t(y) * W * 3;
+        for (int x = 0; x < W; ++x) {
+            row[x * 4]     = cl(in[x * 3]);
+            row[x * 4 + 1] = cl(in[x * 3 + 1]);
+            row[x * 4 + 2] = cl(in[x * 3 + 2]);
+        }
+    }
+    AndroidBitmap_unlockPixels(env, jBitmap);
+    return JNI_TRUE;
+}
+
+// Lens flare on the bitmap the caller already owns. Brightness 0 leaves pixels unchanged.
+JNIEXPORT jboolean JNICALL
+Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeApplyLensFlare(
+        JNIEnv* env, jobject /*thiz*/,
+        jobject jBitmap,
+        jfloat x, jfloat y, jfloat brightness, jfloat size, jfloat spread,
+        jfloat warmth, jfloat distanceZ, jfloat hood) {
+    if (jBitmap == nullptr || brightness < 0.001f) return JNI_FALSE;
+    AndroidBitmapInfo info;
+    if (AndroidBitmap_getInfo(env, jBitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS)
+        return JNI_FALSE;
+    if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888 || info.width < 2 || info.height < 2)
+        return JNI_FALSE;
+    void* pixels = nullptr;
+    if (AndroidBitmap_lockPixels(env, jBitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS)
+        return JNI_FALSE;
+    const int W = int(info.width), H = int(info.height);
+    const size_t stride = info.stride;
+    std::vector<float> rgb(size_t(W) * H * 3);
+    const float inv255 = 1.f / 255.f;
+    for (int yy = 0; yy < H; ++yy) {
+        const uint8_t* row = reinterpret_cast<const uint8_t*>(pixels) + size_t(yy) * stride;
+        float* out = rgb.data() + size_t(yy) * W * 3;
+        for (int xx = 0; xx < W; ++xx) {
+            out[xx * 3]     = row[xx * 4]     * inv255;
+            out[xx * 3 + 1] = row[xx * 4 + 1] * inv255;
+            out[xx * 3 + 2] = row[xx * 4 + 2] * inv255;
+        }
+    }
+    raw_v3::applyLensFlareImage(rgb.data(), W, H, x, y, brightness, size, spread, warmth, distanceZ, hood);
+    auto cl = [](float v) -> uint8_t {
+        int i = int(v * 255.f + 0.5f);
+        return uint8_t(i < 0 ? 0 : (i > 255 ? 255 : i));
+    };
+    for (int yy = 0; yy < H; ++yy) {
+        uint8_t* row = reinterpret_cast<uint8_t*>(pixels) + size_t(yy) * stride;
+        const float* in = rgb.data() + size_t(yy) * W * 3;
+        for (int xx = 0; xx < W; ++xx) {
+            row[xx * 4]     = cl(in[xx * 3]);
+            row[xx * 4 + 1] = cl(in[xx * 3 + 1]);
+            row[xx * 4 + 2] = cl(in[xx * 3 + 2]);
+        }
+    }
+    AndroidBitmap_unlockPixels(env, jBitmap);
+    return JNI_TRUE;
 }
 
 // Parse ANY LUT file we ship through the SAME raw_v3::parseCubeFile the GL
@@ -2793,6 +2993,156 @@ Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeAp
 
     bool ok = raw_v3::applyFilmSimCpu(inpStr, outStr, int(profileIndex), float(grainAmount));
     return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+// JPEG refine: replace RGB in the FP16 preview buffer. Alpha stays so the
+// lens shader still sees the same coverage. Sizes must match.
+static uint16_t jpegFloatToHalf(float f) {
+    uint32_t bits; std::memcpy(&bits, &f, 4);
+    uint32_t sign = (bits >> 16) & 0x8000u;
+    int32_t exp = int32_t((bits >> 23) & 0xFFu) - 127 + 15;
+    uint32_t mant = bits & 0x007FFFFFu;
+    if (((bits >> 23) & 0xFFu) == 0xFFu) return uint16_t(sign | 0x7C00u | (mant ? 0x200u : 0u));
+    if (exp >= 0x1F) return uint16_t(sign | 0x7C00u);
+    if (exp <= 0) {
+        if (exp < -10) return uint16_t(sign);
+        mant |= 0x00800000u;
+        uint32_t shift = uint32_t(14 - exp);
+        uint32_t m = (mant >> shift) + ((mant >> (shift - 1)) & 1u);
+        return uint16_t(sign | m);
+    }
+    uint32_t m = (mant + 0x00001000u) >> 13;
+    if (m & 0x00000400u) { m = 0; ++exp; if (exp >= 0x1F) return uint16_t(sign | 0x7C00u); }
+    return uint16_t(sign | (uint32_t(exp) << 10) | (m & 0x3FFu));
+}
+
+static float jpegHalfToFloat(uint16_t h) {
+    uint32_t sign = (uint32_t)(h & 0x8000u) << 16;
+    uint32_t exp = (h >> 10) & 0x1Fu;
+    uint32_t mant = h & 0x3FFu;
+    uint32_t bits;
+    if (exp == 0) {
+        if (mant == 0) bits = sign;
+        else {
+            exp = 127 - 15 + 1;
+            while ((mant & 0x400u) == 0) { mant <<= 1; --exp; }
+            mant &= 0x3FFu;
+            bits = sign | (exp << 23) | (mant << 13);
+        }
+    } else if (exp == 0x1F) {
+        bits = sign | 0x7F800000u | (mant << 13);
+    } else {
+        bits = sign | ((exp + (127 - 15)) << 23) | (mant << 13);
+    }
+    float f; std::memcpy(&f, &bits, 4); return f;
+}
+
+static double gJpegRtSum = 0;
+static double gJpegRtMax = 0;
+static int64_t gJpegRtCount = 0;
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeWriteArgbToFp16Ahb(
+        JNIEnv* env, jobject, jobject jBitmap, jobject jAhb) {
+    if (!jBitmap || !jAhb) return JNI_FALSE;
+    AndroidBitmapInfo info{};
+    if (AndroidBitmap_getInfo(env, jBitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) return JNI_FALSE;
+    if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888) return JNI_FALSE;
+    AHardwareBuffer* ahb = AHardwareBuffer_fromHardwareBuffer(env, jAhb);
+    if (!ahb) return JNI_FALSE;
+    AHardwareBuffer_Desc desc{};
+    AHardwareBuffer_describe(ahb, &desc);
+    if (desc.format != AHARDWAREBUFFER_FORMAT_R16G16B16A16_FLOAT) return JNI_FALSE;
+    if (desc.width != info.width || desc.height != info.height) return JNI_FALSE;
+    void* bits = nullptr;
+    if (AHardwareBuffer_lock(ahb, AHARDWAREBUFFER_USAGE_CPU_READ_RARELY | AHARDWAREBUFFER_USAGE_CPU_WRITE_RARELY,
+                             -1, nullptr, &bits) != 0 || !bits) return JNI_FALSE;
+    void* px = nullptr;
+    if (AndroidBitmap_lockPixels(env, jBitmap, &px) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        AHardwareBuffer_unlock(ahb, nullptr);
+        return JNI_FALSE;
+    }
+    const uint32_t stridePx = desc.stride;
+    for (uint32_t y = 0; y < info.height; ++y) {
+        auto* src = reinterpret_cast<const uint8_t*>(px) + y * info.stride;
+        auto* dst = reinterpret_cast<uint16_t*>(bits) + y * stridePx * 4;
+        for (uint32_t x = 0; x < info.width; ++x) {
+            dst[x * 4]     = jpegFloatToHalf(src[x * 4] / 255.f);
+            dst[x * 4 + 1] = jpegFloatToHalf(src[x * 4 + 1] / 255.f);
+            dst[x * 4 + 2] = jpegFloatToHalf(src[x * 4 + 2] / 255.f);
+        }
+    }
+    AndroidBitmap_unlockPixels(env, jBitmap);
+    AHardwareBuffer_unlock(ahb, nullptr);
+    return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeReadFp16AhbToArgb(
+        JNIEnv* env, jobject, jobject jAhb, jobject jBitmap) {
+    if (!jBitmap || !jAhb) return JNI_FALSE;
+    AndroidBitmapInfo info{};
+    if (AndroidBitmap_getInfo(env, jBitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) return JNI_FALSE;
+    if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888) return JNI_FALSE;
+    AHardwareBuffer* ahb = AHardwareBuffer_fromHardwareBuffer(env, jAhb);
+    if (!ahb) return JNI_FALSE;
+    AHardwareBuffer_Desc desc{};
+    AHardwareBuffer_describe(ahb, &desc);
+    if (desc.format != AHARDWAREBUFFER_FORMAT_R16G16B16A16_FLOAT) return JNI_FALSE;
+    if (desc.width != info.width || desc.height != info.height) return JNI_FALSE;
+    void* bits = nullptr;
+    if (AHardwareBuffer_lock(ahb, AHARDWAREBUFFER_USAGE_CPU_READ_RARELY, -1, nullptr, &bits) != 0 || !bits)
+        return JNI_FALSE;
+    void* px = nullptr;
+    if (AndroidBitmap_lockPixels(env, jBitmap, &px) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        AHardwareBuffer_unlock(ahb, nullptr);
+        return JNI_FALSE;
+    }
+    const uint32_t stridePx = desc.stride;
+    gJpegRtSum = 0;
+    gJpegRtMax = 0;
+    gJpegRtCount = 0;
+    for (uint32_t y = 0; y < info.height; ++y) {
+        auto* src = reinterpret_cast<const uint16_t*>(bits) + y * stridePx * 4;
+        auto* dst = reinterpret_cast<uint8_t*>(px) + y * info.stride;
+        for (uint32_t x = 0; x < info.width; ++x) {
+            auto q = [](float v) -> uint8_t {
+                int i = int(v * 255.f + 0.5f);
+                return uint8_t(i < 0 ? 0 : (i > 255 ? 255 : i));
+            };
+            float r = jpegHalfToFloat(src[x * 4]);
+            float g = jpegHalfToFloat(src[x * 4 + 1]);
+            float b = jpegHalfToFloat(src[x * 4 + 2]);
+            dst[x * 4]     = q(r);
+            dst[x * 4 + 1] = q(g);
+            dst[x * 4 + 2] = q(b);
+            dst[x * 4 + 3] = 255;
+            auto acc = [](float v, uint8_t q8) {
+                float e = std::fabs(v - q8 / 255.f);
+                gJpegRtSum += e;
+                if (e > gJpegRtMax) gJpegRtMax = e;
+                gJpegRtCount++;
+            };
+            acc(r, dst[x * 4]);
+            acc(g, dst[x * 4 + 1]);
+            acc(b, dst[x * 4 + 2]);
+        }
+    }
+    AndroidBitmap_unlockPixels(env, jBitmap);
+    AHardwareBuffer_unlock(ahb, nullptr);
+    return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT jfloatArray JNICALL
+Java_com_RAZStudio_StudioRoom_feature_photo_1editor_raw_1v3_RawV3Engine_nativeJpegBridgeRoundtrip(
+        JNIEnv* env, jobject) {
+    jfloatArray a = env->NewFloatArray(2);
+    float v[2] = {
+        gJpegRtCount ? static_cast<float>(gJpegRtSum / gJpegRtCount) : 0.f,
+        static_cast<float>(gJpegRtMax),
+    };
+    env->SetFloatArrayRegion(a, 0, 2, v);
+    return a;
 }
 
 }  // extern "C"

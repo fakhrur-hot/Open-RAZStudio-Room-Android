@@ -33,6 +33,23 @@ import kotlin.math.pow
 object RawAutoExposure {
 
     /**
+     * Preferences for [analyse]. Defaults match the solver with no model:
+     * highlight restraint 0.5, shadow lift unchanged, exposure mean
+     * 0.70 background + 0.30 global. Not stored on the macro.
+     */
+    data class ExposurePolicy(
+        val highlightProtection: Float = 0.50f,
+        val shadowRecovery: Float = 0.50f,
+        val subjectPriority: Float = 0.30f,
+    ) {
+        fun clamped() = ExposurePolicy(
+            highlightProtection = highlightProtection.coerceIn(0f, 1f),
+            shadowRecovery = shadowRecovery.coerceIn(0f, 1f),
+            subjectPriority = subjectPriority.coerceIn(0f, 1f),
+        )
+    }
+
+    /**
      * Auto-bright FACTOR — the full LibRaw auto-bright multiplier (`AB`),
      * computed CPU-side from the preview [bitmap]. This is the gain the "Smart
      * Bright" slider interpolates toward: effective multiplier =
@@ -305,7 +322,10 @@ object RawAutoExposure {
          * Defaults to 0.7 (mean cap fully active, P95 cap 40% active).
          */
         subjectProtection: Float = base.aeSubjectProtection,
+        /** Solver preferences. Defaults reproduce today's AI Expose. */
+        policy: ExposurePolicy = ExposurePolicy(),
     ): UserMacro {
+        val pref = policy.clamped()
         val w = bitmap.width
         val h = bitmap.height
         if (w <= 0 || h <= 0) return base
@@ -428,7 +448,9 @@ object RawAutoExposure {
                 // Drive exposure from 70% background mean so a bright subject doesn't
                 // suppress the lift the background needs, and a dark background doesn't
                 // over-lift an already-bright subject.
-                meanForExposure = ((bgMean * 0.70f + meanGlobal * 0.30f).toInt()).coerceIn(1, 255)
+                val globalWeight = pref.subjectPriority
+                val backgroundWeight = 1f - globalWeight
+                meanForExposure = ((bgMean * backgroundWeight + meanGlobal * globalWeight).toInt()).coerceIn(1, 255)
                 android.util.Log.i("AE_Subject", "masks used: globalMean=$meanGlobal subjMean=$subjectMeanLuma bgMean=$bgMean meanForExp=$meanForExposure")
 
                 // Derive P95 and stddev from the soft subject histogram.
@@ -499,8 +521,20 @@ object RawAutoExposure {
         val effectiveP95Cap = p95CapEv + (1f - p95CapStrength) * 10f
 
         val maxExposureForSubject = minOf(effectiveMeanCap, effectiveP95Cap).coerceAtLeast(0f)
-        val exposure = (rawExposure * TUNING_FACTOR)
+        val evTarget = (rawExposure * TUNING_FACTOR)
             .coerceIn(-2f, minOf(2f, maxExposureForSubject * TUNING_FACTOR))
+        // Positive EV only. Projected landing of global p95/p99.5, not the
+        // neutral percentile. Strength 0.5 never removes more than half the lift.
+        val exposure = if (evTarget <= 0f) {
+            evTarget
+        } else {
+            val p95 = percentile(hist, (total * 0.95f).toInt().coerceAtLeast(1))
+            val brightMass = 0.60f * p95 + 0.40f * p995
+            val projected = brightMass * Math.pow(2.0, evTarget.toDouble()).toFloat()
+            val t = ((projected - 210f) / 25f).coerceIn(0f, 1f)
+            val protect = t * t * (3f - 2f * t)
+            evTarget * (1f - pref.highlightProtection * protect)
+        }
 
         // Highlights: if 99.5p is hot (>240), pull down. If it's dim
         // (<180) leave alone — we already lifted via exposure.
@@ -564,7 +598,8 @@ object RawAutoExposure {
             p005 > 30 -> -((p005 - 30) * 0.75f)
             else      -> 0f
         }
-        val shadows = (rawShadows * TUNING_FACTOR).coerceIn(-12f, 60f)
+        val shadowScale = 0.8f + 0.4f * pref.shadowRecovery
+        val shadows = (rawShadows * TUNING_FACTOR * shadowScale).coerceIn(-12f, 60f)
 
         // Whites / Blacks: estimate where p005/p995 will land AFTER the
         // (already-tuned) exposure lift, then nudge those points toward

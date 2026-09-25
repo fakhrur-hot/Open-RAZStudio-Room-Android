@@ -455,6 +455,10 @@ Free space after: %3$s</string>
     <string name="raw_bloom_warmth">Warmth</string>
     <string name="raw_bloom_tightness">Tightness</string>
     <string name="raw_bloom_halation">Halation</string>
+    <string name="raw_optical_spread">Optical Spread</string>
+    <string name="raw_optical_amount">Amount</string>
+    <string name="raw_optical_halation">Halation</string>
+    <string name="raw_optical_direction">Direction</string>
     <string name="raw_bloom_strength">Strength</string>
     <string name="raw_white_balance">Temperature</string>
     <string name="raw_temperature">Temperature</string>
@@ -480,8 +484,8 @@ Free space after: %3$s</string>
     <string name="raw_vignette_center_hint">Tap to enable drag on canvas</string>
     <string name="raw_vignette_center_hint_active">Drag on the photo</string>
     <string name="raw_flare_move">Move flare</string>
-    <string name="raw_flare_move_hint">Tap to enable drag on canvas</string>
-    <string name="raw_flare_move_hint_active">Drag on the photo</string>
+    <string name="raw_flare_move_hint">Tap to drag and pinch on the photo</string>
+    <string name="raw_flare_move_hint_active">Drag to move, pinch to resize</string>
     <string name="raw_tab_actions">Actions</string>
     <string name="raw_tab_tone_curves">Tone Curves</string>
     <string name="raw_tab_tonemap">Tonemap</string>
@@ -619,7 +623,7 @@ Free space after: %3$s</string>
     <string name="raw_vignette_apply_to">Apply To</string>
     <string name="raw_segment_exclude_subject">Exclude Subject</string>
     <string name="raw_section_sharpness">Sharpness</string>
-    <string name="raw_section_jpeg_refine">JPEG Refine</string>
+    <string name="raw_section_jpeg_refine">AI Denoise</string>
     <string name="raw_jpeg_refine_strength">Strength</string>
     <string name="raw_jpeg_refine_clean">Clean</string>
     <string name="raw_jpeg_refine_detail">Detail</string>
@@ -2958,7 +2962,7 @@ Free space after: %3$s</string>
     <string name="raw_export_preset_social">Social Media (1350px)</string>
     <string name="raw_export_preset_4k">4K (3840px)</string>
     <string name="raw_export_preset_hd_lite">HD lite (1600px)</string>
-    <string name="raw_export_preset_hd">HD (1920px)</string>
+    <string name="raw_export_preset_hd">Full HD (1920px)</string>
     <string name="raw_export_exit_title">Discard changes?</string>
     <string name="raw_export_exit_body">Are you sure you want to exit? Unsaved data will be lost.</string>
     <string name="raw_export_exit_confirm">Exit</string>

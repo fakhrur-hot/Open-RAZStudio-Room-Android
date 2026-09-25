@@ -32,11 +32,13 @@ import androidx.compose.material.Surface
 import androidx.compose.material.rememberBackdropScaffoldState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -50,6 +52,7 @@ import com.RAZStudio.StudioRoom.core.settings.domain.model.FastSettingsSide
 import com.RAZStudio.StudioRoom.core.ui.utils.animation.FancyTransitionEasing
 import com.RAZStudio.StudioRoom.core.ui.utils.helper.PredictiveBackObserver
 import com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen
+import com.RAZStudio.StudioRoom.core.ui.utils.provider.LocalOpenAppSettings
 import com.RAZStudio.StudioRoom.core.ui.utils.provider.LocalScreenSize
 import com.RAZStudio.StudioRoom.core.ui.widget.enhanced.EnhancedModalSheetDragHandle
 import com.RAZStudio.StudioRoom.feature.settings.presentation.SettingsContent
@@ -57,6 +60,7 @@ import com.RAZStudio.StudioRoom.feature.settings.presentation.screenLogic.Settin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun SettingsBackdropWrapper(
@@ -72,9 +76,14 @@ internal fun SettingsBackdropWrapper(
             easing = FancyTransitionEasing
         )
     )
+    val scope = rememberCoroutineScope()
+    // Export (inside Raw Editor) has no edge handle. A gear there sets this
+    // so the same settings sheet can still open.
+    var openedFromGear by remember { mutableStateOf(false) }
     val canExpandSettings = ((currentScreen?.id ?: -1) >= 0)
         .and(currentScreen !is Screen.RawEditor)
         .and(settingsComponent.settingsState.fastSettingsSide != FastSettingsSide.None)
+    val showSettingsSheet = canExpandSettings || openedFromGear
 
     var predictiveBackProgress by remember {
         mutableFloatStateOf(0f)
@@ -86,7 +95,7 @@ internal fun SettingsBackdropWrapper(
     }
 
     LaunchedEffect(canExpandSettings) {
-        if (!canExpandSettings) {
+        if (!canExpandSettings && !openedFromGear) {
             clean()
             scaffoldState.conceal()
         }
@@ -105,6 +114,12 @@ internal fun SettingsBackdropWrapper(
 
     val isTargetRevealed = scaffoldState.targetValue == BackdropValue.Revealed
 
+    CompositionLocalProvider(
+        LocalOpenAppSettings provides {
+            openedFromGear = true
+            scope.launch { scaffoldState.reveal() }
+        },
+    ) {
     BackdropScaffold(
         scaffoldState = scaffoldState,
         appBar = {},
@@ -169,7 +184,7 @@ internal fun SettingsBackdropWrapper(
             }
         },
         backLayerContent = {
-            if (canExpandSettings && (scaffoldState.isRevealed || isTargetRevealed)) {
+            if (showSettingsSheet && (scaffoldState.isRevealed || isTargetRevealed)) {
                 PredictiveBackObserver(
                     onProgress = {
                         predictiveBackProgress = it * 1.3f
@@ -203,4 +218,5 @@ internal fun SettingsBackdropWrapper(
         frontLayerShape = RectangleShape,
         gesturesEnabled = scaffoldState.isRevealed
     )
+    }
 }

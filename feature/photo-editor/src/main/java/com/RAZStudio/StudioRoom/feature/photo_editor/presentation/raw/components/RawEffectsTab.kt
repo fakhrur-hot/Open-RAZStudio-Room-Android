@@ -47,6 +47,7 @@ internal fun RawEffectsTab(
     onSegmentationNeeded: () -> Unit = {},
     subjectSegBusy: Boolean = false,
     subjectDetected: Boolean = true,
+    masksReady: Boolean = false,
     imageLongSide: Int = CinematicBloomProcessor.REF_LONG_SIDE,
     isLensFlareMoveMode: Boolean = false,
     onLensFlareMoveModeChange: (Boolean) -> Unit = {},
@@ -109,14 +110,6 @@ internal fun RawEffectsTab(
                 displayValue = "${bloomMacroToUi(macro.ortonStrength).toInt()}",
             )
             RawSliderRow(
-                label = stringResource(R.string.raw_bloom_tightness),
-                value = macro.mistTightness,
-                valueRange = 0f..100f,
-                step = 1f,
-                onValueChange = { onMacroChange(macro.copy(mistTightness = it)) },
-                displayValue = "${macro.mistTightness.toInt()}",
-            )
-            RawSliderRow(
                 label = stringResource(R.string.raw_bloom_halation),
                 value = macro.mistHalation,
                 valueRange = 0f..100f,
@@ -140,7 +133,7 @@ internal fun RawEffectsTab(
         ) {
             Checkbox(
                 checked = protectSubject,
-                enabled = !subjectSegBusy,
+                enabled = masksReady,
                 onCheckedChange = { on ->
                     if (on) onSegmentationNeeded()
                     onMacroChange(
@@ -287,14 +280,25 @@ internal fun RawEffectsTab(
         Spacer(Modifier.height(8.dp))
         HorizontalDivider()
         SectionHeader("Lens Flare")
+        if (!masksReady) {
+            Text(
+                text = "Detecting subject…",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 8.dp, bottom = 4.dp),
+            )
+        }
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (isLensFlareMoveMode) {
                 FilledIconButton(
                     onClick = { onLensFlareMoveModeChange(false) },
+                    enabled = masksReady,
                     modifier = Modifier.size(40.dp),
                 ) {
                     Icon(
@@ -306,6 +310,7 @@ internal fun RawEffectsTab(
             } else {
                 OutlinedIconButton(
                     onClick = { onLensFlareMoveModeChange(true) },
+                    enabled = masksReady,
                     modifier = Modifier.size(40.dp),
                 ) {
                     Icon(
@@ -332,33 +337,20 @@ internal fun RawEffectsTab(
                 )
             }
         }
+        Spacer(Modifier.height(8.dp))
         RawSliderRow(
             label = "Brightness",
             value = macro.lensFlare.brightness,
+            enabled = masksReady,
             valueRange = 0f..1f,
             step = 0.01f,
             onValueChange = { onMacroChange(macro.copy(lensFlare = macro.lensFlare.copy(brightness = it))) },
             displayValue = "${(macro.lensFlare.brightness * 100).toInt()}"
         )
         RawSliderRow(
-            label = "Position X",
-            value = macro.lensFlare.x,
-            valueRange = -1f..1f,
-            step = 0.01f,
-            onValueChange = { onMacroChange(macro.copy(lensFlare = macro.lensFlare.copy(x = it))) },
-            displayValue = "%.2f".format(macro.lensFlare.x)
-        )
-        RawSliderRow(
-            label = "Position Y",
-            value = macro.lensFlare.y,
-            valueRange = -1f..1f,
-            step = 0.01f,
-            onValueChange = { onMacroChange(macro.copy(lensFlare = macro.lensFlare.copy(y = it))) },
-            displayValue = "%.2f".format(macro.lensFlare.y)
-        )
-        RawSliderRow(
             label = "Size",
             value = macro.lensFlare.size,
+            enabled = masksReady,
             valueRange = 0.1f..5f,
             step = 0.05f,
             onValueChange = { onMacroChange(macro.copy(lensFlare = macro.lensFlare.copy(size = it))) },
@@ -367,6 +359,7 @@ internal fun RawEffectsTab(
         RawSliderRow(
             label = "Spread",
             value = macro.lensFlare.spread,
+            enabled = masksReady,
             valueRange = 0f..1f,
             step = 0.01f,
             onValueChange = { onMacroChange(macro.copy(lensFlare = macro.lensFlare.copy(spread = it))) },
@@ -375,10 +368,116 @@ internal fun RawEffectsTab(
         RawSliderRow(
             label = "Warmth",
             value = macro.lensFlare.warmth,
+            enabled = masksReady,
             valueRange = 0f..1f,
             step = 0.01f,
             onValueChange = { onMacroChange(macro.copy(lensFlare = macro.lensFlare.copy(warmth = it))) },
             displayValue = "${(macro.lensFlare.warmth * 100).toInt()}"
+        )
+        RawSliderRow(
+            label = "Distance",
+            value = macro.lensFlare.distance,
+            enabled = masksReady,
+            valueRange = 0f..1f,
+            step = 0.01f,
+            onValueChange = { onMacroChange(macro.copy(lensFlare = macro.lensFlare.copy(distance = it))) },
+            displayValue = if (macro.lensFlare.distance < 0.05f) "Far" else if (macro.lensFlare.distance > 0.95f) "Near" else "${(macro.lensFlare.distance * 100).toInt()}",
+        )
+        RawSliderRow(
+            label = "Lens Hood",
+            value = macro.lensFlare.hood * 100f,
+            enabled = masksReady,
+            valueRange = 0f..100f,
+            step = 1f,
+            onValueChange = { onMacroChange(macro.copy(lensFlare = macro.lensFlare.copy(hood = it / 100f))) },
+            displayValue = "${(macro.lensFlare.hood * 100f).toInt()}",
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(
+                checked = macro.lensFlare.roundness < 0.98f,
+                enabled = masksReady,
+                onCheckedChange = { on ->
+                    onMacroChange(macro.copy(lensFlare = macro.lensFlare.copy(
+                        roundness = if (on) 0.45f else 1f,
+                    )))
+                },
+            )
+            Text("Starburst", style = MaterialTheme.typography.bodyMedium)
+        }
+        RawSliderRow(
+            label = "Starburst",
+            value = macro.lensFlare.starburst * 100f,
+            enabled = masksReady,
+            valueRange = 0f..100f,
+            step = 1f,
+            onValueChange = { onMacroChange(macro.copy(lensFlare = macro.lensFlare.copy(starburst = it / 100f))) },
+            displayValue = "${(macro.lensFlare.starburst * 100f).toInt()}",
+        )
+        RawSliderRow(
+            label = "Blades",
+            value = macro.lensFlare.blades,
+            enabled = masksReady,
+            valueRange = 0f..1f,
+            step = 1f / 12f,
+            onValueChange = { onMacroChange(macro.copy(lensFlare = macro.lensFlare.copy(blades = it))) },
+            displayValue = if (macro.lensFlare.blades <= 0.04f) "0" else (4 + (macro.lensFlare.blades * 12f).toInt()).coerceIn(4, 16).toString(),
+        )
+        RawSliderRow(
+            label = "Length",
+            value = if (macro.lensFlare.roundness < 0.98f) macro.lensFlare.roundness * 100f else 45f,
+            enabled = masksReady && macro.lensFlare.roundness < 0.98f,
+            valueRange = 5f..97f,
+            step = 1f,
+            onValueChange = { onMacroChange(macro.copy(lensFlare = macro.lensFlare.copy(roundness = it / 100f))) },
+            displayValue = "${(if (macro.lensFlare.roundness < 0.98f) macro.lensFlare.roundness * 100f else 45f).toInt()}",
+        )
+        RawSliderRow(
+            label = "Rotation",
+            value = macro.lensFlare.rotation * 100f,
+            enabled = masksReady,
+            valueRange = 0f..100f,
+            step = 1f,
+            onValueChange = { onMacroChange(macro.copy(lensFlare = macro.lensFlare.copy(rotation = it / 100f))) },
+            displayValue = "${(macro.lensFlare.rotation * 100f).toInt()}",
+        )
+
+        Spacer(Modifier.height(8.dp))
+        HorizontalDivider()
+        SectionHeader("Light Source")
+        if (!masksReady) {
+            Text(
+                text = "Detecting subject…",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 8.dp, bottom = 4.dp),
+            )
+        }
+        RawSliderRow(
+            label = "Scene Distance",
+            value = macro.sceneShadow.distance,
+            valueRange = 0f..100f,
+            step = 1f,
+            onValueChange = { onMacroChange(macro.copy(sceneShadow = macro.sceneShadow.copy(distance = it))) },
+            displayValue = if (macro.sceneShadow.distance < 5f) "Far" else if (macro.sceneShadow.distance > 95f) "Near" else "${macro.sceneShadow.distance.toInt()}",
+        )
+        RawSliderRow(
+            label = "Shadow Strength",
+            value = macro.sceneShadow.strength,
+            valueRange = 0f..100f,
+            step = 1f,
+            onValueChange = { onMacroChange(macro.copy(sceneShadow = macro.sceneShadow.copy(strength = it))) },
+            displayValue = "${macro.sceneShadow.strength.toInt()}",
+        )
+        RawSliderRow(
+            label = "Shadow Softness",
+            value = macro.sceneShadow.softness,
+            valueRange = 0f..100f,
+            step = 1f,
+            onValueChange = { onMacroChange(macro.copy(sceneShadow = macro.sceneShadow.copy(softness = it))) },
+            displayValue = "${macro.sceneShadow.softness.toInt()}",
         )
 
         Spacer(Modifier.height(8.dp))
@@ -419,6 +518,66 @@ internal fun RawEffectsTab(
             step = 0.01f,
             onValueChange = { onMacroChange(macro.copy(filmGrainSize = it)) },
             displayValue = "${(macro.filmGrainSize * 100).toInt()}",
+        )
+        RawSliderRow(
+            label = "Structure",
+            value = macro.grainEmulsion.getOrElse(0) { 0f },
+            valueRange = 0f..1f,
+            step = 0.01f,
+            onValueChange = { v ->
+                val g = macro.grainEmulsion.copyOf(13)
+                g[0] = v
+                onMacroChange(macro.copy(grainEmulsion = g))
+            },
+            displayValue = "${(macro.grainEmulsion.getOrElse(0) { 0f } * 100).toInt()}",
+        )
+        RawSliderRow(
+            label = "Chroma Grain",
+            value = macro.grainEmulsion.getOrElse(1) { 0f },
+            valueRange = 0f..1f,
+            step = 0.01f,
+            onValueChange = { v ->
+                val g = macro.grainEmulsion.copyOf(13)
+                g[1] = v
+                onMacroChange(macro.copy(grainEmulsion = g))
+            },
+            displayValue = "${(macro.grainEmulsion.getOrElse(1) { 0f } * 100).toInt()}",
+        )
+        RawSliderRow(
+            label = "Shadow Grain",
+            value = macro.grainEmulsion.getOrElse(3) { 0f },
+            valueRange = 0f..1f,
+            step = 0.01f,
+            onValueChange = { v ->
+                val g = macro.grainEmulsion.copyOf(13)
+                g[3] = v
+                onMacroChange(macro.copy(grainEmulsion = g))
+            },
+            displayValue = "${(macro.grainEmulsion.getOrElse(3) { 0f } * 100).toInt()}",
+        )
+        RawSliderRow(
+            label = "Highlight Suppression",
+            value = macro.grainEmulsion.getOrElse(2) { 0f },
+            valueRange = 0f..1f,
+            step = 0.01f,
+            onValueChange = { v ->
+                val g = macro.grainEmulsion.copyOf(13)
+                g[2] = v
+                onMacroChange(macro.copy(grainEmulsion = g))
+            },
+            displayValue = "${(macro.grainEmulsion.getOrElse(2) { 0f } * 100).toInt()}",
+        )
+        RawSliderRow(
+            label = "Edge Bias",
+            value = macro.grainEmulsion.getOrElse(4) { 0f },
+            valueRange = 0f..1f,
+            step = 0.01f,
+            onValueChange = { v ->
+                val g = macro.grainEmulsion.copyOf(13)
+                g[4] = v
+                onMacroChange(macro.copy(grainEmulsion = g))
+            },
+            displayValue = "${(macro.grainEmulsion.getOrElse(4) { 0f } * 100).toInt()}",
         )
         if (SHOW_FILM_GRAIN_WASH_OUT) {
             RawSliderRow(

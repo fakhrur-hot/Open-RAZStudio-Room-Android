@@ -77,6 +77,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -113,7 +114,9 @@ import com.RAZStudio.StudioRoom.core.resources.icons.IosShare
 import com.RAZStudio.StudioRoom.core.resources.icons.Lock
 import com.RAZStudio.StudioRoom.core.resources.icons.LockOpen
 import com.RAZStudio.StudioRoom.core.resources.icons.Save
+import com.RAZStudio.StudioRoom.core.resources.icons.Settings
 import com.RAZStudio.StudioRoom.core.resources.icons.Tune
+import com.RAZStudio.StudioRoom.core.ui.utils.provider.LocalOpenAppSettings
 import com.RAZStudio.StudioRoom.feature.photo_editor.raw.RawStageCache
 import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.RawMetadata
 import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.RawPipelineState
@@ -195,6 +198,8 @@ fun RawExportScreen(
     // + saved file). Fall back to the Stage B snapshot, then the neutral Stage A
     // thumbnail, then the pipeline sentinel.
     val gradedPreview by component.gradedPreview.collectAsState()
+    val healProtectMask by component.masking.maskBitmap.collectAsState()
+    val healSegmentMasks by component.masking.segmentationMasksV3.collectAsState()
     val sentinelPreview = pipelineReady?.previewBitmap
     // Crop sheet (RAW Export transform bar) — see RawCropSheet. Result
     // is held locally for the preview AND threaded into Save as a
@@ -242,6 +247,7 @@ fun RawExportScreen(
         mutableStateOf(com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.AiDenoiseEditSession())
     }
     var aiAppliedPreview by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var denoiseLongSide by remember { mutableIntStateOf(0) }
     val aiDenoiseModel by remember(context) {
         mutableStateOf(
             runCatching {
@@ -652,6 +658,13 @@ fun RawExportScreen(
                     }
                 },
                 actions = {
+                    val openAppSettings = LocalOpenAppSettings.current
+                    IconButton(onClick = openAppSettings) {
+                        Icon(
+                            Icons.Rounded.Settings,
+                            contentDescription = stringResource(R.string.settings),
+                        )
+                    }
                     // Phase 4 — drift verification harness. Debug-build only.
                     // Lives on the Export page (not the editor) because the
                     // harness compares the editor GL snapshot against the
@@ -770,7 +783,9 @@ fun RawExportScreen(
                     // result after the watermark (fixes bordered saves coming out at
                     // preview size). The heal/cloud override still rides the direct
                     // path — the component applies watermark → border to it too.
-                    val override: Bitmap? = cosmeticCloudEditPreview ?: cosmeticHealedPreview
+                    val override: Bitmap? = aiAppliedPreview
+                        ?: cosmeticCloudEditPreview
+                        ?: cosmeticHealedPreview
                     val exportBorder = if (cosmeticBorderedPreview != null) borderThickness else 0f
                     component.triggerSaveToGallery(
                         context = context,
@@ -1067,6 +1082,7 @@ fun RawExportScreen(
                             cloudEditJobId = null
                             fullResBitmap = null
                             aiAppliedPreview = null
+                            denoiseLongSide = 0
                             watermarkConfig = null
                             aiDenoiseSession = com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.AiDenoiseEditSession()
                             aiDenoisePreviewScheduler.cancel()
@@ -1176,10 +1192,11 @@ fun RawExportScreen(
                         dimH = (origH * scale).toInt().coerceAtLeast(1).toString()
                     }
                     @Composable
-                    fun SizeChip(label: String, selected: Boolean, onClick: () -> Unit) {
+                    fun SizeChip(label: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
                         androidx.compose.material3.FilterChip(
                             selected = selected,
                             onClick = onClick,
+                            enabled = enabled,
                             label = { Text(label, style = MaterialTheme.typography.labelSmall) },
                         )
                     }
@@ -1190,7 +1207,10 @@ fun RawExportScreen(
                             .padding(horizontal = 16.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        SizeChip(stringResource(R.string.raw_export_preset_original), useFullResolution) {
+                        SizeChip(
+                            stringResource(R.string.raw_export_preset_original),
+                            useFullResolution,
+                        ) {
                             useFullResolution = true
                             dimW = origW.toString()
                             dimH = origH.toString()
@@ -1205,8 +1225,12 @@ fun RawExportScreen(
                         ).forEach { (target, labelRes) ->
                             SizeChip(
                                 label = stringResource(labelRes),
-                                selected = !useFullResolution && longSide > target &&
-                                    dimW.toIntOrNull() == scaledW(target),
+                                selected = !useFullResolution &&
+                                    dimW.toIntOrNull() == scaledW(target) &&
+                                    (target == 1350 || longSide > target),
+                                enabled = target == 1350 ||
+                                    denoiseLongSide == 0 ||
+                                    target <= denoiseLongSide,
                             ) { applyLongSidePreset(target) }
                         }
                     }
@@ -1220,6 +1244,7 @@ fun RawExportScreen(
                 ) {
                     OutlinedTextField(
                         value         = dimW,
+                        enabled       = denoiseLongSide == 0,
                         onValueChange = { v ->
                             dimW = v
                             val w = v.toIntOrNull() ?: return@OutlinedTextField
@@ -1245,6 +1270,7 @@ fun RawExportScreen(
                     }
                     OutlinedTextField(
                         value         = dimH,
+                        enabled       = denoiseLongSide == 0,
                         onValueChange = { v ->
                             dimH = v
                             val h = v.toIntOrNull() ?: return@OutlinedTextField
@@ -1421,6 +1447,8 @@ fun RawExportScreen(
             com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw
                 .components.RawHealSheet(
                 source = fullResBitmap ?: previewBitmap!!,
+                protectBitmap = healProtectMask,
+                segmentMasks = healSegmentMasks,
                 onDismiss = { showHealSheet = false },
                 onHealConfirmed = { healed ->
                     val old = cosmeticHealedPreview
@@ -1481,31 +1509,27 @@ fun RawExportScreen(
         }
     }
     if (showAiDenoiseSheet) {
-        com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components.RawAiDenoiseSheet(
-            state = aiDenoiseSession.draft,
-            onStateChange = { next ->
-                aiDenoiseSession = aiDenoiseSession.update(next)
-            },
-            onApply = {
-                aiDenoiseSession = aiDenoiseSession.apply()
-                val denoisedCanvas = aiDenoiseLivePreview ?: persistentCanvasBitmap
-                if (denoisedCanvas != null && aiDenoiseSession.committed.enabled) {
-                    aiAppliedPreview = denoisedCanvas
-                    fullResBitmap = denoisedCanvas
-                }
-                aiDenoisePreviewScheduler.cancel()
-                showAiDenoiseSheet = false
-            },
-            onCancel = {
-                aiDenoiseSession = aiDenoiseSession.cancel()
-                aiDenoisePreviewScheduler.cancel()
-                showAiDenoiseSheet = false
-            },
-            onReset = {
-                aiDenoiseSession = aiDenoiseSession.reset()
-                aiDenoisePreviewScheduler.cancel()
-            },
-        )
+        val denoiseSource = fullResBitmap ?: previewBitmap
+        if (denoiseSource != null) {
+            val scaleMode = appSettings.defaultImageScaleMode
+            com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components.RawAiDenoiseSheet(
+                source = denoiseSource,
+                scaleModeLabel = "${scaleMode} · ${scaleMode.scaleColorSpace}",
+                onScale = { bitmap, width, height -> component.scaleBitmap(bitmap, width, height) },
+                onDone = { processed ->
+                    aiAppliedPreview = processed
+                    fullResBitmap = processed
+                    denoiseLongSide = maxOf(processed.width, processed.height)
+                    useFullResolution = false
+                    dimW = processed.width.toString()
+                    dimH = processed.height.toString()
+                    aiDenoiseSession = aiDenoiseSession.copy(
+                        committed = aiDenoiseSession.committed.copy(enabled = true),
+                    )
+                },
+                onClose = { showAiDenoiseSheet = false },
+            )
+        }
     }
     // Atmosphere sheet REMOVED from the Export page 2026-09-06 (owner request),
     // together with its ✨ launcher in the transform bar (see

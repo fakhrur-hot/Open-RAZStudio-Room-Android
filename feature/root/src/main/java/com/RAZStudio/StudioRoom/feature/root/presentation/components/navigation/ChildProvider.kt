@@ -320,7 +320,6 @@ internal class ChildProvider @Inject constructor(
                 onNavigate = ::navigateTo,
             )
         )
-
         Screen.CanonSync, Screen.SonySync, Screen.CanonRemoteShoot, Screen.CanonBatchDownload,
         Screen.GalleryWorkspace, is Screen.AddToProject, is Screen.GalleryProject -> NavigationChild.Unavailable
 

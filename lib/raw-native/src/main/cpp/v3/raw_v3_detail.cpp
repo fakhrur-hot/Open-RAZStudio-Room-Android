@@ -303,7 +303,17 @@ void applyDetail(
                         // gradients into visible bands.
                         const float lum0    = r * 0.299f + g * 0.587f + b * 0.114f;
                         const float blurLum = bR1[i] * 0.299f + bG1[i] * 0.587f + bB1[i] * 0.114f;
-                        const float dRaw    = unsharpW * (lum0 - blurLum);
+                        const float edge    = std::fabs(lum0 - blurLum);
+                        // Hard edges stay quiet until the slider passes 50%.
+                        // Below that, only the small residual (texture) is boosted.
+                        float hardGate = 1.f;
+                        if (p.sharpness <= 0.5f) {
+                            float t = (edge - 0.03f) / 0.09f;
+                            if (t < 0.f) t = 0.f; else if (t > 1.f) t = 1.f;
+                            t = t * t * (3.f - 2.f * t);
+                            hardGate = 1.f - t;
+                        }
+                        const float dRaw    = unsharpW * (lum0 - blurLum) * hardGate;
                         const float Ls      = 0.25f;
                         const float dL      = dRaw / (1.f + std::fabs(dRaw) / Ls);
                         r += dL; g += dL; b += dL;

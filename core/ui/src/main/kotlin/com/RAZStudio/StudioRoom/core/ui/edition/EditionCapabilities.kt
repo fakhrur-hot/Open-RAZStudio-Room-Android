@@ -41,6 +41,20 @@ object EditionCapabilities {
      * Open keeps the normal RAW editor wired but exposes LUT and LUT Adj as
      * disabled chrome. Their implementations are removed by export-open.ps1.
      */
+    /** Header label: one version, then the edition. */
+    fun headerVersion(versionName: String): String {
+        val base = versionName
+            .removeSuffix("-foss")
+            .removeSuffix("-hardened")
+            .trim()
+        val edition = when {
+            openAllowlistOnly -> "open"
+            privateTrial -> "experimental-trial"
+            else -> "debug"
+        }
+        return "$base.$edition"
+    }
+
     fun isRawTabWired(tabId: Int): Boolean {
         if (!openAllowlistOnly) return true
         return tabId != 11 && tabId != 13

@@ -195,7 +195,7 @@ android {
 }
 
 base {
-    archivesName = "RAZStudio_Room-${android.defaultConfig.versionName}"
+    archivesName = "Open_RAZStudio_Room-${android.defaultConfig.versionName}"
 }
 
 aboutLibraries {

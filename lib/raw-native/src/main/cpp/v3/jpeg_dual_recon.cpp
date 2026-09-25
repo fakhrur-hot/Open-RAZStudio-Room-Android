@@ -65,12 +65,14 @@ void applyJpegDualRecon(
     int channels,
     float strength,
     float cleanBias,
-    float detailBias) {
+    float detailBias,
+    float radiusScale) {
     if (!pixels || w < 3 || h < 3 || channels < 3) return;
     strength = clampf(strength, 0.f, 1.f);
     if (strength < 0.001f) return;
     cleanBias  = clampf(cleanBias, 0.f, 1.f);
     detailBias = clampf(detailBias, 0.f, 1.f);
+    radiusScale = clampf(radiusScale, 1.f, 6.f);
 
     const int n = w * h;
     std::vector<float> L(n), clean(n), detail(n), edge(n);
@@ -82,7 +84,7 @@ void applyJpegDualRecon(
         }
     }
 
-    const float resScale = float(std::max(w, h)) / 2560.f;
+    const float resScale = float(std::max(w, h)) / 2560.f * radiusScale;
     const int rClean = std::max(1, int(std::lround(resScale * 3.f)));
     const int rUsm   = std::max(1, int(std::lround(resScale * 1.f)));
 
@@ -143,8 +145,8 @@ void applyJpegDualRecon(
 }
 
 template void applyJpegDualRecon<__fp16>(
-    __fp16*, int, int, int, int, float, float, float);
+    __fp16*, int, int, int, int, float, float, float, float);
 template void applyJpegDualRecon<float>(
-    float*, int, int, int, int, float, float, float);
+    float*, int, int, int, int, float, float, float, float);
 
 }  // namespace raw_v3

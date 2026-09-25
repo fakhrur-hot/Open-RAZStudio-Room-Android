@@ -1,6 +1,6 @@
 # Agents
 
-Stuck, or the user asked to search, research, check, why, or find: read [`SKILL.md`](SKILL.md) and follow [`skills/story-trace/SKILL.md`](skills/story-trace/SKILL.md) before answering. Walk causes left and effects right. Do not answer from a file dump.
+Stuck, or the user asked to search, research, check, why, find, cache, persist, transfer, or survive pages: follow [`skills/story-trace/SKILL.md`](skills/story-trace/SKILL.md). Tiny budget first. State lifecycle before any design. If missing_edges > 2, stop with insufficient_evidence — no architecture.
 
 Meeting room skill: [`skills/raz-grok-main-sync/SKILL.md`](skills/raz-grok-main-sync/SKILL.md)
 

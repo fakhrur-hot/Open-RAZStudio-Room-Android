@@ -2687,15 +2687,17 @@ void main() {
                               0.0, 1.0);
                 c = mix(c, blurC, clamp(uBokehBlur, 0.0, 1.0) * bgGate);
             }
-            // Shaped highlight discs. A filled regular hexagon is stamped on
-            // highlights brighter than the threshold, only where bgGate is
-            // already background and depth CoC is enabled.
+            // Shaped highlight discs. A filled regular hexagon (the same
+            // outline-then-fill aperture kernel ImageToolbox uses for bokeh)
+            // is stamped on highlights brighter than the threshold. The stamp
+            // is allowed only where bgGate is already background AND depth CoC
+            // has opened that gate (uDepthMapEnabled).
             float balls = uBokehBalls;
             if (balls > 0.0 && uDepthMapEnabled == 1) {
                 float thr = mix(0.72, 0.50, clamp(uBokehSpread, 0.0, 1.0));
                 float rad = (0.006 + 0.018 * clamp(uBokehSpread, 0.0, 1.0));
-                const float SECTOR = 1.04719755;
-                const float COS_HALF = 0.8660254;
+                const float SECTOR = 1.04719755; // 2π / 6
+                const float COS_HALF = 0.8660254; // cos(sector/2), blades = 6
                 vec3 shaped = vec3(0.0);
                 float wsum = 0.0;
                 for (int y = -3; y <= 3; ++y) {
@@ -2721,6 +2723,7 @@ void main() {
             }
         }
     }
+    // Mask-tab banding: painted pixels only, and only where the neighborhood is flat.
     if (uMaskBanding > 0.001 && (uBrushMaskEnabled & 1) != 0) {
         float aBand = texture(uBrushMask, vTexCoord).r * uMaskBanding;
         if (aBand > 0.001) {

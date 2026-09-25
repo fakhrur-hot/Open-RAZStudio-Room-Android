@@ -427,9 +427,11 @@ private fun MainTitle(
                     context.packageManager.getPackageInfo(context.packageName, 0).versionName
                 }.getOrNull() ?: ""
             }
-            if (versionName.isNotEmpty()) {
+            val headerVersion = com.RAZStudio.StudioRoom.core.ui.edition.EditionCapabilities
+                .headerVersion(versionName)
+            if (headerVersion.isNotEmpty()) {
                 Text(
-                    text = versionName,
+                    text = headerVersion,
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontStyle = androidx.compose.ui.text.font.FontStyle.Normal,
                         fontSize = 11.sp,

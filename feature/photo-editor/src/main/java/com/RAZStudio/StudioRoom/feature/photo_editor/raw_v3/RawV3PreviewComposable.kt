@@ -296,7 +296,8 @@ fun RawV3PreviewComposable(
         params.detailSmoothBackground,
         params.detailFilmGrain, params.detailFilmGrainSize,
         params.detailFilmGrainWash,
-        params.jpegRefine.strength, params.jpegRefine.clean, params.jpegRefine.detail,
+        params.jpegRefine.strength,
+        JpegRefineDebug.mode,
         // Subject-mask-driven spatial ops: rebake when the mask itself changes.
         if (params.detailSmartSharpness > 0f || params.detailSmoothBackground > 0f) {
             System.identityHashCode(subjectMask)
@@ -308,6 +309,25 @@ fun RawV3PreviewComposable(
     // inert and the AHB holds the un-graded downsampled source.
     LaunchedEffect(stageATifPath, spatialKey, ungradedBakeRetryTick.value, knownSrcWidth, knownSrcHeight) {
         if (stageATifPath.isEmpty()) return@LaunchedEffect
+        val trackRefine = JpegRefineDebug.mode != JpegRefinePreviewMode.Original &&
+            params.jpegRefine.strength > 0.001f
+        val refineToken = if (trackRefine) System.nanoTime() else 0L
+        if (trackRefine) {
+            JpegRefineDebug.busyToken = refineToken
+            JpegRefineDebug.busy = true
+            JpegRefineDebug.busySince = android.os.SystemClock.elapsedRealtime()
+            JpegRefineDebug.stage = "BAKE"
+            JpegRefineDebug.bridge = "ACTIVE"
+            JpegRefineDebug.jobsQueued++
+            kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]?.invokeOnCompletion { cause ->
+                if (cause != null) JpegRefineDebug.jobsCancelled++ else JpegRefineDebug.jobsCompleted++
+            }
+        }
+        fun clearRefineBusy() {
+            if (refineToken != 0L && JpegRefineDebug.busyToken == refineToken) {
+                JpegRefineDebug.busy = false
+            }
+        }
         // Bake lifecycle signal: "rebake requested". The consumer (verify
         // harness / future UI) sees requestedKey != bakedKey until the
         // matching commit below reports them equal.
@@ -319,6 +339,7 @@ fun RawV3PreviewComposable(
         if (!ungradedBakeRunning.compareAndSet(false, true)) {
             Log.d(TAG, "ungradedAhb bake skipped — native already running, retry pending")
             ungradedRetryPending.set(true)
+            clearRefineBusy()
             return@LaunchedEffect
         }
         val ungradedCancelFlag = ByteArray(1)
@@ -429,6 +450,93 @@ fun RawV3PreviewComposable(
                 }
                 newAhb = triple.first
             }
+            val refineMode = JpegRefineDebug.mode
+            if (refineMode != JpegRefinePreviewMode.Original &&
+                params.jpegRefine.strength > 0.001f && newAhb != null
+            ) {
+                val ahb = newAhb!!
+                JpegRefineDebug.stage = "READ"
+                JpegRefineDebug.previewSize = "${pw}x${ph}"
+                val file = stageATifPath.substringAfterLast('/')
+                val key = "$file|$pw|$ph"
+                JpegRefineDebug.keyReason = when {
+                    JpegRefineDebug.rawKey.isEmpty() -> "new source"
+                    JpegRefineDebug.rawKey.substringBefore('|') != file -> "file change"
+                    JpegRefineDebug.rawKey != key -> "preview size"
+                    else -> "same source"
+                }
+                JpegRefineDebug.rawKey = key
+                JpegRefineDebug.sourceKey = key.hashCode().toUInt().toString(16).take(8).uppercase()
+                withContext(Dispatchers.Default) {
+                    val plate = android.graphics.Bitmap.createBitmap(pw, ph, android.graphics.Bitmap.Config.ARGB_8888)
+                    val tRead = System.nanoTime()
+                    val read = RawV3Engine.readFp16AhbToArgb(ahb, plate)
+                    val readMs = (System.nanoTime() - tRead) / 1_000_000
+                    val rt = if (read) RawV3Engine.jpegBridgeRoundtrip() else floatArrayOf(0f, 0f)
+                    if (read) {
+                        val tCar = System.nanoTime()
+                        // Preview plate is up to 2560. refineExport would tile that
+                        // whole buffer and the spinner would sit for minutes.
+                        JpegRefineEngine(ctx).refinePreview(
+                            plate,
+                            params.jpegRefine.strength,
+                            "$stageATifPath|$pw|$ph",
+                        )
+                        val carMs = (System.nanoTime() - tCar) / 1_000_000
+                        val diffValid = if (refineMode == JpegRefinePreviewMode.Difference) {
+                            JpegRefineEngine.paintDifference(plate)
+                        } else null
+                        JpegRefineDebug.ui { JpegRefineDebug.stage = "WRITE" }
+                        val tWrite = System.nanoTime()
+                        RawV3Engine.writeArgbToFp16Ahb(plate, ahb)
+                        val writeMs = (System.nanoTime() - tWrite) / 1_000_000
+                        val cache = JpegRefineEngine.cachedOriginalPreview
+                        val diffLine = when (diffValid) {
+                            true -> "VALID"
+                            false -> "INVALID"
+                            null -> "off"
+                        }
+                        JpegRefineDebug.ui { JpegRefineDebug.difference = diffLine }
+                        val fp16Mb = pw.toLong() * ph * 8 / 1_048_576f
+                        val cacheMb = ((cache?.width ?: 0).toLong() * (cache?.height ?: 0) * 4) / 1_048_576f
+                        val ortAvg = if (JpegRefineDebug.ortRuns > 0)
+                            JpegRefineDebug.ortSumMs / JpegRefineDebug.ortRuns else 0.0
+                        JpegRefineDebug.engineNote =
+                            "bridge ACTIVE\n" +
+                            "preview ${pw}x${ph}  cache ${cache?.width ?: 0}x${cache?.height ?: 0}\n" +
+                            "model jpeg_refine.onnx  tile 126 overlap 16 tiles ${JpegRefineDebug.lastTileCount}\n" +
+                            "ORT runs=${JpegRefineDebug.ortRuns} avg=${"%.1f".format(ortAvg)}ms max=${"%.1f".format(JpegRefineDebug.ortMaxMs)}ms total=${"%.0f".format(JpegRefineDebug.ortSumMs)}ms\n" +
+                            "pack=${"%.0f".format(JpegRefineDebug.packSumMs)}ms tensor=${"%.0f".format(JpegRefineDebug.tensorSumMs)}ms out=${"%.0f".format(JpegRefineDebug.outSumMs)}ms blend=${"%.0f".format(JpegRefineDebug.blendSumMs)}ms\n" +
+                            "roundtrip avg=${"%.4f".format(rt[0])} max=${"%.4f".format(rt[1])} (FP16 vs 8-bit)\n" +
+                            "memory FP16 ${"%.1f".format(fp16Mb)}MB  each cache ${"%.1f".format(cacheMb)}MB\n" +
+                            "shader strength=${params.jpegRefine.strength}\n" +
+                            "1 read FP16→ARGB ${readMs}ms\n" +
+                            "2 ${JpegRefineDebug.engineNote}\n" +
+                            "   colorCar+blend ${carMs}ms\n" +
+                            "3 $diffLine\n" +
+                            "4 write ARGB→FP16 ${writeMs}ms\n" +
+                            "5 GL setSourceWithUniforms same AHB"
+                        val residualMs = carMs - JpegRefineDebug.ortSumMs
+                        android.util.Log.i(
+                            "JpegRefine",
+                            "tiles=${JpegRefineDebug.lastTileCount} run=${JpegRefineDebug.tilesRun} skip=${JpegRefineDebug.tilesSkipped} classMs=${"%.1f".format(JpegRefineDebug.classMs)} ortRuns=${JpegRefineDebug.ortRuns} ortAvg=${"%.1f".format(ortAvg)}ms ortTotal=${"%.0f".format(JpegRefineDebug.ortSumMs)}ms carMs=${carMs}ms residual=${"%.0f".format(residualMs)}ms pack=${"%.0f".format(JpegRefineDebug.packSumMs)}ms tensor=${"%.0f".format(JpegRefineDebug.tensorSumMs)}ms out=${"%.0f".format(JpegRefineDebug.outSumMs)}ms blend=${"%.0f".format(JpegRefineDebug.blendSumMs)}ms read=${readMs}ms write=${writeMs}ms ${pw}x${ph}",
+                        )
+                    } else {
+                        JpegRefineDebug.engineNote = "bridge FAILED\nread FP16 AHB ${pw}x${ph} failed — canvas unchanged"
+                    }
+                    plate.recycle()
+                }
+                JpegRefineDebug.trace = JpegRefineDebug.engineNote
+            } else if (params.jpegRefine.strength > 0.001f) {
+                JpegRefineDebug.bridge = "SKIPPED"
+                JpegRefineDebug.stage = "DONE"
+                JpegRefineDebug.trace =
+                    "bridge SKIPPED\n" +
+                    "shader strength=${params.jpegRefine.strength}\n" +
+                    "mode=$refineMode\n" +
+                    "canvas stays FP16, no bitmap migrate"
+                android.util.Log.i("JpegRefine", "skipped mode=${JpegRefineDebug.mode}")
+            }
             w = pw; h = ph
             val previous = ungradedAhbState.value
             ungradedAhbState.value = newAhb
@@ -438,9 +546,11 @@ fun RawV3PreviewComposable(
             // new-uniforms-on-old-texture. Record which spatialKey this AHB
             // now carries so the SideEffect gate below resumes instant
             // uniform pushes (and releases any pushes held during the bake).
+            JpegRefineDebug.ui { if (JpegRefineDebug.bridge == "ACTIVE") JpegRefineDebug.stage = "REBIND" }
             glViewState.value?.setSourceWithUniforms(
                 ungradedAhbState.value!!, currentParams.value,
             )
+            JpegRefineDebug.ui { if (JpegRefineDebug.bridge == "ACTIVE") JpegRefineDebug.stage = "DONE" }
             lastBakedSpatialKey.value = spatialKey
             // Bake lifecycle signal: "rebake finished" — keys now equal.
             onBakeStateChange?.invoke(spatialKey.hashCode(), spatialKey.hashCode())
@@ -451,6 +561,7 @@ fun RawV3PreviewComposable(
             onImageSize?.invoke(w, h)
             previous?.close()
         } finally {
+            clearRefineBusy()
             newAhb?.close()
             if (!gateReleased) {
                 ungradedBakeRunning.set(false)
@@ -631,35 +742,18 @@ fun RawV3PreviewComposable(
         for (i in 0 until n) {
             bytes[i] = (dm.depth[i] * 255f + 0.5f).toInt().coerceIn(0, 255).toByte()
         }
-        var focus = 0.5f
         val mask = subjectMask
-        if (mask != null && mask.hasSubject) {
+        val (src, mw, mh) = if (mask != null && mask.hasSubject) {
             val refined = mask.refinedMask
-            val (src, mw, mh) = if (refined != null && mask.refinedWidth > 0 && mask.refinedHeight > 0) {
+            if (refined != null && mask.refinedWidth > 0 && mask.refinedHeight > 0) {
                 Triple(refined, mask.refinedWidth, mask.refinedHeight)
             } else {
                 Triple(mask.subjectMask, RawV3SegmentationMasks.MASK_SIZE, RawV3SegmentationMasks.MASK_SIZE)
             }
-            val samples = ArrayList<Float>(4096)
-            if (mw == dm.width && mh == dm.height) {
-                for (i in 0 until n) if (src[i] > 0.5f) samples.add(dm.depth[i])
-            } else {
-                for (y in 0 until dm.height) {
-                    val my = ((y + 0.5f) * mh / dm.height).toInt().coerceIn(0, mh - 1)
-                    for (x in 0 until dm.width) {
-                        val mx = ((x + 0.5f) * mw / dm.width).toInt().coerceIn(0, mw - 1)
-                        if (src[my * mw + mx] > 0.5f) samples.add(dm.depth[y * dm.width + x])
-                    }
-                }
-            }
-            if (samples.isNotEmpty()) {
-                samples.sort()
-                focus = samples[samples.size / 2]
-            }
         } else {
-            val sorted = dm.depth.copyOf().also { it.sort() }
-            focus = sorted[sorted.size / 2]
+            Triple(null, 0, 0)
         }
+        val focus = BokehFocusPlane.solve(src, mw, mh, dm.depth, dm.width, dm.height)
         v.uploadDepthMap(bytes, dm.width, dm.height, focus)
         lastUploadedDepth.value = dm
         Log.i(TAG, "Depth map uploaded ${dm.width}x${dm.height} focus=${"%.3f".format(focus)}")

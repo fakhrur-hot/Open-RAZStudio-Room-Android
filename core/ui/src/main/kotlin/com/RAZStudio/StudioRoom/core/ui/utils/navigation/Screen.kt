@@ -170,6 +170,19 @@ sealed class Screen(
         subtitle = R.string.gallery_project_sub
     )
 
+    /**
+     * Share-only page for gallery and photo viewers. Independent of the RAW
+     * editor export screen.
+     */
+    @Serializable
+    data class ShareExport(
+        val uris: List<Uri>? = null,
+    ) : Screen(
+        id = 81,
+        title = R.string.share,
+        subtitle = R.string.share
+    )
+
     @Serializable
     data class PhotoEditor(
         val uri: Uri? = null,

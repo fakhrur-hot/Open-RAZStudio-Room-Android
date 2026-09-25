@@ -65,7 +65,11 @@ object RawV3ToneCurve {
         val rCh = sampleCurve(rY)
         val gCh = sampleCurve(gY)
         val bCh = sampleCurve(bY)
-        val filmLut = if (film.isActive) sampleFilmCurve(film) else null
+        // Highlight knee is applied later as one luma delta (shader + CPU).
+        // Baking it into this per-channel LUT compressed the hottest channel
+        // and pushed warm highlights toward green.
+        val filmForLut = if (film.highlightKnee != 0f) film.copy(highlightKnee = 0f) else film
+        val filmLut = if (filmForLut.isActive) sampleFilmCurve(filmForLut) else null
 
         val out = ByteArray(LUT_SIZE * 3)
         for (i in 0 until LUT_SIZE) {
@@ -141,16 +145,11 @@ object RawV3ToneCurve {
      * above it, compress toward a gentle roll-off. [amount] mixes vs identity.
      */
     private fun highlightKnee(x: Float, amount: Float): Float {
-        val t = 0.72f - amount * 0.12f // toe rises slightly as knee strengthens
-        if (x <= t) return x
-        val p = 1.6f + amount * 1.4f   // power
-        val length = 1.02f + amount * 0.35f
-        val s = (1f - t) / (
-            (((1f - t) / (length - t)).pow(-p) - 1f).pow(1f / p)
-            ).coerceAtLeast(1e-6f)
-        val u = (x - t) / s.coerceAtLeast(1e-6f)
-        val kn = t + s * (u / (1f + u.pow(p)).pow(1f / p))
-        return x + (kn - x) * amount
+        val start = (0.62f - amount * 0.22f).coerceIn(0.35f, 0.7f)
+        if (x <= start) return x
+        val t = ((x - start) / (1f - start)).coerceIn(0f, 1f)
+        val rolled = start + (1f - start) * t.toDouble().pow((1.0 + amount * 2.4).toDouble()).toFloat()
+        return rolled.coerceIn(0f, 1f)
     }
 
     /** Soft black lift / film fade in the lower tones. */

@@ -21,6 +21,7 @@ import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
+import java.util.ArrayList
 
 /**
  * Builds the touch-to-heal mask used by [com.RAZStudio.opencv_tools.spot_heal.SpotHealer].
@@ -74,6 +75,7 @@ object HealMaskBuilder {
         subjectThreshold: Float = 0.5f,
         dilatePx: Int = 6,
         fusionMask: Mat? = null,
+        protectBitmap: Bitmap? = null,
     ): Bitmap {
         // Ensure libopencv_java4.so is loaded before allocating any Mat.
         // Heal is the first OpenCV consumer that doesn't go through the
@@ -101,15 +103,18 @@ object HealMaskBuilder {
         // ── Fusion path: use pre-computed U2Net→SAM fusion mask ──
         if (fusionMask != null) {
             Log.d(TAG, "build: using fusion mask (U2Net→SAM offline)")
-            return buildWithFusionMask(srcW, srcH, tapXSrc, tapYSrc, radiusSrcPx,
-                                       touchBmp, fusionMask, dilatePx)
+            return applySegmentProtect(
+                buildWithFusionMask(srcW, srcH, tapXSrc, tapYSrc, radiusSrcPx,
+                    touchBmp, fusionMask, dilatePx),
+                protectBitmap, masks,
+            )
         }
 
         // No segmentation available → return the touch circle as-is.
         // Caller's SpotHealer will threshold to binary itself.
         if (masks == null) {
             Log.d(TAG, "build: no masks, returning touch-only")
-            return touchBmp
+            return applySegmentProtect(touchBmp, protectBitmap, null)
         }
 
         // ── 2. Sample U2Net to decide which class the user tapped ──
@@ -172,7 +177,7 @@ object HealMaskBuilder {
             Log.w(TAG, "build: AND wiped mask — falling back to touch-only")
             classMat320.release(); classMatFull.release()
             touchMat.release(); finalMat.release()
-            return touchBmp
+            return applySegmentProtect(touchBmp, protectBitmap, masks)
         }
 
         // ── 8. Mat → ARGB_8888 Bitmap ──────────────────────────────
@@ -189,7 +194,111 @@ object HealMaskBuilder {
         rgba.release()
         touchBmp.recycle()
 
-        return out
+        return applySegmentProtect(out, protectBitmap, masks)
+    }
+
+    /**
+     * Object-aware keep: if the hole only grazes the segmented/protect
+     * region (≤ [maxOverlap] of hole pixels), punch those pixels out of
+     * the hole so Heal cannot rewrite them. If the stroke is clearly on
+     * the object (> 10%), leave the hole alone — Snapseed / Lightroom
+     * Mobile: heal where you painted.
+     *
+     * [protectBitmap] is the Mask-tab composite when present; otherwise
+     * [masks].bestMask() (refined subject). Null both is a no-op.
+     * Mutates [hole] in place and returns it.
+     */
+    fun applySegmentProtect(
+        hole: Bitmap,
+        protectBitmap: Bitmap?,
+        masks: RawV3SegmentationMasks?,
+        maxOverlap: Float = 0.10f,
+    ): Bitmap {
+        if (hole.isRecycled || hole.width <= 0 || hole.height <= 0) return hole
+        OpenCVLoader.initLocal()
+        val protect = protectMat(hole.width, hole.height, protectBitmap, masks) ?: return hole
+        val holeMat = Mat()
+        Utils.bitmapToMat(hole, holeMat)
+        when (holeMat.channels()) {
+            4 -> Imgproc.cvtColor(holeMat, holeMat, Imgproc.COLOR_RGBA2GRAY)
+            3 -> Imgproc.cvtColor(holeMat, holeMat, Imgproc.COLOR_RGB2GRAY)
+        }
+        if (holeMat.type() != CvType.CV_8UC1) holeMat.convertTo(holeMat, CvType.CV_8UC1)
+        Imgproc.threshold(holeMat, holeMat, 127.0, 255.0, Imgproc.THRESH_BINARY)
+        val holeN = Core.countNonZero(holeMat)
+        if (holeN == 0) {
+            holeMat.release(); protect.release()
+            return hole
+        }
+        val overlap = Mat()
+        Core.bitwise_and(holeMat, protect, overlap)
+        val overlapN = Core.countNonZero(overlap)
+        overlap.release()
+        val ratio = overlapN.toFloat() / holeN.toFloat()
+        if (ratio > maxOverlap) {
+            Log.d(TAG, "protect: overlap=$ratio > $maxOverlap — heal as painted (LR/Snapseed)")
+            holeMat.release(); protect.release()
+            return hole
+        }
+        Log.d(TAG, "protect: overlap=$ratio ≤ $maxOverlap — subtract segment from hole")
+        val inv = Mat()
+        Core.bitwise_not(protect, inv)
+        val carved = Mat()
+        Core.bitwise_and(holeMat, inv, carved)
+        val rgba = Mat()
+        Imgproc.cvtColor(carved, rgba, Imgproc.COLOR_GRAY2RGBA)
+        Utils.matToBitmap(rgba, hole)
+        holeMat.release(); protect.release(); inv.release(); carved.release(); rgba.release()
+        return hole
+    }
+
+    private fun protectMat(
+        w: Int,
+        h: Int,
+        protectBitmap: Bitmap?,
+        masks: RawV3SegmentationMasks?,
+    ): Mat? {
+        if (protectBitmap != null && !protectBitmap.isRecycled &&
+            protectBitmap.width > 0 && protectBitmap.height > 0
+        ) {
+            val src = Mat()
+            Utils.bitmapToMat(protectBitmap, src)
+            when (src.channels()) {
+                4 -> {
+                    val chans = ArrayList<Mat>(4)
+                    Core.split(src, chans)
+                    src.release()
+                    for (i in 0 until 3) chans[i].release()
+                    val alpha = chans[3]
+                    if (alpha.rows() != h || alpha.cols() != w) {
+                        Imgproc.resize(alpha, alpha, Size(w.toDouble(), h.toDouble()), 0.0, 0.0, Imgproc.INTER_LINEAR)
+                    }
+                    Imgproc.threshold(alpha, alpha, 127.0, 255.0, Imgproc.THRESH_BINARY)
+                    if (alpha.type() != CvType.CV_8UC1) alpha.convertTo(alpha, CvType.CV_8UC1)
+                    return alpha
+                }
+                3 -> Imgproc.cvtColor(src, src, Imgproc.COLOR_RGB2GRAY)
+            }
+            if (src.rows() != h || src.cols() != w) {
+                Imgproc.resize(src, src, Size(w.toDouble(), h.toDouble()), 0.0, 0.0, Imgproc.INTER_LINEAR)
+            }
+            Imgproc.threshold(src, src, 127.0, 255.0, Imgproc.THRESH_BINARY)
+            if (src.type() != CvType.CV_8UC1) src.convertTo(src, CvType.CV_8UC1)
+            return src
+        }
+        if (masks == null) return null
+        val (data, pw, ph) = masks.bestMask()
+        if (pw <= 0 || ph <= 0 || data.size < pw * ph) return null
+        val plane = Mat(ph, pw, CvType.CV_32FC1)
+        plane.put(0, 0, data)
+        val resized = Mat()
+        Imgproc.resize(plane, resized, Size(w.toDouble(), h.toDouble()), 0.0, 0.0, Imgproc.INTER_LINEAR)
+        plane.release()
+        val bin = Mat()
+        Imgproc.threshold(resized, bin, 0.5, 255.0, Imgproc.THRESH_BINARY)
+        resized.release()
+        if (bin.type() != CvType.CV_8UC1) bin.convertTo(bin, CvType.CV_8UC1)
+        return bin
     }
 
     /**

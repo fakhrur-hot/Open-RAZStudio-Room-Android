@@ -46,7 +46,7 @@ import com.RAZStudio.StudioRoom.core.ui.widget.modifier.container
  * flipping this to true.
  */
 private const val SHOW_ONLINE_AI_EDIT_BUTTON = false
-private const val SHOW_AI_DENOISE_BUTTON = false
+private const val SHOW_AI_DENOISE_BUTTON = true
 
 @Composable
 internal fun RawExportTransformBar(

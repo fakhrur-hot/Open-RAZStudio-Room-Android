@@ -369,6 +369,8 @@ object RawV3Engine {
         val model: String,
         val cropFactor: Float = 0f,
         val mount: String = "",
+        val minFocal: Float = 0f,
+        val maxFocal: Float = 0f,
     )
 
     @Volatile private var camerasCache: Pair<String, List<LensfunCamera>>? = null
@@ -399,6 +401,8 @@ object RawV3Engine {
                 model      = p[1],
                 cropFactor = p.getOrNull(2)?.toFloatOrNull() ?: 0f,
                 mount      = p.getOrNull(3).orEmpty(),
+                minFocal   = p.getOrNull(4)?.toFloatOrNull() ?: 0f,
+                maxFocal   = p.getOrNull(5)?.toFloatOrNull() ?: 0f,
             )
         }
         lensesCache = dbDir to parsed
@@ -554,6 +558,81 @@ object RawV3Engine {
         nativeApplyLensfunToBitmap(
             bitmap, camMaker, camModel, lensMaker, lensModel, focalMm, aperture, lensfunDbDir)
     }.getOrDefault(false)
+
+    /**
+     * JPEG Dual Reconstruction Lite, in place, on a mutable ARGB_8888 bitmap.
+     * [strength], [clean], and [detail] are 0..1. Strength 0 is a no-op.
+     * Share export calls this; the RAW export screen does not.
+     */
+    fun applyJpegDualRecon(
+        bitmap: android.graphics.Bitmap,
+        strength: Float,
+        clean: Float,
+        detail: Float,
+    ): Boolean = runCatching {
+        nativeApplyJpegDualRecon(bitmap, strength, clean, detail)
+    }.getOrDefault(false)
+
+    /**
+     * Optical Spread on a mutable ARGB_8888 bitmap. Call after dual
+     * reconstruction. [amount] and [halation] are 0..1. [direction] is
+     * 0 Off, 1 Horizontal, 2 Radial. Both amount and halation at 0 is a no-op.
+     */
+    fun applyOpticalSpread(
+        bitmap: android.graphics.Bitmap,
+        amount: Float,
+        halation: Float,
+        direction: Float,
+    ): Boolean = runCatching {
+        nativeApplyOpticalSpread(bitmap, amount, halation, direction)
+    }.getOrDefault(false)
+
+    /**
+     * Lens flare on a mutable ARGB bitmap. [brightness] 0 is a no-op.
+     * [distance] 0 = far, 1 = near. [hood] is 0..1.
+     */
+    fun applyLensFlare(
+        bitmap: android.graphics.Bitmap,
+        x: Float,
+        y: Float,
+        brightness: Float,
+        size: Float,
+        spread: Float,
+        warmth: Float,
+        distance: Float,
+        hood: Float,
+    ): Boolean = runCatching {
+        nativeApplyLensFlare(bitmap, x, y, brightness, size, spread, warmth, distance, hood)
+    }.getOrDefault(false)
+
+    @JvmStatic
+    private external fun nativeApplyLensFlare(
+        bitmap: android.graphics.Bitmap,
+        x: Float,
+        y: Float,
+        brightness: Float,
+        size: Float,
+        spread: Float,
+        warmth: Float,
+        distance: Float,
+        hood: Float,
+    ): Boolean
+
+    @JvmStatic
+    private external fun nativeApplyOpticalSpread(
+        bitmap: android.graphics.Bitmap,
+        amount: Float,
+        halation: Float,
+        direction: Float,
+    ): Boolean
+
+    @JvmStatic
+    private external fun nativeApplyJpegDualRecon(
+        bitmap: android.graphics.Bitmap,
+        strength: Float,
+        clean: Float,
+        detail: Float,
+    ): Boolean
 
     @JvmStatic
     private external fun nativeApplyLensfunToBitmap(
@@ -742,6 +821,31 @@ object RawV3Engine {
         val json = nativeStageBApplySpatialToAhb(srcAhb, dstAhb, params, subjectMask, subjectMaskSize, subjectMaskH)
         return parseStageBJson(json)
     }
+
+    /** Replace RGB in an FP16 preview buffer. Alpha is left as the lens shader found it. */
+    fun writeArgbToFp16Ahb(bitmap: android.graphics.Bitmap, ahb: HardwareBuffer): Boolean =
+        runCatching { nativeWriteArgbToFp16Ahb(bitmap, ahb) }.getOrDefault(false)
+
+    fun readFp16AhbToArgb(ahb: HardwareBuffer, bitmap: android.graphics.Bitmap): Boolean =
+        runCatching { nativeReadFp16AhbToArgb(ahb, bitmap) }.getOrDefault(false)
+
+    /** avg, max error of FP16 → 8-bit → FP16 from the last read. */
+    fun jpegBridgeRoundtrip(): FloatArray =
+        runCatching { nativeJpegBridgeRoundtrip() }.getOrDefault(floatArrayOf(0f, 0f))
+
+    @JvmStatic
+    private external fun nativeWriteArgbToFp16Ahb(
+        bitmap: android.graphics.Bitmap,
+        ahb: HardwareBuffer,
+    ): Boolean
+
+    @JvmStatic
+    private external fun nativeJpegBridgeRoundtrip(): FloatArray
+
+    private external fun nativeReadFp16AhbToArgb(
+        ahb: HardwareBuffer,
+        bitmap: android.graphics.Bitmap,
+    ): Boolean
 
     @JvmStatic
     private external fun nativeStageBApplySpatialToAhb(

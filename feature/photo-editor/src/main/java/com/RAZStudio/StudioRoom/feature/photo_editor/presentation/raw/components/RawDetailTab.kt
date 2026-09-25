@@ -25,18 +25,40 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.delay
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.RAZStudio.StudioRoom.core.resources.R
 import com.RAZStudio.StudioRoom.feature.photo_editor.raw.model.UserMacro
+import com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.JpegRefineDebug
+import com.RAZStudio.StudioRoom.feature.photo_editor.raw_v3.JpegRefinePreviewMode
+
+/** True while a JPEG Refine rebuild owns the editor. Drag does not set this. */
+internal class JpegRefineGate {
+    var processing by mutableStateOf(false)
+}
+
+internal val LocalJpegRefineGate = staticCompositionLocalOf { JpegRefineGate() }
 
 @Composable
 internal fun RawDetailTab(
@@ -72,95 +94,82 @@ internal fun RawDetailTab(
             )
         }
 
-        if (isJpegSource) {
+        // AI Denoise lives on the export transform bar. isJpegSource stays for callers.
+        if (false && isJpegSource) {
+            val gate = LocalJpegRefineGate.current
+            var shown by remember { mutableFloatStateOf(macro.jpegRefine.strength) }
+            var releaseToken by remember { mutableIntStateOf(0) }
+            var phase by remember { mutableStateOf("IDLE") }
+            LaunchedEffect(gate.processing) {
+                if (!gate.processing) phase = "IDLE"
+            }
             DetailSection(title = stringResource(R.string.raw_section_jpeg_refine)) {
                 RawSliderRow(
-                    label = stringResource(R.string.raw_jpeg_refine_strength),
-                    value = macro.jpegRefine.strength,
+                    label = stringResource(R.string.raw_section_jpeg_refine),
+                    value = shown,
                     valueRange = 0f..100f,
-                    onValueChange = {
-                        onMacroChange(macro.copy(
-                            jpegRefine = macro.jpegRefine.copy(strength = it, touched = true),
-                        ))
+                    enabled = phase != "PROCESSING",
+                    onValueChange = { shown = it },
+                    onValueChangeFinished = {
+                        if (phase != "PROCESSING") releaseToken++
                     },
-                    displayValue = "${macro.jpegRefine.strength.toInt()}",
+                    displayValue = "${shown.toInt()}",
                 )
-                Spacer(Modifier.height(4.dp))
-                RawSliderRow(
-                    label = stringResource(R.string.raw_jpeg_refine_clean),
-                    value = macro.jpegRefine.clean,
-                    valueRange = 0f..100f,
-                    onValueChange = {
-                        onMacroChange(macro.copy(
-                            jpegRefine = macro.jpegRefine.copy(clean = it, touched = true),
-                        ))
-                    },
-                    displayValue = "${macro.jpegRefine.clean.toInt()}",
+                if (JpegRefineDebug.busy) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp))
+                }
+                val tick = remember { mutableLongStateOf(android.os.SystemClock.elapsedRealtime()) }
+                LaunchedEffect(JpegRefineDebug.busy) {
+                    while (JpegRefineDebug.busy) {
+                        tick.longValue = android.os.SystemClock.elapsedRealtime()
+                        delay(200)
+                    }
+                }
+                val elapsedSec = if (JpegRefineDebug.busySince == 0L) 0f
+                    else (tick.longValue - JpegRefineDebug.busySince) / 1000f
+                Text(
+                    "Mode: ${JpegRefineDebug.mode}\n" +
+                        "Busy: ${JpegRefineDebug.busy}\n" +
+                        "Stage: ${JpegRefineDebug.stage}\n" +
+                        "Elapsed: ${"%.1f".format(elapsedSec.coerceAtLeast(0f))}s\n" +
+                        "Job: queued=${JpegRefineDebug.jobsQueued} cancelled=${JpegRefineDebug.jobsCancelled} completed=${JpegRefineDebug.jobsCompleted}\n" +
+                        "Source Key: ${JpegRefineDebug.sourceKey.ifEmpty { "—" }}\n" +
+                        "Cache: ${JpegRefineDebug.cacheLine}\n" +
+                        "Preview: ${JpegRefineDebug.previewSize}\n" +
+                        "Cache size: ${JpegRefineDebug.cacheSize}\n" +
+                        "Difference: ${JpegRefineDebug.difference}\n" +
+                        "Tiles: ${JpegRefineDebug.tilesDone}/${JpegRefineDebug.tilesTotal}  run ${JpegRefineDebug.tilesRun} skip ${JpegRefineDebug.tilesSkipped}  tile 126 overlap 16\n" +
+                        "Bridge: ${JpegRefineDebug.bridge}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(4.dp))
-                RawSliderRow(
-                    label = stringResource(R.string.raw_jpeg_refine_detail),
-                    value = macro.jpegRefine.detail,
-                    valueRange = 0f..100f,
-                    onValueChange = {
-                        onMacroChange(macro.copy(
-                            jpegRefine = macro.jpegRefine.copy(detail = it, touched = true),
-                        ))
-                    },
-                    displayValue = "${macro.jpegRefine.detail.toInt()}",
-                )
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    JpegRefinePreviewMode.entries.forEach { mode ->
+                        TextButton(onClick = { JpegRefineDebug.mode = mode }) {
+                            Text(
+                                mode.name,
+                                color = if (JpegRefineDebug.mode == mode)
+                                    MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
+                }
+            }
+            LaunchedEffect(releaseToken) {
+                if (releaseToken == 0) return@LaunchedEffect
+                phase = "WAITING_DEBOUNCE"
+                val committed = shown
+                delay(350)
+                if (shown != committed || phase == "PROCESSING") return@LaunchedEffect
+                phase = "IDLE"
+                onMacroChange(macro.copy(
+                    jpegRefine = macro.jpegRefine.copy(strength = committed, touched = true),
+                ))
             }
         }
 
-        // ── Noise Reduction ──────────────────────────────────────────────────────
-        DetailSection(title = stringResource(R.string.raw_section_noise_reduction)) {
-            RawSliderRow(
-                label = stringResource(R.string.raw_luminance_nr),
-                value = macro.luminanceNR,
-                valueRange = 0f..1f,
-                onValueChange = { onMacroChange(macro.copy(luminanceNR = it)) },
-                displayValue = "${(macro.luminanceNR * 100).toInt()}",
-            )
-            Spacer(Modifier.height(4.dp))
-            RawSliderRow(
-                label = stringResource(R.string.raw_color_nr),
-                value = macro.colorNR,
-                valueRange = 0f..1f,
-                onValueChange = { onMacroChange(macro.copy(colorNR = it)) },
-                displayValue = "${(macro.colorNR * 100).toInt()}",
-            )
-            Spacer(Modifier.height(4.dp))
-            // Per-channel Blue NR — extra Cb-only smoothing on top of Color NR.
-            // Bayer blue channel has the lowest WB gain → worst SNR → most
-            // chroma noise; route extra cleanup here without flattening red /
-            // yellow detail.
-            RawSliderRow(
-                label = "Blue noise",
-                value = macro.blueNR,
-                valueRange = 0f..1f,
-                onValueChange = { onMacroChange(macro.copy(blueNR = it)) },
-                displayValue = "${(macro.blueNR * 100).toInt()}",
-            )
-            Spacer(Modifier.height(4.dp))
-            // Symmetric Red (Cr) NR knob — same idea as Blue NR but for the
-            // red chroma axis. Picks up red shadow speckle that Color NR alone
-            // would have to flatten reds across the frame to reach.
-            RawSliderRow(
-                label = "Red noise",
-                value = macro.redNR,
-                valueRange = 0f..1f,
-                onValueChange = { onMacroChange(macro.copy(redNR = it)) },
-                displayValue = "${(macro.redNR * 100).toInt()}",
-            )
-            Spacer(Modifier.height(4.dp))
-            RawSliderRow(
-                label = stringResource(R.string.raw_smooth_background),
-                value = macro.smoothBackground,
-                valueRange = 0f..1f,
-                onValueChange = { onMacroChange(macro.copy(smoothBackground = it)) },
-                displayValue = "${(macro.smoothBackground * 100).toInt()}",
-            )
-        }
+        // Noise Reduction is hidden on the Details tab. The fields stay on the macro.
 
         // Film Grain section moved to the FX (Effects) tab — see RawEffectsTab.
         // ── Shadow Removal — hidden per request (2026-06-20) ──────────────────────

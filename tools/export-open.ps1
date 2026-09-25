@@ -31,7 +31,8 @@ Get-ChildItem $Dest -Force | ForEach-Object {
 $xd = @(
     ".git", ".gradle", ".gradle-foss", ".kotlin", ".cursor", ".kiro", ".idea",
     "build", "node_modules", "_foss_export", "feature\video-editor",
-    "feature\gallery-workspace",
+    "feature\gallery-workspace", "feature\raw-camera", "feature\canon-sync", "feature\sony-sync",
+    "scripts\canon-sync-lua",
     "feature\photo-editor\src\main\assets\luts"
 )
 $xf = @(
@@ -201,6 +202,14 @@ $video = Join-Path $Dest "feature\video-editor"
 if (Test-Path $video) { Remove-Item -Recurse -Force $video }
 $gallery = Join-Path $Dest "feature\gallery-workspace"
 if (Test-Path $gallery) { Remove-Item -Recurse -Force $gallery }
+$rawCamera = Join-Path $Dest "feature\raw-camera"
+if (Test-Path $rawCamera) { Remove-Item -Recurse -Force $rawCamera }
+$canonSync = Join-Path $Dest "feature\canon-sync"
+if (Test-Path $canonSync) { Remove-Item -Recurse -Force $canonSync }
+$sonySync = Join-Path $Dest "feature\sony-sync"
+if (Test-Path $sonySync) { Remove-Item -Recurse -Force $sonySync }
+$canonLua = Join-Path $Dest "scripts\canon-sync-lua"
+if (Test-Path $canonLua) { Remove-Item -Recurse -Force $canonLua }
 
 foreach ($secret in @("keystore.properties", "local.properties")) {
     # local.properties restored for *this machine* build; still gitignored
@@ -220,14 +229,14 @@ if (Test-Path $uiGradle) {
 $settings = Join-Path $Dest "settings.gradle.kts"
 if (Test-Path $settings) {
     (Get-Content $settings) |
-        Where-Object { $_ -notmatch "video-editor|gallery-workspace" } |
+        Where-Object { $_ -notmatch "video-editor|gallery-workspace|raw-camera|canon-sync|sony-sync" } |
         Set-Content $settings
 }
 
 $rootGradle = Join-Path $Dest "feature\root\build.gradle.kts"
 if (Test-Path $rootGradle) {
     (Get-Content $rootGradle) |
-        Where-Object { $_ -notmatch "videoEditor|galleryWorkspace" } |
+        Where-Object { $_ -notmatch "videoEditor|galleryWorkspace|canonSync|sonySync" } |
         Set-Content $rootGradle
 }
 
@@ -239,6 +248,9 @@ if (Test-Path $navChild) {
     $n = Get-Content $navChild -Raw
     $n = $n -replace '(?m)^import .*feature\.gallery_workspace.*\r?\n', ''
     $n = $n -replace '(?s)\r?\n\s*class GalleryWorkspace\(.*?\r?\n\s*class CanonRemoteShoot', "`r`n`r`n    class CanonRemoteShoot"
+    $n = $n -replace '(?m)^import .*feature\.canon_sync.*\r?\n', ''
+    $n = $n -replace '(?m)^import .*feature\.sony_sync.*\r?\n', ''
+    $n = $n -replace '(?s)\r?\n\s*class CanonSync\(.*?\r?\n\s*object Unavailable', "`r`n`r`n    object Unavailable"
     Set-Content -Path $navChild -Value $n -NoNewline
 }
 
@@ -249,6 +261,15 @@ if (Test-Path $childProvider) {
     $c = $c -replace '(?m)^import .*NavigationChild\.(GalleryWorkspace|AddToProject|GalleryProject)\r?\n', ''
     $c = $c -replace '(?m)^\s*private val (galleryWorkspace|addToProject|galleryProject)ComponentFactory:.*\r?\n', ''
     $c = $c -replace '(?s)\s*Screen\.GalleryWorkspace -> GalleryWorkspace\(.*?\r?\n\s*Screen\.CanonRemoteShoot ->', "`r`n        Screen.GalleryWorkspace, is Screen.AddToProject, is Screen.GalleryProject -> NavigationChild.Unavailable`r`n`r`n        Screen.CanonRemoteShoot ->"
+    $c = $c -replace '(?m)^import .*feature\.canon_sync.*\r?\n', ''
+    $c = $c -replace '(?m)^import .*feature\.sony_sync.*\r?\n', ''
+    $c = $c -replace '(?m)^import .*NavigationChild\.(CanonSync|SonySync|CanonRemoteShoot|CanonBatchDownload)\r?\n', ''
+    $c = $c -replace '(?m)^\s*private val (canonSync|sonySync|canonRemoteShoot|canonBatchDownload)ComponentFactory:.*\r?\n', ''
+    $c = $c -replace '(?s)\s*Screen\.CanonSync -> CanonSync\(.*?Screen\.CanonBatchDownload -> CanonBatchDownload\(.*?\)\s*\)', @"
+
+        Screen.CanonSync, Screen.SonySync, Screen.CanonRemoteShoot, Screen.CanonBatchDownload,
+        Screen.GalleryWorkspace, is Screen.AddToProject, is Screen.GalleryProject -> NavigationChild.Unavailable
+"@
     Set-Content -Path $childProvider -Value $c -NoNewline
 }
 
@@ -335,14 +356,22 @@ $photoGradle = Join-Path $Dest "feature\photo-editor\build.gradle.kts"
 if (Test-Path $photoGradle) {
     $pg = Get-Content $photoGradle -Raw
     $pg = $pg -replace '(?s)// [─-]+\r?\n// Build-time LUT compaction.*?\r?\n\r?\ndependencies \{', 'dependencies {'
+    $pg = $pg -replace '(?m)^\s*implementation\(project\(":feature:raw-camera"\)\)\r?\n', ''
     Set-Content -Path $photoGradle -Value $pg -NoNewline
+}
+
+$rawEditor = Join-Path $Dest "feature\photo-editor\src\main\java\com\RAZStudio\StudioRoom\feature\photo_editor\presentation\raw\RawEditorContent.kt"
+if (Test-Path $rawEditor) {
+    $re = Get-Content $rawEditor -Raw
+    $re = $re -replace '(?s)\r?\n\s*ImageNotPickedWidget\(\s*onPickImage = \{\s*pickerContext\.startActivity\(\s*android\.content\.Intent\(\s*pickerContext,\s*com\.RAZStudio\.StudioRoom\.feature\.rawcamera\.CameraActivity::class\.java,.*?\),\s*modifier = Modifier\.fillMaxWidth\(\),\s*text = "RAW Camera",\s*\)', ''
+    Set-Content -Path $rawEditor -Value $re -NoNewline
 }
 
 $toml = Join-Path $Dest "gradle\libs.versions.toml"
 if (Test-Path $toml) {
     $t = Get-Content $toml -Raw
-    $t = $t -replace 'versionName = "[^"]+"', 'versionName = "1.0.1.2-alpha"'
-    $t = $t -replace 'versionCode = "[^"]+"', 'versionCode = "102"'
+    $t = $t -replace 'versionName = "[^"]+"', 'versionName = "1.0.1.4-alpha"'
+    $t = $t -replace 'versionCode = "[^"]+"', 'versionCode = "104"'
     Set-Content -Path $toml -Value $t -NoNewline
 }
 
@@ -357,8 +386,11 @@ $readmeSrc = Join-Path $Keep "README.md"
 $readmeDst = Join-Path $Dest "README.md"
 if (Test-Path $readmeSrc) {
     $r = Get-Content $readmeSrc -Raw
-    $r = $r -replace "1\.0\.0-alpha", "1.0.1.1-alpha"
-    $r = $r -replace "1\.0\.1-alpha", "1.0.1.1-alpha"
+    $r = $r -replace "1\.0\.0-alpha", "1.0.1.3-alpha"
+    $r = $r -replace "1\.0\.1-alpha", "1.0.1.3-alpha"
+    $r = $r -replace "1\.0\.1\.1-alpha", "1.0.1.3-alpha"
+    $r = $r -replace "1\.0\.1\.2-alpha", "1.0.1.4-alpha"
+    $r = $r -replace "1\.0\.1\.3-alpha", "1.0.1.4-alpha"
     $r = $r -replace "All application source code \(every module\)\.", "All Open-edition application source code. Private LUT implementation and Short Video are excluded."
     $r = $r -replace '(?m)^- \*\*RAW LUT and LUT Adj implementation\*\*.*\r?\n', ''
     $r = $r -replace '(?m)^- \*\*Gallery Workspace.*\r?\n', ''
@@ -378,12 +410,17 @@ Get-ChildItem $Dest -Recurse -Include *.kt, *.kts -File -ErrorAction SilentlyCon
         $text -match "class VideoEditorComponent" -or $text -match "parseSmcube" -or
         $text -match "fun withPickDefaults" -or $text -match "feature\.gallery_workspace" -or
         $text -match "private val projectDao: ProjectDao" -or
-        $text -match "private val photoDao: PhotoDao") {
+        $text -match "private val photoDao: PhotoDao" -or
+        ($p -match "\\feature\\(root|photo-editor)\\" -and $text -match "feature\.(rawcamera|canon_sync|sony_sync)")) {
         $denyHits += $p
     }
 }
-if (Test-Path (Join-Path $Dest "feature\gallery-workspace")) {
-    $denyHits += (Join-Path $Dest "feature\gallery-workspace")
+foreach ($banned in @("feature\gallery-workspace", "feature\video-editor", "feature\raw-camera", "feature\canon-sync", "feature\sony-sync")) {
+    if (Test-Path (Join-Path $Dest $banned)) { $denyHits += (Join-Path $Dest $banned) }
+}
+$settingsText = if (Test-Path $settings) { Get-Content $settings -Raw } else { "" }
+if ($settingsText -match "raw-camera|canon-sync|sony-sync|video-editor|gallery-workspace") {
+    $denyHits += $settings
 }
 if ($denyHits.Count -gt 0) {
     Write-Host "Deny-list grep failed:"

@@ -353,8 +353,10 @@ fun ImagePreviewContent(
                                     data = component.uris,
                                     onAddImages = component::updateUris,
                                     onShareImage = {
-                                        component.shareImages(
-                                            uriList = listOf(element = it)
+                                        component.onNavigate(
+                                            com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen.ShareExport(
+                                                uris = listOf(it),
+                                            )
                                         )
                                     },
                                     onRemove = component::removeUri,
@@ -439,9 +441,14 @@ fun ImagePreviewContent(
                     if (isFramesSelected) {
                         EnhancedFloatingActionButton(
                             onClick = {
-                                component.shareImages(
-                                    uriList = null
-                                )
+                                val selected = component.getSelectedUris().orEmpty()
+                                if (selected.isNotEmpty()) {
+                                    component.onNavigate(
+                                        com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen.ShareExport(
+                                            uris = selected,
+                                        )
+                                    )
+                                }
                             },
                             containerColor = MaterialTheme.colorScheme.secondaryContainer,
                             type = EnhancedFloatingActionButtonType.SecondaryHorizontal,

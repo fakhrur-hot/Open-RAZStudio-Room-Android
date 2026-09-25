@@ -196,7 +196,8 @@ static void applyStageBSpatialInPlace(
     if (jpegRefineStrength > 0.001f) {
         applyJpegDualRecon<__fp16>(reinterpret_cast<__fp16*>(dstBase),
                                    outW, outH, dstStridePx, 4,
-                                   jpegRefineStrength, jpegRefineClean, jpegRefineDetail);
+                                   jpegRefineStrength, jpegRefineClean, jpegRefineDetail,
+                                   4.f);
     }
     if (luminanceNR > 0.f || colorNR > 0.f || blueNR > 0.f || redNR > 0.f) {
         applyNoiseReduction<__fp16>(reinterpret_cast<__fp16*>(dstBase),

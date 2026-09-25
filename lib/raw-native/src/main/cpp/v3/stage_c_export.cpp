@@ -227,26 +227,77 @@ inline float grainNoise3D(float x, float y, float z) {
 }
 struct GrainParams {
     float grain = 0.f, size = 0.5f, unif = 0.f, wash = 0.f;
+    float structure = 0.f, chroma = 0.f, hiSup = 0.f, shBoost = 0.f, edge = 0.f;
+    float seed = 0.f, cloud = 0.f;
+    float shCurve = 1.f, midCurve = 1.f, hiCurve = 1.f, lightInf = 0.f;
     bool any() const { return grain > 0.f || wash > 0.f; }
 };
 inline void applyFilmGrain(float* rgb, float u, float v, float aspect,
-                           const GrainParams& gp) {
+                           const GrainParams& gp, float bloomL, float longSide) {
     if (gp.grain > 0.f) {
-        const float REF = 2048.f;
+        float amount = std::pow(gp.grain < 0.f ? 0.f : (gp.grain > 1.f ? 1.f : gp.grain), 0.85f);
+        float ls = longSide > 1.f ? longSide : 2048.f;
+        float d = ls / 2048.f;
+        if (d < 0.5f) d = 0.5f;
+        if (d > 2.5f) d = 2.5f;
+        const float REF = 2048.f * d;
         float multiplier = 1.f + gp.size * 2.f;
         float mx = u * (REF * aspect) / multiplier;
         float my = v * REF / multiplier;
-        float offset = grainNoise3D(mx / 2.5f, my / 2.5f, kGrainSeed);
-        float n1 = grainNoise3D(mx, my, offset * 10.f);
-        float bn = n1 * 2.f - 1.f;
-        float maxGrain = gp.grain * (40.f / 255.f);
+        float seed = gp.seed > 0.5f ? gp.seed : kGrainSeed;
+        auto oct = [&](float x, float y, float s) {
+            float offset = grainNoise3D(x / 2.5f, y / 2.5f, s);
+            return grainNoise3D(x, y, offset * 10.f);
+        };
+        float g0, g1, g2;
+        bool emulsion = gp.structure > 0.001f || gp.chroma > 0.001f || gp.cloud > 0.001f;
+        if (emulsion) {
+            float n = oct(mx, my, seed) * 0.55f + oct(mx * 2.1f, my * 2.1f, seed + 19.f) * 0.30f
+                    + oct(mx * 4.3f, my * 4.3f, seed + 47.f) * 0.15f;
+            float k = gp.structure < 0.f ? 0.f : (gp.structure > 1.f ? 1.f : gp.structure);
+            float cell = oct(mx * (0.35f + (0.08f - 0.35f) * k), my * (0.35f + (0.08f - 0.35f) * k), seed + 101.f);
+            float e0 = 0.35f + (0.15f - 0.35f) * gp.cloud;
+            float e1 = 0.75f + (0.55f - 0.75f) * gp.cloud;
+            float ct = (cell - e0) / ((e1 - e0) > 1e-4f ? (e1 - e0) : 1e-4f);
+            ct = ct < 0.f ? 0.f : (ct > 1.f ? 1.f : ct);
+            ct = ct * ct * (3.f - 2.f * ct);
+            n *= (1.f - k) + ct * k;
+            float ch = gp.chroma < 0.f ? 0.f : (gp.chroma > 1.f ? 1.f : gp.chroma);
+            float nr = n;
+            float ng = oct(mx * (1.f + 0.35f * ch), my * (1.f + 0.35f * ch), seed + 7.f);
+            float nb = oct(mx * (1.f - 0.28f * ch) + ch * 3.f, my, seed + 13.f);
+            g0 = ((1.f - ch) * n + ch * nr) * 2.f - 1.f;
+            g1 = ((1.f - ch) * n + ch * ng) * 2.f - 1.f;
+            g2 = ((1.f - ch) * n + ch * nb) * 2.f - 1.f;
+        } else {
+            float offset = grainNoise3D(mx / 2.5f, my / 2.5f, seed);
+            float n1 = grainNoise3D(mx, my, offset * 10.f);
+            g0 = g1 = g2 = n1 * 2.f - 1.f;
+        }
+        float maxGrain = amount * (40.f / 255.f);
         auto cl = [](float x){ return x < 0.f ? 0.f : (x > 1.f ? 1.f : x); };
-        float lum = cl(rgb[0] * 0.299f + rgb[1] * 0.587f + rgb[2] * 0.114f);
-        float midW = cl(1.f - (lum - 0.5f) * (lum - 0.5f) * 4.f);
-        float uni = cl(gp.unif);
-        float lumW = midW + (1.f - midW) * uni;       // mix(midW, 1, unif)
-        float g = bn * maxGrain * lumW;
-        rgb[0] += g; rgb[1] += g; rgb[2] += g;
+        float lum = cl(rgb[0] * 0.2126f + rgb[1] * 0.7152f + rgb[2] * 0.0722f);
+        float md = cl(1.f - (lum - 0.5f) * (lum - 0.5f) * 4.f);
+        float tone = cl((1.f - lum) * (1.f - lum) * 0.80f + md + lum * lum * 0.55f);
+        float vis = tone;
+        if (gp.shBoost > 0.001f || gp.hiSup > 0.001f || gp.edge > 0.001f || gp.lightInf > 0.001f) {
+            float shadow = lum < 0.05f ? 1.f : (lum > 0.45f ? 0.f : (0.45f - lum) / 0.40f);
+            shadow = shadow * shadow * (3.f - 2.f * shadow);
+            float hs = 0.78f, he = 0.98f;
+            float ht = (lum - hs) / (he - hs);
+            ht = ht < 0.f ? 0.f : (ht > 1.f ? 1.f : ht);
+            ht = ht * ht * (3.f - 2.f * ht);
+            vis = md * gp.midCurve;
+            float sh = shadow * gp.shCurve;
+            vis = vis + (std::max(vis, sh) - vis) * gp.shBoost;
+            vis *= 1.f - gp.hiSup * ht * gp.hiCurve;
+            float bmask = bloomL < 0.02f ? 0.f : (bloomL > 0.35f ? 1.f : (bloomL - 0.02f) / 0.33f);
+            vis *= 1.f - gp.hiSup * bmask;
+            if (vis < 0.f) vis = 0.f;
+        }
+        rgb[0] += g0 * maxGrain * vis;
+        rgb[1] += g1 * maxGrain * vis;
+        rgb[2] += g2 * maxGrain * vis;
     }
     if (gp.wash > 0.f) {
         float lift   = gp.wash * (60.f / 255.f);
@@ -264,6 +315,17 @@ inline GrainParams readGrain(const float* p, int count) {
     if (count > 154) g.size  = p[154];
     if (count > 155) g.unif  = p[155];
     if (count > 156) g.wash  = p[156];
+    if (count > 486) g.structure = p[486];
+    if (count > 487) g.chroma = p[487];
+    if (count > 488) g.hiSup = p[488];
+    if (count > 489) g.shBoost = p[489];
+    if (count > 490) g.edge = p[490];
+    if (count > 491) g.seed = p[491];
+    if (count > 492) g.cloud = p[492];
+    if (count > 493) g.shCurve = p[493];
+    if (count > 494) g.midCurve = p[494];
+    if (count > 495) g.hiCurve = p[495];
+    if (count > 496) g.lightInf = p[496];
     return g;
 }
 
@@ -1226,6 +1288,9 @@ StageCResult runStageC(const std::string& stageATifPath,
     const float ambBg    = (options.paramsCount > 232) ? options.params[232] : 0.0f;
     const bool ambianceOn = (ambianceSlider != 0.f) || (ambSubj != 0.f) || (ambBg != 0.f);
     const bool ortonOn    = ortonSlider > 0.f;
+    const float opticalSpreadEarly = (options.paramsCount > 461) ? options.params[461] : 0.f;
+    const float opticalHalationEarly = (options.paramsCount > 462) ? options.params[462] : 0.f;
+    const bool opticalOn = opticalSpreadEarly > 1e-4f || opticalHalationEarly > 1e-4f;
     // FX tab blur (slots 352-364) needs the same Gaussian-blurred reference
     // the editor uses for its uBlurTex pre-pass.
     const float fxBlurStyle = (options.paramsCount > 363) ? options.params[363] : 0.f;
@@ -1368,7 +1433,7 @@ StageCResult runStageC(const std::string& stageATifPath,
     std::vector<float> bloomBuf;
     const float fxGlowStrength = (options.paramsCount > 372) ? options.params[372] : 0.f;
     const bool fxGlowOn = fxGlowStrength > 0.f;
-    if (ortonOn || fxGlowOn) {
+    if (ortonOn || fxGlowOn || opticalOn) {
         // Resolution-invariant tent radius. The editor's preview is ~2048
         // long-side; Stage C save can be 5500+. A tent in raw texels would
         // cover 2.5× more relative image area at preview res than at save
@@ -1391,7 +1456,9 @@ StageCResult runStageC(const std::string& stageATifPath,
         if (ok) {
             ok = karis.computeKarisBloom(preBuf.data(), int(srcW), int(srcH),
                                           thresholdLuma, tentRadius,
-                                          bloomBuf.data(), mistTightness, bloomShape);
+                                          bloomBuf.data(), mistTightness, bloomShape,
+                                          (options.paramsCount > 484) ? options.params[484] : 0.78f,
+                                          (options.paramsCount > 485) ? options.params[485] : 0.98f);
             karis.release();
         }
 #endif
@@ -1466,7 +1533,9 @@ StageCResult runStageC(const std::string& stageATifPath,
                             blurPx, bloomPx,
                             blurFull, int(W), int(srcH));
             if (grainOn)
-                applyFilmGrain(&rowFloat[x * 3], uNorm, vNorm, grainAspect, grainParams);
+                applyFilmGrain(&rowFloat[x * 3], uNorm, vNorm, grainAspect, grainParams,
+                                bloomPx ? (0.2126f * bloomPx[0] + 0.7152f * bloomPx[1] + 0.0722f * bloomPx[2]) : 0.f,
+                                float(std::max(int(W), int(srcH))));
         }
 
         // Quantize float[0,1] → uint16[0,65535]. Output is gamma-encoded sRGB
@@ -1678,6 +1747,9 @@ StageCResult runStageCToRGBA8(const std::string& stageATifPath,
     const float ambBgRGBA    = (options.paramsCount > 232) ? options.params[232] : 0.0f;
     const bool ambianceOnRGBA = (ambianceSliderRGBA != 0.f) || (ambSubjRGBA != 0.f) || (ambBgRGBA != 0.f);
     const bool ortonOnRGBA    = ortonSliderRGBA > 0.f;
+    const float opticalSpreadRGBA = (options.paramsCount > 461) ? options.params[461] : 0.f;
+    const float opticalHalationRGBA = (options.paramsCount > 462) ? options.params[462] : 0.f;
+    const bool opticalOnRGBA = opticalSpreadRGBA > 1e-4f || opticalHalationRGBA > 1e-4f;
     const float fxBlurStyleRGBA = (options.paramsCount > 363) ? options.params[363] : 0.f;
     const bool fxBlurOnRGBA     = fxBlurStyleRGBA > 0.5f;
     const float fxGlowStrengthRGBAEarly = (options.paramsCount > 372) ? options.params[372] : 0.f;
@@ -1807,7 +1879,7 @@ StageCResult runStageCToRGBA8(const std::string& stageATifPath,
     std::vector<float> bloomBuf;
     const float fxGlowStrengthRGBA = (options.paramsCount > 372) ? options.params[372] : 0.f;
     const bool fxGlowOnRGBA = fxGlowStrengthRGBA > 0.f;
-    if (ortonOnRGBA || fxGlowOnRGBA) {
+    if (ortonOnRGBA || fxGlowOnRGBA || opticalOnRGBA) {
         const float userBloomRadius = (options.paramsCount > 205) ? options.params[205] : 0.f;
         // Soft vertical-oval Karis; spread 0.22 (preview=export vs gles_renderer).
         const float baseTent = 1.0f + std::max(0.f, std::min(24.f, userBloomRadius)) * 0.22f;
@@ -1825,7 +1897,9 @@ StageCResult runStageCToRGBA8(const std::string& stageATifPath,
         if (ok) {
             ok = karis.computeKarisBloom(preBuf.data(), int(srcW), int(srcH),
                                           thresholdLuma, tentRadius,
-                                          bloomBuf.data(), mistTightness, bloomShape);
+                                          bloomBuf.data(), mistTightness, bloomShape,
+                                          (options.paramsCount > 484) ? options.params[484] : 0.78f,
+                                          (options.paramsCount > 485) ? options.params[485] : 0.98f);
             karis.release();
         }
 #endif
@@ -1887,7 +1961,9 @@ StageCResult runStageCToRGBA8(const std::string& stageATifPath,
                             blurPx, bloomPx,
                             blurFull, int(srcW), int(srcH));
             if (grainOn)
-                applyFilmGrain(&rowFloat[x * 3], uNorm, vNorm, grainAspect, grainParams);
+                applyFilmGrain(&rowFloat[x * 3], uNorm, vNorm, grainAspect, grainParams,
+                                bloomPx ? (0.2126f * bloomPx[0] + 0.7152f * bloomPx[1] + 0.0722f * bloomPx[2]) : 0.f,
+                                float(std::max(srcW, srcH)));
         }
 
         // Quantise to 8-bit RGBA_8888 (alpha = 0xFF). Stage A is already

@@ -10,6 +10,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 
 namespace raw_v3 {
 
@@ -56,6 +57,73 @@ inline void filmicBloomOvalRadii(float radiusPx, float bloomShape,
     }
     outRx = rx;
     outRy = ry;
+}
+
+/**
+ * Optical Spread contribution radii in UV fractions of the frame.
+ * Base bloom keeps filmicBloomOvalRadii. Direction is ignored when amount is 0.
+ * 0 Off (portrait oval), 1 Horizontal, 2 Radial.
+ */
+inline void filmicOpticalSpreadRadii(float amount, float direction,
+                                     float& outRx, float& outRy) {
+    outRx = 0.004f;
+    outRy = 0.006f;
+    if (amount <= 1e-4f) return;
+    if (direction > 1.5f) {
+        outRx = 0.008f;
+        outRy = 0.008f;
+    } else if (direction > 0.5f) {
+        outRx = 0.014f;
+        outRy = 0.0035f;
+    }
+    const float reach = 0.35f + amount * 2.65f;
+    outRx *= reach;
+    outRy *= reach;
+}
+
+/** Same sqrt long-side curve as CinematicBloomProcessor.densityMul. */
+inline float opticalSpreadDensity(int longSide) {
+    const float side = longSide > 1 ? float(longSide) : 1.f;
+    float t = std::sqrt(side / 2048.f);
+    if (t < 0.75f) t = 0.75f;
+    if (t > 1.35f) t = 1.35f;
+    return t;
+}
+
+/**
+ * Frequency-aware remix of an already-built bloom: wide taps are the low band,
+ * the tight center minus wide is the mid band (choked). Red-weighted halation
+ * then local-contrast subtraction so flat skin does not lift.
+ * No-op when amount and halation are both ~0 (caller should skip the samples).
+ * MUST match the GLSL block in shader_sources.cpp.
+ */
+inline void opticalSpreadAdd(float& r, float& g, float& b,
+                             float wideR, float wideG, float wideB,
+                             float tightR, float tightG, float tightB,
+                             float amount, float halation) {
+    if (amount < 0.f) amount = 0.f; else if (amount > 1.f) amount = 1.f;
+    if (halation < 0.f) halation = 0.f; else if (halation > 1.f) halation = 1.f;
+    if (amount <= 1e-4f && halation <= 1e-4f) return;
+    float midR = tightR - wideR; if (midR < 0.f) midR = 0.f;
+    float midG = tightG - wideG; if (midG < 0.f) midG = 0.f;
+    float midB = tightB - wideB; if (midB < 0.f) midB = 0.f;
+    float lowR = wideR - midR * 0.65f; if (lowR < 0.f) lowR = 0.f;
+    float lowG = wideG - midG * 0.65f; if (lowG < 0.f) lowG = 0.f;
+    float lowB = wideB - midB * 0.65f; if (lowB < 0.f) lowB = 0.f;
+    float gR = lowR * amount + wideR * halation;
+    float gG = lowG * amount + wideG * 0.45f * halation;
+    float gB = lowB * amount + wideB * 0.15f * halation;
+    const float srcL = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+    const float bloomL = 0.2126f * tightR + 0.7152f * tightG + 0.0722f * tightB;
+    float local = std::fabs(srcL - bloomL) * 3.f;
+    if (local > 1.f) local = 1.f;
+    float h = (srcL - 0.45f) / 0.40f;
+    if (h < 0.f) h = 0.f; else if (h > 1.f) h = 1.f;
+    h = h * h * (3.f - 2.f * h);
+    const float keep = local > h ? local : h;
+    r += gR * keep * 0.65f;
+    g += gG * keep * 0.65f;
+    b += gB * keep * 0.65f;
 }
 
 }  // namespace raw_v3

@@ -1,0 +1,32 @@
+{
+  "protocol": "raz-grok-main-sync-v1",
+  "repo": "fakhrur-hot/RAZStudio-Room-Android",
+  "workspace": "Fixed16bit",
+  "channel": "main-sync",
+  "agents": [
+    {
+      "id": "cursor-grok",
+      "role": "local Fixed16bit Cursor agent",
+      "present": true
+    },
+    {
+      "id": "1e0db549-eb14-41c6-997c-5bc4f991c8b8",
+      "role": "main sync",
+      "present": true,
+      "note": "Same clone only. GitHub does not host these files."
+    }
+  ],
+  "rules": {
+    "research_owner": "StudioRoom RAZ",
+    "local_checkout_owner": "cursor-grok",
+    "bridge": "1e0db549-eb14-41c6-997c-5bc4f991c8b8",
+    "tests_on": "cursor-grok",
+    "on_commit": "main sync posts local-update to outbox; cursor-grok updates local Fixed16bit",
+    "never_in_mailbox": [
+      "secrets",
+      "keystores",
+      "apks",
+      "tokens"
+    ]
+  }
+}

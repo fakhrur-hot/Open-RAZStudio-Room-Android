@@ -211,8 +211,21 @@ fun RawEditorContent(component: RawEditorComponent) {
         ActivityResultContracts.PickVisualMedia()
     ) { uri -> if (uri != null) component.openFile(uri) }
 
+    val pickerContext = androidx.compose.ui.platform.LocalContext.current
+    val pickerAccent = androidx.compose.material3.MaterialTheme.colorScheme.primary
     val launchRawPicker: () -> Unit = {
         when (pickerMode) {
+            com.RAZStudio.StudioRoom.core.settings.presentation.model
+                .PicturePickerMode.Embedded -> {
+                getContentChooser.launch(
+                    com.RAZStudio.StudioRoom.core.ui.utils.helper.createMediaPickerIntent(
+                        context = pickerContext,
+                        allowMultiple = false,
+                        currentAccent = pickerAccent,
+                        imageExtension = "*",
+                    )
+                )
+            }
             com.RAZStudio.StudioRoom.core.settings.presentation.model
                 .PicturePickerMode.PhotoPicker -> {
                 photoPickerSingle.launch(
@@ -234,7 +247,7 @@ fun RawEditorContent(component: RawEditorComponent) {
                     android.content.Intent.createChooser(galleryIntent, null)
                 )
             }
-            // Embedded / GetContent / CameraCapture (camera removed) → file explorer
+            // GetContent / CameraCapture (camera removed) → file explorer
             else -> openDocPicker.launch(RAW_MIME_TYPES)
         }
     }
@@ -612,6 +625,9 @@ fun RawEditorContent(component: RawEditorComponent) {
     // capture a stale AHB while the user is mid-bake.
     var bakeRequestedKey by remember { mutableIntStateOf(0) }
     var bakeBakedKey     by remember { mutableIntStateOf(0) }
+    val jpegRefineGate = remember {
+        com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components.JpegRefineGate()
+    }
 
     val transformableState = rememberTransformableState { zoomChange, offsetChange, _ ->
         canvasScale = (canvasScale * zoomChange).coerceIn(0.5f, 8f)
@@ -1151,13 +1167,29 @@ fun RawEditorContent(component: RawEditorComponent) {
                                 val (nx, ny) = screenToNorm(down.position)
                                 component.updateVignetteCenter(nx, ny)
                                 down.consume()
+                                var pinchBase = 0f
+                                var featherAtPinch = 0.5f
                                 while (true) {
                                     val evt = awaitPointerEvent()
-                                    val ch = evt.changes.firstOrNull { it.id == down.id } ?: break
-                                    if (!ch.pressed) break
-                                    val (mx, my) = screenToNorm(ch.position)
-                                    component.updateVignetteCenter(mx, my)
-                                    ch.consume()
+                                    val pressed = evt.changes.filter { it.pressed }
+                                    if (pressed.isEmpty()) break
+                                    if (pressed.size >= 2) {
+                                        val dist = (pressed[1].position - pressed[0].position).getDistance()
+                                        if (pinchBase <= 0f) {
+                                            pinchBase = dist.coerceAtLeast(1f)
+                                            featherAtPinch = component.currentVignetteFeather()
+                                        } else {
+                                            // Pinch out grows the clear middle (higher stored feather).
+                                            val next = featherAtPinch * (dist / pinchBase)
+                                            component.updateVignetteFeather(next)
+                                        }
+                                        pressed.forEach { it.consume() }
+                                    } else {
+                                        pinchBase = 0f
+                                        val (mx, my) = screenToNorm(pressed[0].position)
+                                        component.updateVignetteCenter(mx, my)
+                                        pressed[0].consume()
+                                    }
                                 }
                             }
                         }
@@ -1803,6 +1835,8 @@ fun RawEditorContent(component: RawEditorComponent) {
         androidx.compose.runtime.CompositionLocalProvider(
             com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components
                 .LocalPanelControlsEnabled provides true,
+            com.RAZStudio.StudioRoom.feature.photo_editor.presentation.raw.components
+                .LocalJpegRefineGate provides jpegRefineGate,
         ) {
         androidx.compose.foundation.layout.Box(
             modifier = modifier.background(MaterialTheme.colorScheme.surface)
@@ -2698,6 +2732,51 @@ fun RawEditorContent(component: RawEditorComponent) {
                 contentAlignment = Alignment.Center,
             ) {
                 androidx.compose.material3.CircularProgressIndicator()
+            }
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(jpegRefineGate.processing) {
+        if (!jpegRefineGate.processing) return@LaunchedEffect
+        val start = bakeRequestedKey
+        kotlinx.coroutines.withTimeoutOrNull(20_000) {
+            androidx.compose.runtime.snapshotFlow { bakeRequestedKey to bakeBakedKey }
+                .first { (req, baked) -> req != start && req == baked }
+        }
+        jpegRefineGate.processing = false
+    }
+    androidx.compose.runtime.DisposableEffect(jpegRefineGate.processing) {
+        val window = (context as? android.app.Activity)?.window
+        if (jpegRefineGate.processing) {
+            window?.setFlags(
+                android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            )
+        }
+        onDispose {
+            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
+        }
+    }
+    if (jpegRefineGate.processing) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = {},
+            properties = androidx.compose.ui.window.DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false,
+                usePlatformDefaultWidth = false,
+            ),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.6f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "Processing JPEG Refine...",
+                    color = androidx.compose.ui.graphics.Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                )
             }
         }
     }

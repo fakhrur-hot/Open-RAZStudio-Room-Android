@@ -6,14 +6,12 @@
  *  Smart Color Enhancement — bitmap-level pre-pass applied before the main
  *  macro pixel loop when [UserMacro.smartColorEnhance] is true.
  *
- *  Steps (all in the same single bitmap scan through OpenCV):
- *    1. Auto white balance  — per-channel histogram stretch (min→0, max→255)
- *       to remove obvious color casts without touching hue relationships.
- *    2. CLAHE on Lab L      — adaptive luminance EQ (clipLimit=2, 8×8 tile)
- *       so details open in shadows and highlights without blowing them out.
- *    3. Adaptive chroma boost on Lab a/b — mid-range saturation amplified by
- *       1.3×, high-range (chroma > 80 from neutral 128) progressively
- *       compressed back toward 1×, so colors become richer but not garish.
+ *  Color only. Lab L is copied through unchanged.
+ *    1. Gray-world cast removal — scale each channel by target/average.
+ *       The frame mean of R, G, and B meets. Channels are not stretched
+ *       to 0..255.
+ *    2. Chroma magnitude vibrance. Weak colors move more, skin hue least.
+ *       a' = a * Cout/C, b' = b * Cout/C. Hue direction stays.
  *
  *  Input/output: ARGB_8888 Bitmap.  FP16 callers must down/up-convert.
  * ─────────────────────────────────────────────────────────────────────────────
@@ -27,20 +25,14 @@ import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.imgproc.Imgproc
-import kotlin.math.PI
-import kotlin.math.abs
-import kotlin.math.sin
+import kotlin.math.atan2
+import kotlin.math.sqrt
 
 internal object SmartColorEnhancer {
 
     private const val TAG = "SmartColorEnhancer"
 
-    // Saturation boost factor for mid-range chromas.
-    private const val SAT_SCALE = 1.3f
-    // Chroma distance from center (128) above which boost is progressively reduced.
-    private const val CHROMA_THRESHOLD = 80
-    // Maximum achievable chroma distance in 8-bit Lab (±127).
-    private const val MAX_CHROMA = 127f
+    private const val SAT_SCALE = 1.35f
 
     /**
      * Returns a new ARGB_8888 bitmap with smart color enhancement applied.
@@ -66,10 +58,8 @@ internal object SmartColorEnhancer {
             bBuf[i] = (px          and 0xFF).toByte()
         }
 
-        // ── 2. Auto white balance (per-channel min/max stretch) ──────────────
-        stretchChannel(rBuf)
-        stretchChannel(gBuf)
-        stretchChannel(bBuf)
+        // ── 2. Gray-world cast removal. Ratios only, no full-range stretch.
+        grayWorld(rBuf, gBuf, bBuf)
 
         // ── 3. Pack into an interleaved RGB Mat ──────────────────────────────
         val rgbData = ByteArray(n * 3)
@@ -93,37 +83,16 @@ internal object SmartColorEnhancer {
         val aCh = channels[1]
         val bCh = channels[2]
 
-        // ── 6. Sigmoidal L boost — GPU-parity with GLSL applySmartColorEnhancement
-        //      OpenCV Lab L encoding: uint8 [0..255] = Lab L [0..100] * 2.55
-        //      Formula: L_out = L_in + 15 * sin(PI * L_in/100) * hlProtect
-        //      hlProtect (2026-08-28, mirror of the GLSL/apply_macro change):
-        //      taper the lift above the upper midtones so Color Pop stops
-        //      pumping highlights — full pop through L<=60, ~15% left by L~95.
-        val nPx = lCh.rows() * lCh.cols()
-        val lData = ByteArray(nPx)
-        lCh.get(0, 0, lData)
-        for (i in lData.indices) {
-            val Lf = (lData[i].toInt() and 0xFF) * (100f / 255f)
-            val ln = Lf / 100f
-            val t = ((ln - 0.60f) / 0.35f).coerceIn(0f, 1f)
-            val hlProtect = 1f - 0.85f * (t * t * (3f - 2f * t))
-            val Lout = (Lf + 15f * sin(PI * Lf / 100.0).toFloat() * hlProtect)
-                .coerceIn(0f, 100f)
-            lData[i] = (Lout * (255f / 100f) + 0.5f).toInt().coerceIn(0, 255).toByte()
-        }
-        val lEnhanced = Mat(lCh.rows(), lCh.cols(), CvType.CV_8U)
-        lEnhanced.put(0, 0, lData)
-        lCh.release()
-
-        // ── 7. Adaptive chroma boost on a and b ──────────────────────────────
-        val aEnhanced = boostChroma(aCh)
-        val bEnhanced = boostChroma(bCh)
+        // L is not modified.
+        val aEnhanced = Mat()
+        val bEnhanced = Mat()
+        boostChromaMagnitude(aCh, bCh, aEnhanced, bEnhanced)
         aCh.release()
         bCh.release()
 
         // ── 8. Merge and convert back to RGB ─────────────────────────────────
-        Core.merge(listOf(lEnhanced, aEnhanced, bEnhanced), labMat)
-        lEnhanced.release(); aEnhanced.release(); bEnhanced.release()
+        Core.merge(listOf(lCh, aEnhanced, bEnhanced), labMat)
+        lCh.release(); aEnhanced.release(); bEnhanced.release()
 
         val outRgb = Mat()
         Imgproc.cvtColor(labMat, outRgb, Imgproc.COLOR_Lab2RGB)
@@ -149,45 +118,61 @@ internal object SmartColorEnhancer {
         bitmap
     }
 
-    // Per-channel min/max stretch.  Flat channels (min==max) are left alone.
-    private fun stretchChannel(channel: ByteArray) {
-        var min = 255; var max = 0
-        for (b in channel) {
-            val v = b.toInt() and 0xFF
-            if (v < min) min = v
-            if (v > max) max = v
+    private fun grayWorld(rBuf: ByteArray, gBuf: ByteArray, bBuf: ByteArray) {
+        var sumR = 0.0
+        var sumG = 0.0
+        var sumB = 0.0
+        for (i in rBuf.indices) {
+            sumR += rBuf[i].toInt() and 0xFF
+            sumG += gBuf[i].toInt() and 0xFF
+            sumB += bBuf[i].toInt() and 0xFF
         }
-        if (min >= max) return
-        val range = (max - min).toFloat()
-        for (i in channel.indices) {
-            val v = (channel[i].toInt() and 0xFF) - min
-            channel[i] = (v / range * 255f + 0.5f).toInt().coerceIn(0, 255).toByte()
+        val n = rBuf.size.coerceAtLeast(1).toDouble()
+        val avgR = (sumR / n).coerceAtLeast(1.0)
+        val avgG = (sumG / n).coerceAtLeast(1.0)
+        val avgB = (sumB / n).coerceAtLeast(1.0)
+        val target = (avgR + avgG + avgB) / 3.0
+        val gR = target / avgR
+        val gG = target / avgG
+        val gB = target / avgB
+        for (i in rBuf.indices) {
+            rBuf[i] = ((rBuf[i].toInt() and 0xFF) * gR).toInt().coerceIn(0, 255).toByte()
+            gBuf[i] = ((gBuf[i].toInt() and 0xFF) * gG).toInt().coerceIn(0, 255).toByte()
+            bBuf[i] = ((bBuf[i].toInt() and 0xFF) * gB).toInt().coerceIn(0, 255).toByte()
         }
     }
 
-    // Adaptive chroma boost for a single OpenCV 8-bit Lab channel.
-    // Neutral center = 128; values near center boosted more, values far from
-    // center (high saturation) boosted progressively less to avoid clipping.
-    private fun boostChroma(channel: Mat): Mat {
-        val n = channel.rows() * channel.cols()
-        val data = ByteArray(n)
-        channel.get(0, 0, data)
+    private fun smooth(e0: Float, e1: Float, x: Float): Float {
+        val t = ((x - e0) / (e1 - e0)).coerceIn(0f, 1f)
+        return t * t * (3f - 2f * t)
+    }
 
-        val result = ByteArray(n)
-        for (i in data.indices) {
-            val centered = (data[i].toInt() and 0xFF) - 128  // -128..127
-            val magnitude = abs(centered)
-            val scale = if (magnitude > CHROMA_THRESHOLD) {
-                val excess = magnitude - CHROMA_THRESHOLD
-                (SAT_SCALE * (1f - excess / (MAX_CHROMA - CHROMA_THRESHOLD))).coerceAtLeast(1f)
+    private fun boostChromaMagnitude(aCh: Mat, bCh: Mat, aOut: Mat, bOut: Mat) {
+        val n = aCh.rows() * aCh.cols()
+        val aData = ByteArray(n)
+        val bData = ByteArray(n)
+        aCh.get(0, 0, aData)
+        bCh.get(0, 0, bData)
+        val aRes = ByteArray(n)
+        val bRes = ByteArray(n)
+        for (i in aData.indices) {
+            val a = (aData[i].toInt() and 0xFF) - 128f
+            val b = (bData[i].toInt() and 0xFF) - 128f
+            val c = sqrt(a * a + b * b)
+            val scale = if (c < 0.5f) {
+                1f
             } else {
-                SAT_SCALE
+                val hue = atan2(b, a)
+                val skin = smooth(0.15f, 0.45f, hue) * (1f - smooth(0.95f, 1.25f, hue))
+                val weak = (1f - (c / 80f)).coerceIn(0f, 1f)
+                1f + (SAT_SCALE - 1f) * weak * (1f - 0.75f * skin)
             }
-            result[i] = (centered * scale + 128f + 0.5f).toInt().coerceIn(0, 255).toByte()
+            aRes[i] = (a * scale + 128f).toInt().coerceIn(0, 255).toByte()
+            bRes[i] = (b * scale + 128f).toInt().coerceIn(0, 255).toByte()
         }
-
-        val out = Mat(channel.rows(), channel.cols(), CvType.CV_8U)
-        out.put(0, 0, result)
-        return out
+        aOut.create(aCh.rows(), aCh.cols(), CvType.CV_8U)
+        bOut.create(bCh.rows(), bCh.cols(), CvType.CV_8U)
+        aOut.put(0, 0, aRes)
+        bOut.put(0, 0, bRes)
     }
 }

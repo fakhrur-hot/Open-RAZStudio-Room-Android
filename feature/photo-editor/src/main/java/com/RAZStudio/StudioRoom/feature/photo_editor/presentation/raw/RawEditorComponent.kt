@@ -1130,6 +1130,31 @@ class RawEditorComponent @AssistedInject internal constructor(
         persistActionsDebounced()
     }
 
+    /** Pinch while the vignette center is being placed. Feather sets the clear radius. */
+    fun updateVignetteFeather(feather: Float) {
+        val vigTab = com.RAZStudio.StudioRoom.feature.photo_editor
+            .presentation.raw.components.TAB_VIGNETTE_PANE
+        val idx = actions.indexOfFirst {
+            it.id != RawAction.ORIGINAL_ID && it.maskPath == null && it.tabIndex == vigTab
+        }
+        if (idx < 0) return
+        val old = actions[idx]
+        actions[idx] = old.copy(
+            macro = old.macro.copy(vignetteFeather = feather.coerceIn(0.05f, 1f)),
+        )
+        rebuildShaderParams()
+        persistActionsDebounced()
+    }
+
+    fun currentVignetteFeather(): Float {
+        val vigTab = com.RAZStudio.StudioRoom.feature.photo_editor
+            .presentation.raw.components.TAB_VIGNETTE_PANE
+        val hit = actions.firstOrNull {
+            it.id != RawAction.ORIGINAL_ID && it.maskPath == null && it.tabIndex == vigTab
+        }
+        return hit?.macro?.vignetteFeather ?: 0.5f
+    }
+
     /**
      * Live lens-flare drag from the preview canvas. Writes Position X/Y
      * (shader [-1..1]) onto the FX Lens Flare card.
@@ -1911,6 +1936,33 @@ class RawEditorComponent @AssistedInject internal constructor(
      */
     val settingsFlow: StateFlow<com.RAZStudio.StudioRoom.core.settings.domain.model.SettingsState> =
         settingsProvider.settingsState
+
+    /** Resize with the app resize algorithm and its color setting. */
+    suspend fun scaleBitmap(image: Bitmap, width: Int, height: Int): Bitmap {
+        val mode = settingsProvider.settingsState.value.defaultImageScaleMode
+        val software = image.copy(Bitmap.Config.ARGB_8888, false) ?: image
+        val scaled = imageScaler.scaleImage(
+            image = software,
+            width = width,
+            height = height,
+            resizeType = com.RAZStudio.StudioRoom.core.domain.image.model.ResizeType.Explicit,
+            imageScaleMode = mode,
+        )
+        if (software !== image && software !== scaled) software.recycle()
+        if (scaled.width == width && scaled.height == height) {
+            android.util.Log.i(
+                "JpegRefine",
+                "resize ${image.width}x${image.height} -> ${scaled.width}x${scaled.height} mode=$mode ${mode.scaleColorSpace}",
+            )
+            return scaled
+        }
+        android.util.Log.w(
+            "JpegRefine",
+            "resize kept ${scaled.width}x${scaled.height}, wanted ${width}x${height} mode=$mode",
+        )
+        if (scaled !== image && scaled !== software) scaled.recycle()
+        return Bitmap.createScaledBitmap(image, width, height, true)
+    }
 
     /** Snapshot of the current workspace config — same value as [workspaceConfigFlow]. */
     val currentWorkspaceConfig: WorkspaceConfig get() = _workspaceConfig.value
