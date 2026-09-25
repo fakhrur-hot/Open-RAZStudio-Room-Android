@@ -83,13 +83,15 @@ Premium-only (not in this release):
 - **Imaging:** OpenCV, ONNX Runtime, TensorFlow Lite
 - **Persistence:** Room + DataStore
 
-## Source, assets, and build
+## HOW TO
 
-The app builds without optional assets; those features stay off until you add the files.
+Clone this repo and build from the source that is here. Debug signing uses the Android debug key. You do not need editor settings, agent notes, or CI files.
 
-**In this repo:** Open-edition source, Gradle/`build-logic`, and small parameter files (`ae_tone_model.tflite`, `ae_scaler_mean.npy`, `ae_scaler_scale.npy`, `raw_hdr_recovery.bin`, `raw_shadow_recovery.bin`).
+The app builds without the optional assets. Subject detection, denoise, heal, and profile-based optical correction stay off until you add the files yourself.
 
-**You supply:** large AI models, camera/lens profile XML, and signing keys (debug uses the Android debug key). Fetch models from their original projects and follow **their** licenses. Drop ONNX/TFLite files into `feature/photo-editor/src/main/assets/models/` (see [models README](feature/photo-editor/src/main/assets/models/README.md)). Copy profile XML into `feature/photo-editor/src/main/assets/lensfun_db/` ([folder README](feature/photo-editor/src/main/assets/lensfun_db/README.md)).
+**Already in the tree:** Open-edition source, Gradle, and the small parameter files (`ae_scaler_mean.npy`, `ae_scaler_scale.npy`, `raw_hdr_recovery.bin`, `raw_shadow_recovery.bin`).
+
+**You supply (not in this repo):** large AI models, and the camera and lens profile XML. Fetch each model from its original project and follow that project's license. Put ONNX/TFLite files in `feature/photo-editor/src/main/assets/models/` ([models README](feature/photo-editor/src/main/assets/models/README.md)). Put profile XML in `feature/photo-editor/src/main/assets/lensfun_db/` ([folder README](feature/photo-editor/src/main/assets/lensfun_db/README.md)). Camera tethering is not part of this edition.
 
 | Filename | Feature | Source |
 |---|---|---|
@@ -109,7 +111,7 @@ Needs the Android SDK, NDK, and CMake.
 
 ## Privacy
 
-Everything that makes the app work is local: decode, edit, preview, export, and optional AI. No network check, no Play Services / analytics in this flavor. Permissions cover the photos you open, the files you save, and camera-sync if you use it. Photos are not uploaded.
+Everything that makes the app work is local: decode, edit, preview, export, and optional AI. No network check, no Play Services / analytics in this flavor. Permissions cover the photos you open and the files you save. Photos are not uploaded.
 
 ## Legal
 

@@ -47,6 +47,18 @@ IMG_*.jpg
 IMG_*.NEF
 *.stageA.tif
 
-# Agent skills are local Cursor/Claude tooling, not product source.
+# Agent skills and workstation files are not product source.
 /SKILL.md
 /skills/
+/.vscode/
+/.raz-grok-main-sync/
+/.claude/
+/.cursor/
+/.aiderignore
+/.clinerules
+/.continueignore
+/.project
+/AGENTS.md
+/CLAUDE.md
+/_tmp*
+/SwinIR-main/
