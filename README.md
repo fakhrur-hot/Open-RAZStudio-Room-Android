@@ -125,11 +125,7 @@ Where a file header already grants Apache-2.0 (or another OSS license), that hea
 
 ## Support this project
 
-Donations are optional — the app stays free. **Touch 'n Go eWallet (Malaysia):**
-
-![Donation QR (Touch 'n Go eWallet)](docs/donation-tng-qr.jpg)
-
-Other methods, or just bug reports, feature ideas, and device/camera testing: open an issue.
+Donations are optional — the app stays free. Bug reports, feature ideas, and device/camera testing: open an issue.
 
 ## Who made this
 
