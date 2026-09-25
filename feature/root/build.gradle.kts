@@ -54,8 +54,6 @@ dependencies {
     implementation(projects.feature.collageMaker)
     implementation(projects.feature.meshGradients)
     implementation(projects.feature.editExif)
-    implementation(projects.feature.canonSync)
-    implementation(projects.feature.sonySync)
 
     testImplementation(libs.junit)
 }

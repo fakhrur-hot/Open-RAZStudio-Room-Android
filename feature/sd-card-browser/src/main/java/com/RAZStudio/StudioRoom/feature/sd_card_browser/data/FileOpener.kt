@@ -23,8 +23,6 @@ import androidx.documentfile.provider.DocumentFile
 import com.RAZStudio.StudioRoom.core.domain.coroutines.DispatchersHolder
 import com.RAZStudio.StudioRoom.core.settings.domain.SettingsManager
 import com.RAZStudio.StudioRoom.core.utils.AppLog
-import com.RAZStudio.StudioRoom.feature.canon_sync.data.SafCaptureTarget
-import com.RAZStudio.StudioRoom.feature.canon_sync.domain.CaptureTarget
 import com.RAZStudio.StudioRoom.feature.sd_card_browser.domain.FileHandle
 import com.RAZStudio.StudioRoom.feature.sd_card_browser.domain.FolderEntry
 import com.RAZStudio.StudioRoom.feature.sd_card_browser.domain.OpenState
@@ -35,8 +33,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
-import okio.buffer
-import okio.source
 import java.io.InputStream
 import javax.inject.Inject
 
@@ -67,7 +63,7 @@ class FileOpener @Inject constructor(
         parentTreeUri: Uri?,
         volumeRoot: FileHandle,
     ): Flow<OpenState> = flow {
-        val target = resolveCaptureTarget()
+        val target = resolveOutputDir()
         if (target == null) {
             AppLog.w(TAG, "openCr2: no Default Output folder set")
             emit(OpenState.Error("Set a Default Output folder in Settings first", Uri.EMPTY))
@@ -87,8 +83,8 @@ class FileOpener @Inject constructor(
         }
 
         val finalUri = withContext(dispatchers.ioDispatcher) {
-            val allocation = runCatching {
-                target.open(requestedFilename = cr2Entry.name, mimeType = CR2_MIME_TYPE)
+            val file = runCatching {
+                target.createFile(CR2_MIME_TYPE, cr2Entry.name)
             }.getOrElse { e ->
                 AppLog.e(TAG, "openCr2: could not allocate sink for '${cr2Entry.name}'", e)
                 source.runCatching { close() }
@@ -97,14 +93,13 @@ class FileOpener @Inject constructor(
 
             runCatching {
                 source.use { input ->
-                    input.source().buffer().use { okioSource ->
-                        allocation.sink.writeAll(okioSource)
+                    context.contentResolver.openOutputStream(file.uri)?.use { out ->
+                        input.copyTo(out)
                     }
                 }
-                allocation.finalize()
+                file.uri
             }.getOrElse { e ->
                 AppLog.e(TAG, "openCr2: copy failed for '${cr2Entry.name}'", e)
-                allocation.runCatching { discard() }
                 null
             }
         }
@@ -125,7 +120,7 @@ class FileOpener @Inject constructor(
      * under the shared Default Output folder), just with a fixed "SDCard"
      * label in place of the sanitized camera model name.
      */
-    private suspend fun resolveCaptureTarget(): CaptureTarget? {
+    private suspend fun resolveOutputDir(): DocumentFile? {
         val rootUriString = settingsManager.settingsState.first().saveFolderUri
             ?.takeIf { it.isNotBlank() }
             ?: return null
@@ -147,7 +142,7 @@ class FileOpener @Inject constructor(
                     AppLog.w(TAG, "resolveCaptureTarget: createDirectory('$subName') failed, using root")
                     root
                 }
-            SafCaptureTarget.forDirectory(context, sub.uri)
+            sub
         }
     }
 

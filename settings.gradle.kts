@@ -86,12 +86,7 @@ include(":feature:noise-generation")
 include(":feature:collage-maker")
 include(":feature:mesh-gradients")
 include(":feature:edit-exif")
-include(":feature:canon-sync")
-include(":feature:sony-sync")
-include(":feature:gallery-workspace")
 include(":feature:ai-enhance")
-include(":feature:video-editor")
-
 include(":feature:root")
 
 include(":core:settings")

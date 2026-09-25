@@ -20,10 +20,6 @@ package com.RAZStudio.StudioRoom.feature.root.presentation.components.navigation
 import com.arkivanov.decompose.ComponentContext
 import com.RAZStudio.StudioRoom.collage_maker.presentation.screenLogic.CollageMakerComponent
 import com.RAZStudio.StudioRoom.core.ui.utils.navigation.Screen
-import com.RAZStudio.StudioRoom.feature.canon_sync.presentation.screenLogic.CanonBatchDownloadComponent
-import com.RAZStudio.StudioRoom.feature.canon_sync.presentation.screenLogic.CanonRemoteShootComponent
-import com.RAZStudio.StudioRoom.feature.canon_sync.presentation.screenLogic.CanonSyncComponent
-import com.RAZStudio.StudioRoom.feature.sony_sync.presentation.screenLogic.SonySyncComponent
 import com.RAZStudio.StudioRoom.feature.compare.presentation.screenLogic.CompareComponent
 import com.RAZStudio.StudioRoom.feature.crop.presentation.screenLogic.CropComponent
 import com.RAZStudio.StudioRoom.feature.delete_exif.presentation.screenLogic.DeleteExifComponent
@@ -40,10 +36,6 @@ import com.RAZStudio.StudioRoom.feature.main.presentation.screenLogic.MainCompon
 import com.RAZStudio.StudioRoom.feature.mesh_gradients.presentation.screenLogic.MeshGradientsComponent
 import com.RAZStudio.StudioRoom.feature.pick_color.presentation.screenLogic.PickColorFromImageComponent
 import com.RAZStudio.StudioRoom.feature.resize_convert.presentation.screenLogic.ResizeAndConvertComponent
-import com.RAZStudio.StudioRoom.feature.root.presentation.components.navigation.NavigationChild.CanonBatchDownload
-import com.RAZStudio.StudioRoom.feature.root.presentation.components.navigation.NavigationChild.CanonRemoteShoot
-import com.RAZStudio.StudioRoom.feature.root.presentation.components.navigation.NavigationChild.CanonSync
-import com.RAZStudio.StudioRoom.feature.root.presentation.components.navigation.NavigationChild.SonySync
 import com.RAZStudio.StudioRoom.feature.root.presentation.components.navigation.NavigationChild.CollageMaker
 import com.RAZStudio.StudioRoom.feature.root.presentation.components.navigation.NavigationChild.Compare
 import com.RAZStudio.StudioRoom.feature.root.presentation.components.navigation.NavigationChild.Crop
@@ -103,10 +95,6 @@ internal class ChildProvider @Inject constructor(
     private val rawEditorComponentFactory: RawEditorComponent.Factory,
     private val raw8BitEditorComponentFactory: Raw8BitEditorComponent.Factory,
     private val rawDetailsEditorComponentFactory: RawDetailsEditorComponent.Factory,
-    private val canonSyncComponentFactory: CanonSyncComponent.Factory,
-    private val sonySyncComponentFactory: SonySyncComponent.Factory,
-    private val canonRemoteShootComponentFactory: CanonRemoteShootComponent.Factory,
-    private val canonBatchDownloadComponentFactory: CanonBatchDownloadComponent.Factory,
     private val unstableFeatureScreens: UnstableFeatureScreensImpl,
 ) {
     fun RootComponent.createChild(
@@ -333,36 +321,8 @@ internal class ChildProvider @Inject constructor(
             )
         )
 
-        Screen.CanonSync -> CanonSync(
-            canonSyncComponentFactory(
-                componentContext = componentContext,
-                onGoBack = ::navigateBack,
-                onNavigate = ::navigateTo,
-            )
-        )
-
-        Screen.SonySync -> SonySync(
-            sonySyncComponentFactory(
-                componentContext = componentContext,
-                onGoBack = ::navigateBack,
-                onNavigate = ::navigateTo,
-            )
-        )
+        Screen.CanonSync, Screen.SonySync, Screen.CanonRemoteShoot, Screen.CanonBatchDownload,
         Screen.GalleryWorkspace, is Screen.AddToProject, is Screen.GalleryProject -> NavigationChild.Unavailable
-
-        Screen.CanonRemoteShoot -> CanonRemoteShoot(
-            canonRemoteShootComponentFactory(
-                componentContext = componentContext,
-                onGoBack = ::navigateBack,
-            )
-        )
-
-        Screen.CanonBatchDownload -> CanonBatchDownload(
-            canonBatchDownloadComponentFactory(
-                componentContext = componentContext,
-                onGoBack = ::navigateBack,
-            )
-        )
 
         Screen.LutCreator -> unstableFeatureScreens.lutCreator(
             componentContext = componentContext,

@@ -32,14 +32,6 @@ import com.RAZStudio.StudioRoom.feature.edit_exif.presentation.EditExifContent
 import com.RAZStudio.StudioRoom.feature.edit_exif.presentation.screenLogic.EditExifComponent
 import com.RAZStudio.StudioRoom.feature.erase_background.presentation.EraseBackgroundContent
 import com.RAZStudio.StudioRoom.feature.erase_background.presentation.screenLogic.EraseBackgroundComponent
-import com.RAZStudio.StudioRoom.feature.canon_sync.presentation.CanonBatchDownloadContent
-import com.RAZStudio.StudioRoom.feature.canon_sync.presentation.CanonRemoteShootContent
-import com.RAZStudio.StudioRoom.feature.canon_sync.presentation.CanonSyncContent
-import com.RAZStudio.StudioRoom.feature.sony_sync.presentation.SonySyncContent
-import com.RAZStudio.StudioRoom.feature.canon_sync.presentation.screenLogic.CanonBatchDownloadComponent
-import com.RAZStudio.StudioRoom.feature.canon_sync.presentation.screenLogic.CanonRemoteShootComponent
-import com.RAZStudio.StudioRoom.feature.canon_sync.presentation.screenLogic.CanonSyncComponent
-import com.RAZStudio.StudioRoom.feature.sony_sync.presentation.screenLogic.SonySyncComponent
 import com.RAZStudio.StudioRoom.feature.filters.presentation.FiltersContent
 import com.RAZStudio.StudioRoom.feature.filters.presentation.screenLogic.FiltersComponent
 import com.RAZStudio.StudioRoom.feature.gradient_maker.presentation.GradientMakerContent
@@ -199,26 +191,6 @@ internal sealed interface NavigationChild {
     class RawDetailsEditor(private val component: RawDetailsEditorComponent) : NavigationChild {
         @Composable
         override fun Content() = RawDetailsEditorContent(component)
-    }
-
-    class CanonSync(private val component: CanonSyncComponent) : NavigationChild {
-        @Composable
-        override fun Content() = CanonSyncContent(component)
-    }
-
-    class SonySync(private val component: SonySyncComponent) : NavigationChild {
-        @Composable
-        override fun Content() = SonySyncContent(component)
-    }
-
-    class CanonRemoteShoot(private val component: CanonRemoteShootComponent) : NavigationChild {
-        @Composable
-        override fun Content() = CanonRemoteShootContent(component)
-    }
-
-    class CanonBatchDownload(private val component: CanonBatchDownloadComponent) : NavigationChild {
-        @Composable
-        override fun Content() = CanonBatchDownloadContent(component)
     }
 
     object Unavailable : NavigationChild {
