@@ -284,6 +284,7 @@ void pushGradingUniforms(unsigned int prog,
     glUniform1i(L("uBlurTex"),    8);
     glUniform1f(L("uBokehBlur"),   params.bokehBlur);
     glUniform1f(L("uBokehBalls"),  params.bokehBalls);
+    glUniform1f(L("uMaskBanding"), params.maskBanding);
     glUniform1f(L("uBokehSpread"), params.bokehSpread);
 
     // Tone Curve LUT (sampler unit 9 bound by the snapshot caller).

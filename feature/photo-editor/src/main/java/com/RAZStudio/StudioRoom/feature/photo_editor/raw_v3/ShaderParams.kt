@@ -860,6 +860,7 @@ data class ShaderParams(
         a[498] = cinematic.getOrElse(21) { 0f }
         a[499] = cinematic.getOrElse(22) { 0f }
         a[500] = cinematic.getOrElse(23) { 0f }
+        a[501] = cinematic.getOrElse(24) { 0f }
         a[432] = colorShiftRedX
         a[433] = colorShiftGreenX
         a[434] = colorShiftBlueX
@@ -1108,6 +1109,7 @@ data class ShaderParams(
         a[498] = cinematic.getOrElse(21) { 0f }
         a[499] = cinematic.getOrElse(22) { 0f }
         a[500] = cinematic.getOrElse(23) { 0f }
+        a[501] = cinematic.getOrElse(24) { 0f }
         a[432] = colorShiftRedX; a[433] = colorShiftGreenX; a[434] = colorShiftBlueX
         for (i in 0 until 11) a[436 + i] = film[i]
         a[447] = cinematic.getOrElse(0) { 0.55f }
@@ -1211,7 +1213,7 @@ data class ShaderParams(
     companion object {
         // Highest used slot is [483] (iris roundness). Next free is [484].
         // [499] film highlight knee, 0..1, applied as a luma shoulder.
-        const val FLOAT_COUNT = 501  // [500] filmSeparation
+        const val FLOAT_COUNT = 502  // [501] maskBanding
         // JPEG Dual Reconstruction Lite [458..460] (native spatial; 0 = no-op).
         // Optical Spread [461] amount, [462] halation, [463] direction.
         // lensFlare [400,401,409,430,431] + lensFlareWarmth [435],

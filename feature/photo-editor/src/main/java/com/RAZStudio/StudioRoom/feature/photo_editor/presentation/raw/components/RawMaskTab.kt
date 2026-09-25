@@ -933,6 +933,12 @@ internal fun RawMaskTab(
             color      = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         RawSliderRow(
+            label         = "Banding",
+            value         = macro.maskTone.banding,
+            valueRange    = 0f..100f,
+            onValueChange = { onMacroChange(macro.copy(maskTone = macro.maskTone.copy(banding = it))) },
+        )
+        RawSliderRow(
             label         = stringResource(R.string.raw_mask_clarity),
             value         = macro.maskClarity,
             valueRange    = -100f..100f,

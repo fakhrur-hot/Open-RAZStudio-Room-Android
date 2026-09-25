@@ -1119,8 +1119,8 @@ inline void applyLensFlareP(float& r, float& g, float& b, float u, float v,
     if (d < souter) {
         float p = (souter - d) / souter;
         if (blades01 > 0.12f && roundness < 0.98f) {
-            int nb = (int)std::floor(4.f + blades01 * 4.f + 0.5f);
-            if (nb < 5) nb = 5; else if (nb > 8) nb = 8;
+            int nb = (int)std::floor(4.f + blades01 * 12.f + 0.5f);
+            if (nb < 4) nb = 4; else if (nb > 16) nb = 16;
             float ang = std::atan2(v - fly, u - flx) - irisRot * 6.2831853f;
             float sector = 6.2831853f / float(nb);
             float a = std::fmod(ang + sector * 0.5f, sector);
@@ -1139,29 +1139,26 @@ inline void applyLensFlareP(float& r, float& g, float& b, float u, float v,
       float p = 1.f - (a < 0.f ? 0.f : (a > 1.f ? 1.f : a));
       lfLeakBlendP(r, g, b, cr, cg, cb, p * 0.2f * primaryK); }
     if (blades01 > 0.12f && roundness < 0.98f && starburst > 0.001f) {
-        int nb = (int)std::floor(4.f + blades01 * 4.f + 0.5f);
-        if (nb < 5) nb = 5; else if (nb > 8) nb = 8;
+        int nb = (int)std::floor(4.f + blades01 * 12.f + 0.5f);
+        if (nb < 4) nb = 4; else if (nb > 16) nb = 16;
         float rndLen = roundness < 0.f ? 0.f : (roundness > 1.f ? 1.f : roundness);
         float len = (0.025f + (0.16f - 0.025f) * rndLen) * (size > 0.35f ? size : 0.35f);
-        float width = len * 0.09f;
+        float maxWidth = len * 0.045f;
         float rot = irisRot * 6.2831853f;
         for (int k = 0; k < nb; k++) {
             float ang = rot + float(k) * 6.2831853f / float(nb);
             float dx = std::cos(ang), dy = std::sin(ang);
             float rx = u - flx, ry = v - fly;
             float along = rx * dx + ry * dy;
+            if (along <= 0.f || along >= len) continue;
+            float t = along / len;
+            float width = maxWidth * (1.f - t);
             float across = std::fabs(rx * dy - ry * dx);
-            float headT = along / (len * 0.22f);
-            headT = headT < 0.f ? 0.f : (headT > 1.f ? 1.f : headT);
-            float head = headT * headT * (3.f - 2.f * headT);
-            float tailT = (along - len * 0.28f) / (len * 0.72f);
-            tailT = tailT < 0.f ? 0.f : (tailT > 1.f ? 1.f : tailT);
-            float tail = 1.f - tailT * tailT * (3.f - 2.f * tailT);
-            float sideT = (across - width * 0.2f) / (width * 0.8f);
+            float sideT = (across - width * 0.15f) / std::max(width * 0.85f, 1e-4f);
             sideT = sideT < 0.f ? 0.f : (sideT > 1.f ? 1.f : sideT);
             float side = 1.f - sideT * sideT * (3.f - 2.f * sideT);
-            float sp = head * tail * side;
-            sp *= sp;
+            float core = std::exp(-t * 2.f);
+            float sp = core * side;
             if (sp > 0.001f) lfLeakBlendP(r, g, b, cr, cg, cb, sp * starburst);
         }
     }
@@ -1717,6 +1714,7 @@ ApplyMacroParams ApplyMacroParams::fromFloatArray(const float* arr, int count) {
     p.maskTint          = getOr(137, 0.f);
     p.maskSaturation    = getOr(138, 0.f);
     p.maskClarity       = getOr(139, 0.f);
+    p.maskBanding       = getOr(501, 0.f);
     p.maskTabOpacity    = getOr(140, 1.f);
     p.tonemapExposure   = getOr(141, 0.f);
     p.tonemapHighlights = getOr(142, 0.f);
@@ -2498,6 +2496,41 @@ static void applyMacroPixelImpl(float* io, float u, float v,
             b += (mB - baseB) * w;
         }
     }
+    if (p.maskBanding > 0.001f && maskLayers && maskLayers->layer[0].data
+        && srcBuf && srcW > 1 && srcH > 1) {
+        const float aBand = sampleMaskAlpha(maskLayers->layer[0], u, v) * p.maskBanding;
+        if (aBand > 0.001f) {
+            auto tap = [&](float su, float sv, float& oR, float& oG, float& oB) {
+                if (su < 0.f) su = 0.f; else if (su > 1.f) su = 1.f;
+                if (sv < 0.f) sv = 0.f; else if (sv > 1.f) sv = 1.f;
+                const int x = (int)(su * float(srcW - 1));
+                const int y = (int)(sv * float(srcH - 1));
+                const float* q = srcBuf + (size_t(y) * srcW + x) * 3;
+                oR = q[0]; oG = q[1]; oB = q[2];
+            };
+            const float px = 1.f / float(srcW);
+            const float py = 1.f / float(srcH);
+            float r1, g1, b1, r2, g2, b2, r3, g3, b3, r4, g4, b4;
+            tap(u + px, v, r1, g1, b1);
+            tap(u - px, v, r2, g2, b2);
+            tap(u, v + py, r3, g3, b3);
+            tap(u, v - py, r4, g4, b4);
+            const float range = std::max(
+                std::max(r, std::max(r1, std::max(r2, std::max(r3, r4)))) -
+                std::min(r, std::min(r1, std::min(r2, std::min(r3, r4)))),
+                std::max(
+                    std::max(g, std::max(g1, std::max(g2, std::max(g3, g4)))) -
+                    std::min(g, std::min(g1, std::min(g2, std::min(g3, g4)))),
+                    std::max(b, std::max(b1, std::max(b2, std::max(b3, b4)))) -
+                    std::min(b, std::min(b1, std::min(b2, std::min(b3, b4))))));
+            const float cutoff = 0.02f + (0.08f - 0.02f) * p.maskBanding;
+            if (range < cutoff) {
+                r += ((r + r1 + r2 + r3 + r4) / 5.f - r) * aBand;
+                g += ((g + g1 + g2 + g3 + g4) / 5.f - g) * aBand;
+                b += ((b + b1 + b2 + b3 + b4) / 5.f - b) * aBand;
+            }
+        }
+    }
 
     // Orton bloom — mirrors the GL shader's Karis pyramid composite.
     // When caller supplies a `bloomRgb` (Karis-pyramid output from
@@ -2874,24 +2907,26 @@ static void applyMacroPixelImpl(float* io, float u, float v,
         float aspect = (srcH > 0) ? float(srcW) / float(srcH) : 1.f;
         float ou = u - sdx * travel;
         float ov = v - sdy * travel * aspect;
+        float step = blurF / 3.f;
         auto samp = [&](float su, float sv) {
             if (su < 0.f) su = 0.f; else if (su > 1.f) su = 1.f;
             if (sv < 0.f) sv = 0.f; else if (sv > 1.f) sv = 1.f;
             return sampleSubjectMask(mask, su, sv);
         };
         float acc = samp(ou, ov) * 0.25f;
-        acc += samp(ou + blurF, ov) * 0.125f;
-        acc += samp(ou - blurF, ov) * 0.125f;
-        acc += samp(ou, ov + blurF * aspect) * 0.125f;
-        acc += samp(ou, ov - blurF * aspect) * 0.125f;
-        acc += samp(ou + blurF, ov + blurF * aspect) * 0.0625f;
-        acc += samp(ou + blurF, ov - blurF * aspect) * 0.0625f;
-        acc += samp(ou - blurF, ov + blurF * aspect) * 0.0625f;
-        acc += samp(ou - blurF, ov - blurF * aspect) * 0.0625f;
-        float bg = 1.f - samp(u, v);
-        float alpha = acc * p.shadowStrength;
+        acc += samp(ou + step, ov) * 0.125f;
+        acc += samp(ou - step, ov) * 0.125f;
+        acc += samp(ou, ov + step * aspect) * 0.125f;
+        acc += samp(ou, ov - step * aspect) * 0.125f;
+        acc += samp(ou + step, ov + step * aspect) * 0.0625f;
+        acc += samp(ou + step, ov - step * aspect) * 0.0625f;
+        acc += samp(ou - step, ov + step * aspect) * 0.0625f;
+        acc += samp(ou - step, ov - step * aspect) * 0.0625f;
+        float cu = ou + (u - ou) * 0.55f;
+        float cv = ov + (v - ov) * 0.55f;
+        float grown = acc > samp(cu, cv) ? acc : samp(cu, cv);
+        float alpha = grown * p.shadowStrength;
         if (alpha < 0.f) alpha = 0.f; else if (alpha > 1.f) alpha = 1.f;
-        alpha *= bg;
         float keep = 1.f - alpha;
         r *= keep; g *= keep; b *= keep;
     }

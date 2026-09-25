@@ -337,6 +337,7 @@ uniform float uTonemapShadows;
 uniform float uBokehBlur;
     uniform sampler2D uBlurTex;
 uniform float uBokehBalls;
+uniform float uMaskBanding; // [0..1] flat smooth inside the painted mask
 uniform float uBokehSpread;
 
 // ── Orton Effect (bloom / softening) ─────────────────────────────────────
@@ -1452,7 +1453,7 @@ vec3 applyLensFlare(vec3 c, vec2 uv, float fx, float fy,
     if (d < souter) {
         float p = (souter - d) / souter;
         if (blades01 > 0.12 && roundness < 0.98) {
-            int nb = int(clamp(floor(4.0 + blades01 * 4.0 + 0.5), 5.0, 8.0));
+            int nb = int(clamp(floor(4.0 + blades01 * 12.0 + 0.5), 4.0, 16.0));
             vec2 rel = uv - flare;
             float ang = atan(rel.y, rel.x) - irisRot * 6.2831853;
             float sector = 6.2831853 / float(nb);
@@ -1465,24 +1466,25 @@ vec3 applyLensFlare(vec3 c, vec2 uv, float fx, float fy,
     }
     { float p = 1.0 - clamp(abs(d - shalo) / (shalo * 0.15), 0.0, 1.0); o = lfLeakBlend(o, col, p * 0.2 * primaryK); }
     int blades = 0;
-    if (blades01 > 0.12) blades = int(clamp(floor(4.0 + blades01 * 4.0 + 0.5), 5.0, 8.0));
+    if (blades01 > 0.12) blades = int(clamp(floor(4.0 + blades01 * 12.0 + 0.5), 4.0, 16.0));
     float rnd = clamp(roundness, 0.0, 1.0);
-    if (blades >= 5 && rnd < 0.98 && starburst > 0.001) {
+    if (blades >= 4 && rnd < 0.98 && starburst > 0.001) {
         float len = mix(0.025, 0.16, rnd) * max(size, 0.35);
-        float width = len * 0.09;
+        float maxWidth = len * 0.045;
         float rot = irisRot * 6.2831853;
-        for (int k = 0; k < 8; k++) {
+        for (int k = 0; k < 16; k++) {
             if (k >= blades) break;
             float ang = rot + float(k) * 6.2831853 / float(blades);
             vec2 dir = vec2(cos(ang), sin(ang));
             vec2 rel = uv - flare;
             float along = dot(rel, dir);
+            if (along <= 0.0 || along >= len) continue;
+            float t = along / len;
+            float width = maxWidth * (1.0 - t);
             float across = abs(rel.x * dir.y - rel.y * dir.x);
-            float head = smoothstep(0.0, len * 0.22, along);
-            float tail = 1.0 - smoothstep(len * 0.28, len, along);
-            float side = 1.0 - smoothstep(width * 0.2, width, across);
-            float sp = head * tail * side;
-            sp *= sp;
+            float side = 1.0 - smoothstep(width * 0.15, max(width, 1e-4), across);
+            float core = exp(-t * 2.0);
+            float sp = core * side;
             o = lfLeakBlend(o, col, sp * starburst);
         }
     }
@@ -1529,7 +1531,9 @@ vec3 applySceneShadow(vec3 c, vec2 uv) {
     float blurF = mix(0.03, 0.006, d) + b * 0.02;
     vec2 stepUv = vec2(shadowDir.x * travel, shadowDir.y * travel * aspect);
     vec2 origin = clamp(uv - stepUv, 0.0, 1.0);
-    vec2 rad = vec2(blurF, blurF * aspect);
+    // One Gaussian around the projected point. Tap spacing is a third of the
+    // blur radius so islands do not spawn a second shadow a full radius away.
+    vec2 rad = vec2(blurF, blurF * aspect) / 3.0;
     float acc = sampleSubjectAt(origin) * 0.25;
     acc += sampleSubjectAt(origin + vec2(rad.x, 0.0)) * 0.125;
     acc += sampleSubjectAt(origin - vec2(rad.x, 0.0)) * 0.125;
@@ -1539,8 +1543,10 @@ vec3 applySceneShadow(vec3 c, vec2 uv) {
     acc += sampleSubjectAt(origin + vec2(rad.x, -rad.y)) * 0.0625;
     acc += sampleSubjectAt(origin + vec2(-rad.x, rad.y)) * 0.0625;
     acc += sampleSubjectAt(origin - rad) * 0.0625;
-    float bg = 1.0 - sampleSubjectAt(uv);
-    float alpha = clamp(acc * s, 0.0, 1.0) * bg;
+    // Grow the mask back toward the subject so a tight segment still contacts.
+    vec2 contact = clamp(mix(origin, uv, 0.55), 0.0, 1.0);
+    float grown = max(acc, sampleSubjectAt(contact));
+    float alpha = clamp(grown * s, 0.0, 1.0);
     return c * (1.0 - alpha);
 }
 
@@ -2681,14 +2687,55 @@ void main() {
                               0.0, 1.0);
                 c = mix(c, blurC, clamp(uBokehBlur, 0.0, 1.0) * bgGate);
             }
-            // Highlight bloom — explicit uBokehBalls only (no auto).
+            // Shaped highlight discs. A filled regular hexagon is stamped on
+            // highlights brighter than the threshold, only where bgGate is
+            // already background and depth CoC is enabled.
             float balls = uBokehBalls;
-            if (balls > 0.0) {
-                float bl = dot(blurC, vec3(0.2627, 0.6780, 0.0593));
-                float thr = mix(0.78, 0.55, clamp(uBokehSpread, 0.0, 1.0));
-                float bloom = smoothstep(thr, 1.0, bl);
-                vec3 lift = blurC * bloom * balls * bgGate;
-                c = 1.0 - (1.0 - c) * (1.0 - lift);   // screen blend
+            if (balls > 0.0 && uDepthMapEnabled == 1) {
+                float thr = mix(0.72, 0.50, clamp(uBokehSpread, 0.0, 1.0));
+                float rad = (0.006 + 0.018 * clamp(uBokehSpread, 0.0, 1.0));
+                const float SECTOR = 1.04719755;
+                const float COS_HALF = 0.8660254;
+                vec3 shaped = vec3(0.0);
+                float wsum = 0.0;
+                for (int y = -3; y <= 3; ++y) {
+                    for (int x = -3; x <= 3; ++x) {
+                        vec2 off = vec2(float(x), float(y)) * (rad / 3.0);
+                        vec3 s = texture(uTex, clamp(vTexCoord + off, 0.0, 1.0)).rgb;
+                        float l = dot(s, vec3(0.2627, 0.6780, 0.0593));
+                        float h = smoothstep(thr, 1.0, l);
+                        if (h <= 0.0) continue;
+                        vec2 d = -off;
+                        float a = mod(atan(d.y, d.x), SECTOR) - SECTOR * 0.5;
+                        float limit = rad * COS_HALF / max(cos(a), 0.001);
+                        if (dot(d, d) <= limit * limit) {
+                            shaped += s * h;
+                            wsum += h;
+                        }
+                    }
+                }
+                if (wsum > 0.0) {
+                    vec3 lift = (shaped / wsum) * balls * bgGate;
+                    c = 1.0 - (1.0 - c) * (1.0 - lift);
+                }
+            }
+        }
+    }
+    if (uMaskBanding > 0.001 && (uBrushMaskEnabled & 1) != 0) {
+        float aBand = texture(uBrushMask, vTexCoord).r * uMaskBanding;
+        if (aBand > 0.001) {
+            vec2 texel = 1.0 / vec2(textureSize(uTex, 0));
+            vec3 s1 = texture(uTex, clamp(vTexCoord + vec2(texel.x, 0.0), 0.0, 1.0)).rgb;
+            vec3 s2 = texture(uTex, clamp(vTexCoord - vec2(texel.x, 0.0), 0.0, 1.0)).rgb;
+            vec3 s3 = texture(uTex, clamp(vTexCoord + vec2(0.0, texel.y), 0.0, 1.0)).rgb;
+            vec3 s4 = texture(uTex, clamp(vTexCoord - vec2(0.0, texel.y), 0.0, 1.0)).rgb;
+            vec3 hi = max(max(max(s1, s2), max(s3, s4)), c);
+            vec3 lo = min(min(min(s1, s2), min(s3, s4)), c);
+            float range = max(max(hi.r - lo.r, hi.g - lo.g), hi.b - lo.b);
+            float cutoff = mix(0.02, 0.08, uMaskBanding);
+            if (range < cutoff) {
+                vec3 mean = (s1 + s2 + s3 + s4 + c) / 5.0;
+                c = mix(c, mean, aBand);
             }
         }
     }

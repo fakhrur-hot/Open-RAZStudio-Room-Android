@@ -136,6 +136,7 @@ struct ApplyMacroParams {
     float maskTint;
     float maskSaturation;
     float maskClarity;
+    float maskBanding = 0.f; // [501] 0..1 flat smooth inside the painted mask
     float maskTabOpacity;
     // Tonemap-tab tone region (additive on top of Light-tab).
     float tonemapExposure;

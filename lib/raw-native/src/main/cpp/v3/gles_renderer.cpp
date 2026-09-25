@@ -1236,6 +1236,7 @@ void GlesRenderer::cacheUniformLocations() {
     uBlurTexLoc_     = L("uBlurTex");
     uBokehBlurLoc_   = L("uBokehBlur");
     uBokehBallsLoc_  = L("uBokehBalls");
+    uMaskBandingLoc_ = L("uMaskBanding");
     uBokehSpreadLoc_ = L("uBokehSpread");
 
     // Tone Curve LUT.
@@ -2316,6 +2317,7 @@ void GlesRenderer::pushUniforms() {
     if (uBlurTexLoc_     >= 0) glUniform1i(uBlurTexLoc_,    8);
     if (uBokehBlurLoc_   >= 0) glUniform1f(uBokehBlurLoc_,   params_.bokehBlur);
     if (uBokehBallsLoc_  >= 0) glUniform1f(uBokehBallsLoc_,  params_.bokehBalls);
+    if (uMaskBandingLoc_ >= 0) glUniform1f(uMaskBandingLoc_, params_.maskBanding);
     if (uBokehSpreadLoc_ >= 0) glUniform1f(uBokehSpreadLoc_, params_.bokehSpread);
 
     // Tone Curve LUT (sampler bound to unit 9 in renderFrame / snapshot).

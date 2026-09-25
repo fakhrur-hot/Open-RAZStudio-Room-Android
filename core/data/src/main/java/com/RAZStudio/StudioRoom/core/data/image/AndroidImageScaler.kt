@@ -362,8 +362,9 @@ internal class AndroidImageScaler @Inject constructor(
         ) {
             val tmp = java.io.File(appContext.cacheDir, "razsharp_src_${System.nanoTime()}.png")
             return@withContext try {
+                val cleaned = suppressHotPixels(softwareImage)
                 tmp.outputStream().use { os ->
-                    softwareImage.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, os)
+                    cleaned.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, os)
                 }
                 LibresizeJniBridge.scale(
                     srcPath = tmp.absolutePath,
@@ -522,6 +523,51 @@ internal class AndroidImageScaler @Inject constructor(
                 }.getOrNull() ?: image
             }
         }
+    }
+
+    /** 3??3 median speck removal. Runs only on the still RAZSharp is about to scale. */
+    private fun suppressHotPixels(src: Bitmap): Bitmap {
+        val w = src.width
+        val h = src.height
+        if (w < 3 || h < 3) return src
+        val px = IntArray(w * h)
+        src.getPixels(px, 0, w, 0, 0, w, h)
+        val out = px.copyOf()
+        val n = IntArray(8)
+        val threshold = 20
+        for (y in 1 until h - 1) {
+            for (x in 1 until w - 1) {
+                val i = y * w + x
+                val c = px[i]
+                val cr = (c shr 16) and 255
+                val cg = (c shr 8) and 255
+                val cb = c and 255
+                val cl = (cr * 299 + cg * 587 + cb * 114) / 1000
+                var k = 0
+                var minL = 255
+                var maxL = 0
+                for (dy in -1..1) for (dx in -1..1) {
+                    if (dx == 0 && dy == 0) continue
+                    val p = px[(y + dy) * w + (x + dx)]
+                    val l = (((p shr 16) and 255) * 299 + ((p shr 8) and 255) * 587 + (p and 255) * 114) / 1000
+                    n[k++] = l
+                    if (l < minL) minL = l
+                    if (l > maxL) maxL = l
+                }
+                n.sort()
+                val med = (n[3] + n[4]) / 2
+                if (cl - med > threshold && maxL - minL < threshold / 2) {
+                    val scale = med.toFloat() / cl.coerceAtLeast(1)
+                    val rr = (cr * scale).toInt().coerceIn(0, 255)
+                    val gg = (cg * scale).toInt().coerceIn(0, 255)
+                    val bb = (cb * scale).toInt().coerceIn(0, 255)
+                    out[i] = (c and 0xFF000000.toInt()) or (rr shl 16) or (gg shl 8) or bb
+                }
+            }
+        }
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        bmp.setPixels(out, 0, w, 0, 0, w, h)
+        return bmp
     }
 
 }

@@ -207,6 +207,9 @@ object RawV3ActionReplay {
                     maskTint        = m.maskTint,
                     maskSaturation  = m.maskSaturation,
                     maskClarity     = m.maskClarity,
+                    cinematic       = p.cinematic.copyOf(25).also {
+                        it[24] = (m.maskTone.banding / 100f).coerceIn(0f, 1f)
+                    },
                     maskSharpness   = m.maskSharpness,
                     maskHighlights  = m.maskTone.highlights,
                     maskShadows     = m.maskTone.shadows,

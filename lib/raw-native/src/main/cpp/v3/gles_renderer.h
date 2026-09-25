@@ -349,7 +349,8 @@ struct ShaderParams {
     // Kept in lockstep with ShaderParams.kt FLOAT_COUNT. This had drifted
     // to 410 while Kotlin was already sending 435, which is exactly the
     // kind of gap that makes a slot look free when it is not.
-    static constexpr int FLOAT_COUNT = 501;  // [500] filmSeparation
+    float maskBanding = 0.f; // [501] 0..1 mask-tab flat smooth
+    static constexpr int FLOAT_COUNT = 502;  // [501] maskBanding
     static ShaderParams fromFloatArray(const float* arr, int count);
 };
 
@@ -995,6 +996,7 @@ private:
     GLint uBlurTexLoc_    = -1;   // sampler, unit 8
     GLint uBokehBlurLoc_  = -1;
     GLint uBokehBallsLoc_ = -1;
+    GLint uMaskBandingLoc_ = -1;
     GLint uBokehSpreadLoc_= -1;
 
     // ── Tone Curve LUT (256×1 RGB8, unit 9) ─────────────────────────────

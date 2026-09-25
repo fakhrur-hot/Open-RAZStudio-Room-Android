@@ -184,6 +184,7 @@ ShaderParams ShaderParams::fromFloatArray(const float* arr, int count) {
     p.bokehBlur   = getOr(179, 0.f);
     p.bokehBalls  = getOr(180, 0.f);
     p.bokehSpread = getOr(181, 0.f);
+    p.maskBanding = getOr(501, 0.f);
     // Film grain (GL real-time, blue-noise) — wire slots [153..156].
     p.filmGrain     = getOr(153, 0.f);
     p.filmGrainSize = getOr(154, 0.5f);

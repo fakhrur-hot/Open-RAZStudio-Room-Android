@@ -128,6 +128,8 @@ data class MaskToneRegions(
     val shadows: Float = 0f,
     val whites: Float = 0f,
     val blacks: Float = 0f,
+    /** 0..100. Smooths only flat pixels inside the painted mask. */
+    val banding: Float = 0f,
 )
 
 /**

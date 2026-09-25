@@ -206,6 +206,18 @@ bool rayxie_defringe_f16(uint16_t* rgba, int W, int H,
                 for (int x = 0; x < W; ++x) {
                     // THE deviation. Subtracting mm instead would drive the
                     // channel toward green and grey the image out.
+                    // Fringe color gate (after the Stage A white balance already
+                    // baked into this buffer). Median only where the pixel is
+                    // the purple fringe; other edges stay put.
+                    {
+                        const float rC = h2f(dst[x * 4 + 0]);
+                        const float gC = h2f(dst[x * 4 + 1]);
+                        const float bC = h2f(dst[x * 4 + 2]);
+                        const float luma = 0.299f * rC + 0.587f * gC + 0.114f * bC;
+                        const bool fringe = luma >= 0.45f && bC > gC &&
+                            (rC / (bC + 1e-4f)) <= 0.33f;
+                        if (!fringe) continue;
+                    }
                     float delta = p.strength * ee[x] * (pp[x] - mm[x]);
                     if (delta >  p.maxDelta) delta =  p.maxDelta;
                     if (delta < -p.maxDelta) delta = -p.maxDelta;
