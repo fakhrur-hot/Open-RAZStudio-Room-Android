@@ -99,7 +99,7 @@ coilResvg = "1.0.0"
 # which MediaPipe's image-segmenter rejects ("Batch size mismatch,
 # expected 1 but got 8"). So we run that ONE model via raw TFLite
 # below, which respects whatever batch the .tflite declares.
-mediapipeTasksVision = "0.10.26"
+mediapipeTasksVision = "1.0.0"
 # LiteRT — Google's rebranded TFLite for Android. Used to load the
 # 8-batch selfie_multiclass model directly, bypassing MediaPipe's
 # image-segmenter graph (which rejects batch != 1).
